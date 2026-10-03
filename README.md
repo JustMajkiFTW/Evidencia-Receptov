@@ -50,7 +50,7 @@ Vznikne priečinok `vendor/` s knižnicami. Ak na hostingu nemáš prístup k pr
 
 ### Krok 2: Nahraj súbory na server
 
-Nahraj celý obsah projektu (vrátane `vendor/`) do priečinka domény alebo subdomény, napríklad cez FTP. Appka je odskúšaná **v koreni domény alebo subdomény** (`https://recepty.example.com/`). V podpriečinku (`https://example.com/recepty/`) odskúšaná je.
+Nahraj celý obsah projektu (vrátane `vendor/`) do priečinka domény alebo subdomény, napríklad cez FTP. Appka je odskúšaná v koreni domény alebo subdomény (`https://recepty.example.com/`) aj v podpriečinku (`https://example.com/recepty/`).
 
 Skontroluj, že existuje priečinok `uploads/recipes/` a že doň PHP môže zapisovať (práva 755 alebo 775). Ukladajú sa tam fotky receptov.
 
