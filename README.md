@@ -124,7 +124,7 @@ Potrebuješ nainštalované PHP 8.4.1+ a MariaDB.
 ### Možnosť 2: Balík s Apache (XAMPP, Laragon, MAMP a podobné)
 
 1. Over, že balík obsahuje PHP 8.4.1 alebo novšie. Staršie verzie balíkov majú staršie PHP a appka by na nich nebežala.
-2. Projekt skopíruj do priečinka webu a nastav preň vlastný virtuálny host (napr. `recepty.test`), aby bežal v koreni adresy, nie v podpriečinku.
+2. Projekt skopíruj do priečinka webu. Najjednoduchšie je nechať ho v podpriečinku a otvárať cez `http://localhost/recepty/`. Vlastný virtuálny host (napr. `recepty.test`) funguje tiež, ale bez HTTPS na ňom nepôjde pridanie na plochu ani upozornenia.
 3. Databázu vytvor cez phpMyAdmin a naimportuj `sql/instalacia.sql`.
 4. Otvor `install.php` a pokračuj sprievodcom.
 
@@ -422,7 +422,6 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 
 ## B13. Známe obmedzenia
 
-- Appka je odskúšaná v podpriečinku koreni domény a subdomény.
 - Bez pripojenia na internet nefunguje.
 - Nákupný zoznam sa medzi zariadeniami neobnovuje naživo.
 - Jednotky sa pri prepočte porcií neprevádzajú.
