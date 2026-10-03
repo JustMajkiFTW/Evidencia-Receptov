@@ -422,7 +422,7 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 
 ## B13. Známe obmedzenia
 
-- Appka je odskúšaná len v koreni domény alebo subdomény, nie v podpriečinku.
+- Appka je odskúšaná v podpriečinku koreni domény a subdomény.
 - Bez pripojenia na internet nefunguje.
 - Nákupný zoznam sa medzi zariadeniami neobnovuje naživo.
 - Jednotky sa pri prepočte porcií neprevádzajú.
