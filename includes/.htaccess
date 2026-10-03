@@ -1,0 +1,21 @@
+# Zabráni priamemu prístupu k týmto súborom cez prehliadač
+# (napr. https://tvoj-nas/includes/config.php alebo /includes/.env by inak
+# mohli vypísať PHP kód / heslá ako čistý text, ak by bol Apache/PHP
+# nesprávne nakonfigurovaný).
+
+# Apache 2.4+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# Apache 2.2 (staršie hostingy) — fallback, ak vyššie mod_authz_core chýba
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
+
+RewriteEngine On
+RewriteCond %{HTTP:X-Forwarded-Proto} !https
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+

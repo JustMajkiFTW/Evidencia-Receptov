@@ -1,0 +1,6 @@
+includes/.env
+debug-log.txt
+includes/debug-log.txt
+uploads/recipes/*
+vendor/
+!uploads/recipes/.gitkeep
