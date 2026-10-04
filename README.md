@@ -330,7 +330,7 @@ Zoznam je jeden pre všetkých používateľov. Otvára sa košíkom v hornej li
 **Zlučovanie:**
 
 - Rovnaká surovina s rovnakou jednotkou sa sčíta.
-- Pred sčítaním sa hmotnosť prevedie na gramy a objem na mililitre, takže 250 g + 1 kg = 1,5 kg. Zobrazuje sa v kg a l od hodnoty 1000.
+- Pred sčítaním sa hmotnosť prevedie na gramy a objem na mililitre, takže 500 g + 1 kg = 1,5 kg. Zobrazuje sa v kg a l od hodnoty 1000.
 - Položka bez množstva sa pripojí k existujúcej položke tej istej suroviny.
 - Rôzne druhy jednotiek (napr. gramy a lyžice) ostávajú ako dva riadky.
 - Pri položke je vidno, z ktorých receptov pochádza.
