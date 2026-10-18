@@ -9,11 +9,12 @@ Tento dokument má dve časti:
 
 ## Čo appka vie
 
-- **Recepty** s názvom, kategóriou, časom prípravy, počtom porcií, odkazom na pôvodný web, fotkou a poznámkami.
+- **Recepty** s názvom, kategóriou, časom prípravy, počtom porcií, odkazom na pôvodný web a poznámkami.
+- **Galéria fotiek.** Ku každému vareniu sa dá pridať nová fotka a staršie ostávajú, každá so svojím dátumom. V náhľade receptu sa medzi nimi listuje.
 - **Suroviny z číselníka.** Vyberajú sa vo vyhľadávacom poli, ktoré ignoruje veľké písmená a diakritiku, takže „Múka hladká" a „muka hladka" je vždy tá istá surovina. V základe je 418 surovín v 14 kategóriách a ďalšie sa pridávajú priamo pri písaní receptu.
 - **Prepočet porcií.** V náhľade receptu sa tlačidlami − a + mení počet porcií a množstvá sa prepočítajú.
 - **Nákupný zoznam** spoločný pre všetkých. Suroviny z viacerých receptov sa zlúčia a sčítajú, zoznam sa dá odškrtávať a odoslať do Google Keep alebo inej appky.
-- **Prehľad, čo sa kedy varilo.** Pri recepte je vidno, pred koľkými dňami sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodilo ho zopakovať.
+- **Prehľad, čo sa kedy varilo.** Tlačidlom Uvarené sa zapíše deň varenia (aj spätne) a k nemu nepovinná fotka. Pri recepte je vidno, pred koľkými dňami sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodilo ho zopakovať.
 - **Hodnotenie hviezdičkami** a **história** každého receptu (kto ho pridal, upravil, uvaril, ohodnotil).
 - **Upozornenia do telefónu** na nový recept, na hodnotenie tvojho receptu a pripomienky dlho nevarených receptov.
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
@@ -207,6 +208,17 @@ Chyby appka zapisuje do `includes/debug-log.txt`. Pri hľadaní problému nastav
 | Po nahratí novej verzie vidno starý vzhľad | V `sw.js` nebola zvýšená verzia cache, pozri [Úprava a nasadenie novej verzie](#úprava-a-nasadenie-novej-verzie). |
 | Stále sa treba prihlasovať | Pri prihlásení nebolo zaškrtnuté „Zostať prihlásený", alebo prehliadač maže cookies. |
 
+## A9. Aktualizácia na novú verziu
+
+1. Zálohuj databázu a priečinok `uploads/recipes/` (pozri [B12](#b12-zálohovanie)).
+2. Nahraj nové súbory appky cez staré. Súbor `includes/.env` a priečinok `uploads/recipes/` nechaj tak, ako sú.
+3. Ak nová verzia prináša súbor `sql/migracia-X.Y.sql`, naimportuj ho cez phpMyAdmin (**Import**). Pri prechode z 1.0 na 1.1 je to `sql/migracia-1.1.sql`.
+4. Otvor appku a skontroluj, že beží. Ak sa zobrazí „Chýba povinná konfiguračná premenná…", doplň uvedený riadok do `includes/.env` (vzor je v `includes/.env.example`).
+
+Kým migrácia nie je naimportovaná, appka beží ďalej po starom, len bez nových funkcií (v logu je riadok `FOTKY: chýba tabuľka recipe_photos`). Migráciu je bezpečné spustiť aj opakovane.
+
+**Čo urobí `migracia-1.1.sql`:** vytvorí tabuľku `recipe_photos` a doterajšiu fotku každého receptu do nej prenesie ako prvú fotku galérie. Dátum fotky zistí z názvu súboru (appka fotky pomenúva podľa času nahratia) a autora z histórie receptu.
+
 ---
 
 # Časť B: Ako appka funguje
@@ -246,6 +258,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `includes/debug-log.txt` | Zápis chýb. Vzniká sám. |
 | `webauthn/` | Serverová časť biometrie: príprava a overenie registrácie a prihlásenia. |
 | `sql/instalacia.sql` | Kompletná databáza pre novú inštaláciu. |
+| `sql/migracia-1.1.sql` | Aktualizácia databázy z verzie 1.0 na 1.1 (galéria fotiek). Pri novej inštalácii netreba. |
 | `uploads/recipes/` | Fotky receptov. |
 | `vendor/` | Knižnice stiahnuté Composerom. Nie je súčasťou projektu na GitHube. |
 
@@ -263,6 +276,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `recipes` | Recepty. |
 | `recipe_logs` | História receptov. |
 | `recipe_ratings` | Hodnotenia, jeden hlas používateľa na recept. |
+| `recipe_photos` | Galéria fotiek receptu: cesta k fotke, dátum varenia, kto ju pridal. |
 | `suroviny` | Číselník surovín. |
 | `recept_suroviny` | Suroviny priradené k receptom, s množstvom, jednotkou a poznámkou. |
 | `recept_suroviny_zaloha` | Pôvodný text surovín z prevodu starých receptov. |
@@ -270,7 +284,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 
 Dôležité väzby:
 
-- Zmazaním receptu sa zmažú aj jeho suroviny (`recept_suroviny`) a hodnotenia. História v `recipe_logs` ostáva.
+- Zmazaním receptu sa zmažú aj jeho suroviny (`recept_suroviny`), hodnotenia a fotky (záznamy v `recipe_photos` aj súbory na disku). História v `recipe_logs` ostáva.
 - Surovinu, ktorú používa nejaký recept, databáza zmazať nedovolí.
 - Zmazaním používateľa sa zmažú jeho hodnotenia a odbery upozornení. Jeho recepty ostávajú.
 
@@ -291,11 +305,21 @@ Názvy tabuliek a stĺpcov sú čiastočne po anglicky (staršia časť) a čias
 
 **Kategórie** sú pevne dané v `index.php` (Polievky, Hlavné jedlá, Bezmäsité, Fit, Dezerty, Rýchlovky, Raňajky). Zoznam je tam dvakrát, vo filtri a vo formulári, a pri zmene treba upraviť oba.
 
-**Fotky.** Prehliadač fotku pred odoslaním zmenší, server ju potom prevedie na JPEG s rozmerom najviac 1200 × 800 bodov a uloží do `uploads/recipes/` pod náhodným menom. Prijíma JPG, PNG a WEBP do 8 MB. Pri výmene alebo zmazaní receptu sa stará fotka z disku odstráni.
+**Fotky.** Prehliadač fotku pred odoslaním zmenší, server ju potom prevedie na JPEG s rozmerom najviac 1200 × 800 bodov a uloží do `uploads/recipes/` pod náhodným menom. Prijíma JPG, PNG a WEBP do 8 MB.
 
-**Práva.** Pridávať a upravovať recepty môže každý prihlásený. Mazať recepty a spravovať používateľov môže len admin.
+**Galéria.** Recept môže mať ľubovoľný počet fotiek, každú s dátumom varenia a menom toho, kto ju pridal (tabuľka `recipe_photos`).
 
-**Tlačidlá na karte receptu:** uvarené dnes, do nákupu, história, upraviť, zmazať (len admin). Kliknutím kamkoľvek inam na kartu sa otvorí náhľad.
+- Nová fotka sa **pridá** k starším, nikdy ich nenahradí. Dá sa pridať v okne Uvarené (s dňom varenia) alebo vo formulári receptu (s dátumom z poľa „Dátum novej fotky", predvolene dnes, pri novom recepte deň posledného varenia).
+- Na karte receptu je najnovšia fotka podľa dátumu. Jej cesta je skopírovaná aj v `recipes.image_path`, takže zdieľanie a ďalšie časti appky galériu poznať nemusia. Ak má recept viac fotiek, na karte je ich počet.
+- V náhľade receptu sa medzi fotkami listuje šípkami, posúvaním prstom alebo klikom na miniatúru. Pod fotkou je dátum a autor.
+- Mazať jednotlivé fotky môže len admin, vo formulári receptu ikonou koša na miniatúre. Súbor sa z disku odstráni hneď.
+- Pridanie aj zmazanie fotky sa zapíše do histórie receptu.
+
+**Uvarené.** Tlačidlo na karte otvorí okno s dňom varenia (predvolene dnes, dá sa zvoliť aj skorší deň) a nepovinnou fotkou. Spätne zapísané staršie varenie neposunie „naposledy varené" dozadu, len sa zapíše do histórie a fotka dostane svoj dátum.
+
+**Práva.** Pridávať a upravovať recepty a pridávať fotky môže každý prihlásený. Mazať recepty, mazať fotky z galérie a spravovať používateľov môže len admin.
+
+**Tlačidlá na karte receptu:** uvarené (okno s dátumom a fotkou), do nákupu, história, upraviť, zmazať (len admin). Kliknutím kamkoľvek inam na kartu sa otvorí náhľad.
 
 ## B5. Suroviny
 
@@ -408,7 +432,7 @@ Chyby a varovania PHP sa zapisujú do `includes/debug-log.txt`. Ak tam PHP nemô
 | `PRIPOMIENKA zlyhala` | Chyba pri posielaní pripomienky. |
 | `ZOSTAT PRIHLASENY` | Problém s trvalým prihlásením, zvyčajne chýbajúca tabuľka `auth_tokens`. |
 | `WEBAUTHN … ERROR` | Chyba biometrie. |
-| `SUROVINY`, `NAKUP`, `PORCIE` | V databáze chýba tabuľka alebo stĺpec. Appka vtedy beží ďalej, len bez danej funkcie. |
+| `SUROVINY`, `NAKUP`, `PORCIE`, `FOTKY` | V databáze chýba tabuľka alebo stĺpec (napr. nenaimportovaná migrácia). Appka vtedy beží ďalej, len bez danej funkcie. |
 
 ## B12. Zálohovanie
 
@@ -428,3 +452,17 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 - Kategórie receptov sa nedajú meniť v appke, len v kóde.
 - Suroviny sa v appke nedajú premenovať, zlúčiť ani im doplniť kategória. Dá sa to len priamo v databáze.
 - Rozhranie je len po slovensky.
+
+## B14. História verzií
+
+**1.1**
+
+- Galéria fotiek receptu: nová fotka sa pridá k starším, každá má dátum varenia a autora. Listovanie v náhľade receptu, počet fotiek na karte.
+- Tlačidlo Uvarené otvára okno s dňom varenia (aj spätne) a nepovinnou fotkou.
+- Mazanie jednotlivých fotiek (len admin), záznamy o fotkách v histórii receptu.
+- Oprava: text poznámok v histórii receptu sa vkladal do stránky bez escapovania.
+- Databáza: nová tabuľka `recipe_photos`, aktualizácia cez `sql/migracia-1.1.sql`.
+
+**1.0**
+
+- Prvá zverejnená verzia.

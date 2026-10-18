@@ -168,6 +168,86 @@ function showToast(message, isError = false, action = null) {
 }
 
 /* ========================================================================
+   Drobné spoločné pomôcky: dátumy, escapovanie, odoslanie akcie na server.
+   ======================================================================== */
+
+/** Dnešný dátum v tvare 2026-10-05 (pre polia typu date). */
+function todayISO() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+/** 2026-10-05 → „5. 10. 2026". */
+function formatSkDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? Number(m[3]) + '. ' + Number(m[2]) + '. ' + m[1] : '';
+}
+
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function csrfToken() {
+    return document.querySelector('input[name="csrf_token"]')?.value || '';
+}
+
+/** POST akcia na index.php s CSRF tokenom, vráti JSON odpoveď. */
+async function appPost(action, params) {
+    const formData = new FormData();
+    formData.append('action', action);
+    formData.append('csrf_token', csrfToken());
+    Object.entries(params || {}).forEach(([key, value]) => formData.append(key, value));
+    const res = await fetch('index.php', { method: 'POST', body: formData });
+    return res.json();
+}
+
+/**
+ * Výber fotky s náhľadom a tlačidlom na zrušenie výberu (formulár receptu
+ * aj okno „Uvarené"). onChange(hasFile) sa volá pri každej zmene.
+ */
+function bindPhotoPicker({ input, wrap, img, clearBtn, onChange }) {
+    let objectUrl = null;
+
+    function show(file) {
+        if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+            objectUrl = null;
+        }
+        if (file) {
+            objectUrl = URL.createObjectURL(file);
+            img.src = objectUrl;
+        } else {
+            img.removeAttribute('src');
+        }
+        wrap.classList.toggle('d-none', !file);
+        if (onChange) onChange(!!file);
+    }
+
+    input.addEventListener('change', () => show(input.files && input.files[0] ? input.files[0] : null));
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            show(null);
+            input.focus();
+        });
+    }
+
+    return {
+        reset() {
+            input.value = '';
+            show(null);
+        },
+        file: () => (input.files && input.files[0]) || null,
+    };
+}
+
+/** Fotky receptu od najnovšej. Bez galérie (stará databáza) aspoň titulná fotka bez dátumu. */
+function recipePhotoList(data) {
+    if (data && Array.isArray(data.photos) && data.photos.length) return data.photos;
+    return data && data.imagePath ? [{ id: null, path: data.imagePath, date: null, by: '' }] : [];
+}
+
+/* ========================================================================
    Suroviny vo formulári receptu — vyhľadávacie pole pridáva riadky do
    zoznamu; každý riadok má nepovinné množstvo, jednotku a poznámku.
    Pri odoslaní sa zoznam zapíše ako JSON do skrytého poľa suroviny_json.
@@ -493,6 +573,295 @@ function openShoppingModal() {
 }
 
 /* ========================================================================
+   Fotky vo formulári receptu (galéria) — doterajšie fotky ako miniatúry,
+   admin ich môže jednotlivo mazať; nová fotka sa pri uložení pridá
+   k ostatným s dátumom z poľa „Dátum novej fotky".
+   ======================================================================== */
+const recipePhotosForm = (function initRecipePhotosForm() {
+    const field = document.getElementById('recipePhotosField');
+    if (!field) return null;
+
+    const form = document.getElementById('recipeForm');
+    const modalEl = document.getElementById('recipeModal');
+    const list = document.getElementById('recipePhotosList');
+    const dateWrap = document.getElementById('recipePhotoDateWrap');
+    const dateInput = document.getElementById('recipePhotoDate');
+    let photos = [];
+    let isNewRecipe = true;
+    let deletedSomething = false; // fotka zmazaná → po zavretí okna treba obnoviť stránku
+
+    const picker = bindPhotoPicker({
+        input: document.getElementById('recipeImageInput'),
+        wrap: document.getElementById('recipeImagePickWrap'),
+        img: document.getElementById('recipeImagePick'),
+        clearBtn: document.getElementById('recipeImagePickClear'),
+        onChange(hasFile) {
+            dateWrap.classList.toggle('d-none', !hasFile);
+            if (hasFile && !dateInput.value) {
+                // Pri novom recepte fotka zvyčajne patrí k „naposledy varené", inak je z dneška.
+                const lastMade = form.querySelector('[name="last_made_date"]').value;
+                dateInput.value = (isNewRecipe && lastMade) || todayISO();
+            }
+        },
+    });
+
+    async function removePhoto(photo, button) {
+        if (!confirm('Naozaj natrvalo zmazať fotku z ' + formatSkDate(photo.date) + '?')) return;
+        button.disabled = true;
+        try {
+            const data = await appPost('delete_photo', { photo_id: photo.id });
+            if (data.success) {
+                photos = data.photos || [];
+                deletedSomething = true;
+                render();
+                showToast('Fotka bola zmazaná.');
+            } else {
+                showToast(data.error || 'Fotku sa nepodarilo zmazať.', true);
+                button.disabled = false;
+            }
+        } catch (err) {
+            showToast('Chyba pripojenia k serveru.', true);
+            button.disabled = false;
+        }
+    }
+
+    function render() {
+        list.replaceChildren(...photos.map((photo) => {
+            const label = photo.date ? formatSkDate(photo.date) : 'pôvodná fotka';
+            const tile = document.createElement('div');
+            tile.className = 'photo-thumb';
+
+            const img = document.createElement('img');
+            img.src = photo.path;
+            img.alt = 'Fotka: ' + label;
+            img.loading = 'lazy';
+
+            const date = document.createElement('span');
+            date.className = 'photo-thumb-date';
+            date.textContent = label;
+            tile.append(img, date);
+
+            if (window.APP_IS_ADMIN && photo.id) {
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.className = 'photo-thumb-delete';
+                del.title = 'Zmazať fotku';
+                del.setAttribute('aria-label', 'Zmazať fotku z ' + label);
+                del.innerHTML = '<i class="bi bi-trash"></i>';
+                del.addEventListener('click', () => removePhoto(photo, del));
+                tile.appendChild(del);
+            }
+            return tile;
+        }));
+    }
+
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        if (deletedSomething) location.reload();
+    });
+
+    return {
+        /** Pripraví pole pre nový recept (data = null) alebo úpravu existujúceho. */
+        reset(data) {
+            photos = recipePhotoList(data);
+            isNewRecipe = !data;
+            deletedSomething = false;
+            dateInput.value = '';
+            dateInput.max = todayISO();
+            picker.reset();
+            render();
+        },
+        /** Recept sa uložil — stránka sa obnoví sama, netreba to robiť pri zavretí okna. */
+        saved() {
+            deletedSomething = false;
+        },
+    };
+})();
+
+/* ========================================================================
+   Galéria v náhľade receptu — fotky od najnovšej, listovanie šípkami,
+   posúvaním prstom alebo klikom na miniatúru; pod fotkou dátum a autor.
+   ======================================================================== */
+const recipeGallery = (function initRecipeGallery() {
+    const root = document.getElementById('viewRecipeGallery');
+    if (!root) return null;
+
+    const carouselEl = document.getElementById('viewRecipeCarousel');
+    const slides = document.getElementById('viewRecipeSlides');
+    const caption = document.getElementById('viewRecipePhotoCaption');
+    const thumbs = document.getElementById('viewRecipeThumbs');
+    let photos = [];
+
+    function span(className, text) {
+        const el = document.createElement('span');
+        el.className = className;
+        el.textContent = text;
+        return el;
+    }
+
+    function select(index) {
+        const photo = photos[index];
+        caption.replaceChildren();
+        if (!photo) return;
+
+        if (photo.date) {
+            const date = span('gallery-date', formatSkDate(photo.date));
+            const icon = document.createElement('i');
+            icon.className = 'bi bi-calendar3 me-1';
+            date.prepend(icon);
+            const left = document.createElement('span');
+            left.append(date);
+            if (photo.by) left.append(' ', span('gallery-by', '· pridal(a) ' + photo.by));
+            caption.append(left);
+        }
+        if (photos.length > 1) {
+            caption.append(span('gallery-index', (index + 1) + ' / ' + photos.length + (index === 0 ? ' · najnovšia' : '')));
+        }
+
+        root.classList.toggle('at-start', index === 0);
+        root.classList.toggle('at-end', index === photos.length - 1);
+
+        thumbs.querySelectorAll('.gallery-thumb').forEach((thumb, i) => {
+            const active = i === index;
+            thumb.classList.toggle('is-active', active);
+            thumb.setAttribute('aria-pressed', active ? 'true' : 'false');
+            if (active) {
+                // Posunúť len pásik miniatúr, nie celé okno.
+                thumbs.scrollTo({ left: thumb.offsetLeft - (thumbs.clientWidth - thumb.clientWidth) / 2, behavior: 'smooth' });
+            }
+        });
+    }
+
+    carouselEl.addEventListener('slid.bs.carousel', (event) => select(event.to));
+
+    return {
+        show(data) {
+            photos = recipePhotoList(data);
+            bootstrap.Carousel.getInstance(carouselEl)?.dispose();
+
+            root.classList.toggle('d-none', photos.length === 0);
+            root.classList.toggle('is-single', photos.length < 2);
+
+            slides.replaceChildren(...photos.map((photo, i) => {
+                const item = document.createElement('div');
+                item.className = 'carousel-item' + (i === 0 ? ' active' : '');
+                const img = document.createElement('img');
+                img.src = photo.path;
+                img.alt = (data.name || 'Recept') + (photo.date ? ' — ' + formatSkDate(photo.date) : '');
+                item.appendChild(img);
+                return item;
+            }));
+
+            thumbs.replaceChildren(...(photos.length < 2 ? [] : photos.map((photo, i) => {
+                const thumb = document.createElement('button');
+                thumb.type = 'button';
+                thumb.className = 'gallery-thumb';
+                thumb.setAttribute('aria-label', 'Fotka ' + (photo.date ? 'z ' + formatSkDate(photo.date) : (i + 1)));
+                const img = document.createElement('img');
+                img.src = photo.path;
+                img.alt = '';
+                img.loading = 'lazy';
+                thumb.append(img, span('', photo.date ? formatSkDate(photo.date) : 'pôvodná'));
+                thumb.addEventListener('click', () => bootstrap.Carousel.getInstance(carouselEl)?.to(i));
+                return thumb;
+            })));
+
+            if (photos.length > 1) {
+                bootstrap.Carousel.getOrCreateInstance(carouselEl, { interval: false, ride: false, touch: true, wrap: false });
+            }
+            select(0);
+        },
+    };
+})();
+
+/* ========================================================================
+   Okno „Uvarené" — deň varenia (predvolene dnes) a nepovinná fotka, ktorá
+   sa pridá do galérie receptu s týmto dátumom.
+   ======================================================================== */
+const madeDialog = (function initMadeDialog() {
+    const modalEl = document.getElementById('madeModal');
+    const form = document.getElementById('madeForm');
+    if (!modalEl || !form) return null;
+
+    const nameEl = document.getElementById('madeRecipeName');
+    const dateInput = document.getElementById('madeDate');
+    const errorBox = document.getElementById('madeFormError');
+    const submitBtn = document.getElementById('madeFormSubmit');
+    const fileInput = document.getElementById('madeImageInput');
+    const picker = fileInput ? bindPhotoPicker({
+        input: fileInput,
+        wrap: document.getElementById('madeImagePickWrap'),
+        img: document.getElementById('madeImagePick'),
+        clearBtn: document.getElementById('madeImagePickClear'),
+    }) : null;
+
+    function showError(message) {
+        errorBox.textContent = message;
+        errorBox.classList.remove('d-none');
+    }
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBox.classList.add('d-none');
+
+        const today = todayISO();
+        if (!dateInput.value || dateInput.value > today) {
+            showError('Vyber deň, kedy sa varilo (nie v budúcnosti).');
+            dateInput.focus();
+            return;
+        }
+
+        const formData = new FormData(form);
+        formData.append('action', 'mark_made');
+        formData.append('csrf_token', csrfToken());
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Ukladám…';
+
+        const file = picker ? picker.file() : null;
+        formData.delete('recipe_image');
+        if (file) {
+            try {
+                formData.set('recipe_image', await downscaleImageFile(file));
+            } catch (err) {
+                formData.set('recipe_image', file); // zmenšenie zlyhalo — server si poradí sám
+            }
+        }
+
+        try {
+            const res = await fetch('index.php', { method: 'POST', body: formData });
+            const data = await res.json().catch(() => null);
+            if (data && data.success) {
+                bootstrap.Modal.getInstance(modalEl)?.hide();
+                showToast(file ? 'Uložené aj s fotkou. Chuť do jedla! 🍽️' : 'Skvelé, chuť do jedla! 🍽️');
+                setTimeout(() => location.reload(), 600);
+                return;
+            }
+            showError((data && data.error) || 'Uloženie sa nepodarilo (stav ' + res.status + '). Skús to znova.');
+        } catch (err) {
+            showError('Chyba pripojenia k serveru. Skús to znova.');
+        }
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Uložiť';
+    });
+
+    return {
+        open(recipeId, recipeName) {
+            form.reset();
+            form.querySelector('[name="recipe_id"]').value = recipeId;
+            nameEl.textContent = recipeName || '';
+            const today = todayISO();
+            dateInput.value = today;
+            dateInput.max = today;
+            errorBox.classList.add('d-none');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Uložiť';
+            if (picker) picker.reset();
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        },
+    };
+})();
+
+/* ========================================================================
    Modal "Pridať / upraviť recept" — jeden modal pre obe akcie.
    Volaj openRecipeModal() bez parametra pre pridanie nového receptu,
    alebo openRecipeModal({...}) s dátami existujúceho receptu pre úpravu.
@@ -510,10 +879,15 @@ function openRecipeModal(data = null) {
     errorBox.classList.add('d-none');
     errorBox.textContent = '';
 
-    // Reset náhľadu fotky (predvolene skrytý, kým nezistíme, či recept fotku má)
-    previewWrap.classList.add('d-none');
-    previewImg.src = '';
-    if (removeCheckbox) removeCheckbox.checked = false;
+    // Fotky: s galériou miniatúry + výber novej fotky (recipePhotosForm),
+    // bez nej (stará databáza) pôvodný náhľad jednej fotky s „Odstrániť fotku".
+    if (recipePhotosForm) {
+        recipePhotosForm.reset(data);
+    } else if (previewWrap) {
+        previewWrap.classList.add('d-none');
+        previewImg.src = '';
+        if (removeCheckbox) removeCheckbox.checked = false;
+    }
 
     const recipeIdField = form.querySelector('input[name="recipe_id"]');
 
@@ -533,7 +907,7 @@ function openRecipeModal(data = null) {
         form.querySelector('[name="url"]').value = data.url || '';
         form.querySelector('[name="ingredients"]').value = data.ingredients || '';
 
-        if (data.imagePath) {
+        if (!recipePhotosForm && previewWrap && data.imagePath) {
             previewImg.src = data.imagePath;
             previewWrap.classList.remove('d-none');
         }
@@ -552,15 +926,7 @@ function openRecipeModal(data = null) {
 function openRecipeViewModal(data) {
     document.getElementById('viewRecipeName').textContent = data.name || '';
 
-    const imgEl = document.getElementById('viewRecipeImage');
-    const imgWrap = document.getElementById('viewRecipeImageWrap');
-    if (data.imagePath) {
-        imgEl.src = data.imagePath;
-        imgWrap.classList.remove('d-none');
-    } else {
-        imgEl.src = '';
-        imgWrap.classList.add('d-none');
-    }
+    if (recipeGallery) recipeGallery.show(data);
 
     const categoryBadge = document.getElementById('viewRecipeCategory');
     if (data.category) {
@@ -893,6 +1259,7 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
             }
 
             if (data.success) {
+                if (recipePhotosForm) recipePhotosForm.saved();
                 bootstrap.Modal.getInstance(modalEl).hide();
                 showToast(isEdit ? 'Recept bol upravený.' : 'Recept bol pridaný.');
                 // Najjednoduchší spoľahlivý spôsob ako zobraziť správne
@@ -942,20 +1309,9 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
         const deleteBtn = e.target.closest('.btn-delete-recipe');
 
         if (madeBtn) {
-            madeBtn.disabled = true;
-            try {
-                const data = await postAction('mark_made', madeBtn.dataset.id);
-                if (data.success) {
-                    showToast('Skvelé, chuť do jedla! 🍽️');
-                    setTimeout(() => location.reload(), 400);
-                } else {
-                    showToast(data.error || 'Akcia zlyhala.', true);
-                    madeBtn.disabled = false;
-                }
-            } catch (err) {
-                showToast('Chyba pripojenia k serveru.', true);
-                madeBtn.disabled = false;
-            }
+            // Okno „Uvarené": deň varenia + nepovinná fotka do galérie.
+            if (madeDialog) madeDialog.open(madeBtn.dataset.id, madeBtn.dataset.name);
+            return;
         }
 
         if (deleteBtn) {
@@ -1175,17 +1531,19 @@ async function openHistoryModal(recipeId, recipeName) {
                 else if (log.action === 'updated') { actionText = 'Upravil(a) recept'; icon = 'bi-pencil-fill'; color = 'text-primary'; }
                 else if (log.action === 'made') { actionText = 'Uvarené'; icon = 'bi-check-circle-fill'; color = 'text-warning'; }
                 else if (log.action === 'rated') { actionText = 'Ohodnotil(a) recept'; icon = 'bi-star-fill'; color = 'text-warning'; }
+                else if (log.action === 'photo') { actionText = 'Pridal(a) fotku'; icon = 'bi-camera-fill'; color = 'text-info'; }
+                else if (log.action === 'photo_deleted') { actionText = 'Zmazal(a) fotku'; icon = 'bi-camera'; color = 'text-danger'; }
                 
                 const dateObj = new Date(log.created_at);
                 const dateStr = dateObj.toLocaleDateString('sk-SK') + ' ' + dateObj.toLocaleTimeString('sk-SK', {hour: '2-digit', minute:'2-digit'});
-                const noteHtml = log.note ? `<div class="small text-muted mt-1 fst-italic px-3 py-1 border-start border-2 border-secondary-subtle">"${log.note}"</div>` : '';
+                const noteHtml = log.note ? `<div class="small text-muted mt-1 fst-italic px-3 py-1 border-start border-2 border-secondary-subtle">"${escapeHtml(log.note)}"</div>` : '';
 
                 html += `
                     <li class="list-group-item bg-transparent px-0 py-3">
                         <div class="d-flex w-100 justify-content-between align-items-start">
                             <div>
                                 <i class="bi ${icon} ${color} me-2"></i>
-                                <strong>${String(log.username || 'Neznámy').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</strong> <span class="text-secondary">${actionText}</span>
+                                <strong>${escapeHtml(log.username || 'Neznámy')}</strong> <span class="text-secondary">${actionText}</span>
                                 ${noteHtml}
                             </div>
                             <small class="text-secondary ms-3 text-end text-nowrap">${dateStr}</small>
@@ -1196,7 +1554,7 @@ async function openHistoryModal(recipeId, recipeName) {
             html += '</ul>';
             bodyEl.innerHTML = html;
         } else {
-            bodyEl.innerHTML = `<div class="alert alert-danger m-3">${data.error || 'Chyba načítania.'}</div>`;
+            bodyEl.innerHTML = `<div class="alert alert-danger m-3">${escapeHtml(data.error || 'Chyba načítania.')}</div>`;
         }
     } catch (err) {
         bodyEl.innerHTML = '<div class="alert alert-danger m-3">Chyba pripojenia k serveru.</div>';

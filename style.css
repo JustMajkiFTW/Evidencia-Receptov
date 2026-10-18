@@ -597,3 +597,186 @@ body {
     margin: 0;
 }
 .recipe-card .recipe-rating .rating-summary { font-size: .85rem; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Galéria fotiek receptu (verzia 1.1)
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Počet fotiek v rohu karty, keď ich má recept viac */
+.recipe-card-photo-count {
+    position: absolute;
+    right: .5rem;
+    bottom: .5rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .2rem .5rem;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    font-size: .8rem;
+    font-weight: 600;
+    line-height: 1.2;
+    pointer-events: none;
+}
+
+/* Náhľad receptu: fotka, popis s dátumom a pásik miniatúr */
+.recipe-gallery-carousel {
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--app-accent-soft);
+}
+.recipe-gallery-carousel .carousel-item img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    max-height: 320px;
+    object-fit: cover;
+}
+@media (min-width: 600px)  { .recipe-gallery-carousel .carousel-item img { max-height: 400px; } }
+@media (min-width: 992px)  { .recipe-gallery-carousel .carousel-item img { max-height: 460px; } }
+@media (min-width: 1200px) { .recipe-gallery-carousel .carousel-item img { max-height: 520px; } }
+
+/* Šípky: väčšie a s tmavým kruhom, aby boli vidno na svetlej aj tmavej fotke */
+.recipe-gallery-carousel .carousel-control-prev,
+.recipe-gallery-carousel .carousel-control-next {
+    width: 3.5rem;
+    opacity: 1;
+}
+.recipe-gallery-carousel .carousel-control-prev-icon,
+.recipe-gallery-carousel .carousel-control-next-icon {
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 50%;
+    background-color: rgba(0,0,0,0.5);
+    background-size: 55%;
+}
+.recipe-gallery.is-single .carousel-control-prev,
+.recipe-gallery.is-single .carousel-control-next { display: none; }
+
+.recipe-gallery-caption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .25rem .75rem;
+    margin-top: .5rem;
+    font-size: .95rem;
+}
+.recipe-gallery-caption:empty { display: none; }
+.recipe-gallery-caption .gallery-date { font-weight: 600; }
+.recipe-gallery-caption .gallery-by,
+.recipe-gallery-caption .gallery-index { color: var(--app-muted); font-size: .85rem; }
+
+.recipe-gallery-thumbs {
+    display: flex;
+    gap: .5rem;
+    overflow-x: auto;
+    padding: .5rem .1rem .25rem;
+    scrollbar-width: thin;
+}
+.recipe-gallery-thumbs:empty { display: none; }
+.gallery-thumb {
+    flex: 0 0 auto;
+    width: 4.75rem;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    background: none;
+    color: var(--app-text);
+    text-align: center;
+    opacity: .75;
+    transition: opacity var(--app-transition), border-color var(--app-transition);
+}
+.gallery-thumb img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 8px;
+}
+.gallery-thumb span {
+    display: block;
+    font-size: .7rem;
+    line-height: 1.2;
+    padding: .2rem 0;
+    color: var(--app-muted);
+}
+.gallery-thumb:hover, .gallery-thumb:focus-visible { opacity: 1; }
+.gallery-thumb.is-active { opacity: 1; border-color: var(--app-accent); }
+.gallery-thumb.is-active span { color: var(--app-text); font-weight: 600; }
+
+/* Formulár receptu: doterajšie fotky ako miniatúry */
+.photo-thumbs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+    gap: .5rem;
+    margin-bottom: .6rem;
+}
+.photo-thumbs:empty { display: none; }
+.photo-thumb {
+    position: relative;
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--app-surface);
+}
+.photo-thumb img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+}
+.photo-thumb-date {
+    display: block;
+    padding: .2rem .3rem;
+    font-size: .72rem;
+    text-align: center;
+    color: var(--app-muted);
+}
+.photo-thumb-delete {
+    position: absolute;
+    top: .25rem;
+    right: .25rem;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.photo-thumb-delete:hover, .photo-thumb-delete:focus-visible { background: var(--bs-danger); color: #fff; }
+
+/* Výber novej fotky s náhľadom (formulár receptu aj okno Uvarené) */
+.photo-pick-preview {
+    position: relative;
+    display: inline-block;
+    margin-bottom: .5rem;
+}
+.photo-pick-preview img {
+    display: block;
+    max-width: 180px;
+    max-height: 135px;
+    border-radius: 10px;
+    object-fit: cover;
+}
+.photo-pick-clear {
+    position: absolute;
+    top: .25rem;
+    right: .25rem;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+}
+.photo-pick-clear:hover, .photo-pick-clear:focus-visible { background: rgba(0,0,0,0.8); color: #fff; }
+.recipe-gallery.at-start .carousel-control-prev,
+.recipe-gallery.at-end .carousel-control-next { display: none; }
+.recipe-gallery-thumbs { position: relative; }

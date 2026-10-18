@@ -28,7 +28,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? null;
 /* ------------------------------------------------------------------ */
 /* AJAX akcie nad receptami — všetky vyžadujú platný CSRF token         */
 /* ------------------------------------------------------------------ */
-if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recipe', 'get_logs', 'rate_recipe', 'save_push_subscription',
+if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recipe', 'delete_photo', 'get_logs', 'rate_recipe', 'save_push_subscription',
         'shopping_get', 'shopping_add_recipe', 'shopping_add_item', 'shopping_toggle', 'shopping_delete', 'shopping_clear'], true)
         && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
@@ -59,10 +59,12 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
     // Suroviny vybrané z číselníka (JSON z formulára). null = formulár ich neposlal, nič sa nemení.
     $servings = parse_servings($_POST['servings'] ?? null);
     $surovinyRows = isset($_POST['suroviny_json']) ? parse_suroviny_rows($_POST['suroviny_json']) : null;
+    // Dátum pod novou fotkou v galérii (null = predvolený, pozri add_recipe/update_recipe).
+    $photoDate = parse_app_date($_POST['photo_date'] ?? null);
 
-// Spracovanie prípadnej nahranej fotky (spoločné pre add_recipe aj update_recipe)
+    // Spracovanie prípadnej nahranej fotky (pridanie a úprava receptu, „Uvarené")
     $newImagePath = null;
-    if (in_array($action, ['add_recipe', 'update_recipe'], true) && !empty($_FILES['recipe_image']['name'])) {
+    if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made'], true) && !empty($_FILES['recipe_image']['name'])) {
         $uploadResult = process_recipe_image_upload($_FILES['recipe_image']);
         if (isset($uploadResult['error'])) {
             echo json_encode(['success' => false, 'error' => $uploadResult['error']]);
@@ -74,7 +76,7 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
 
     switch ($action) {
         case 'add_recipe':
-    $result = add_recipe($pdo, $userId, $_POST['name'] ?? '', $ingredients, $url, $prep_time, $category, $last_made, $newImagePath, $surovinyRows, $servings);
+    $result = add_recipe($pdo, $userId, $_POST['name'] ?? '', $ingredients, $url, $prep_time, $category, $last_made, $newImagePath, $surovinyRows, $servings, $photoDate);
 
     if ($result['success']) {
         $addedByName = $user['full_name'] ?? $user['username'] ?? 'Niekto';
@@ -94,7 +96,7 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
 
         case 'update_recipe':
             $recipeId = (int)($_POST['recipe_id'] ?? 0);
-            $result = update_recipe($pdo, $recipeId, $userId, $_POST['name'] ?? '', $ingredients, $url, $prep_time, $category, $last_made, $newImagePath, $removeImage, $surovinyRows, $servings);
+            $result = update_recipe($pdo, $recipeId, $userId, $_POST['name'] ?? '', $ingredients, $url, $prep_time, $category, $last_made, $newImagePath, $removeImage, $surovinyRows, $servings, $photoDate);
             echo json_encode($result);
             exit;
 
@@ -106,7 +108,7 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
             FROM recipe_logs l 
             LEFT JOIN users u ON l.user_id = u.id 
             WHERE l.recipe_id = ? 
-            ORDER BY l.created_at DESC
+            ORDER BY l.created_at DESC, l.id DESC
         ');
             $stmt->execute([$recipeId]);
             $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -134,7 +136,13 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
         // ... ostatné prípady ako mark_made, delete_recipe ...
 
         case 'mark_made':
-            $result = mark_recipe_made($pdo, (int)($_POST['recipe_id'] ?? 0), $userId);
+            // made_date = deň varenia z okna „Uvarené" (prázdne alebo neplatné = dnes)
+            $madeDate = parse_app_date($_POST['made_date'] ?? null);
+            $result = mark_recipe_made($pdo, (int)($_POST['recipe_id'] ?? 0), $userId, $madeDate, $newImagePath);
+            break;
+
+        case 'delete_photo':
+            $result = delete_recipe_photo($pdo, (int)($_POST['photo_id'] ?? 0), $userId, $user['role']);
             break;
 
         case 'rate_recipe':
@@ -241,6 +249,8 @@ $shoppingEnabled = shopping_available($pdo);
 $shoppingCount = shopping_open_count($pdo);
 $allSuroviny = get_all_suroviny($pdo);
 $recipeSuroviny = get_all_recipe_suroviny($pdo);
+$photosEnabled = recipes_have_photos($pdo);
+$recipePhotos = get_recipe_photos($pdo);
 ?>
 <!DOCTYPE html>
 <html lang="sk">
@@ -261,7 +271,7 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=21">
+    <link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 
@@ -380,6 +390,9 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
                 }
 
                 $suroviny = $recipeSuroviny[$r['id']] ?? [];
+                // Galéria od najnovšej fotky; na karte je najnovšia (bez galérie titulná z receptu).
+                $photos = $recipePhotos[$r['id']] ?? [];
+                $coverPath = $photos[0]['path'] ?? ($r['image_path'] ?? '');
                 // Text na hľadanie: názvy surovín + poznámky, bez diakritiky a veľkých písmen,
                 // aby „muka" našlo „Múka" (JS si rovnako upraví hľadaný výraz).
                 $searchIngredients = surovina_key(implode(' ', array_column($suroviny, 'nazov')) . ' ' . ($r['ingredients'] ?? ''));
@@ -396,7 +409,8 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
                         'prep_time' => $r['prep_time'] ?? '',
                         'servings' => !empty($r['servings']) ? (int) $r['servings'] : null,
                         'category' => $r['category'] ?? '',
-                        'imagePath' => $r['image_path'] ?? '',
+                        'imagePath' => $coverPath,
+                        'photos' => $photos,
                         'badgeText' => $badgeText,
                         'badgeClass' => $badgeClass,
                         'createdBy' => $r['created_by_username'] ?? ''
@@ -415,9 +429,14 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
                      data-last-made="<?= htmlspecialchars($r['last_made_date'] ?? '') ?>">
 
                     <div class="recipe-card-media">
-                        <?php if (!empty($r['image_path'])): ?>
-                            <img src="<?= htmlspecialchars($r['image_path']) ?>" alt=""
+                        <?php if ($coverPath !== ''): ?>
+                            <img src="<?= htmlspecialchars($coverPath) ?>" alt=""
                                  class="recipe-card-img" loading="lazy">
+                            <?php if (count($photos) > 1): ?>
+                                <span class="recipe-card-photo-count" title="Fotiek v galérii: <?= count($photos) ?>">
+                                    <i class="bi bi-images"></i><?= count($photos) ?>
+                                </span>
+                            <?php endif; ?>
                         <?php else: ?>
                             <div class="recipe-card-img-placeholder"><i class="bi bi-egg-fried"></i></div>
                         <?php endif; ?>
@@ -477,7 +496,8 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
 
                     <div class="recipe-card-actions">
                         <button class="btn btn-outline-success btn-sm btn-mark-made" data-id="<?= $r['id'] ?>"
-                                title="Označiť ako práve uvarené">
+                                data-name="<?= htmlspecialchars($r['name'], ENT_QUOTES) ?>"
+                                title="Uvarené — zapísať dátum a pridať fotku" aria-label="Uvarené">
                             <i class="bi bi-check2-circle"></i>
                         </button>
                         <?php if ($shoppingEnabled && $suroviny): ?>
@@ -580,6 +600,26 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
                                   placeholder="<?= $surovinyEnabled ? 'Stručný postup, pomôcky, kde čo kúpiť…' : 'Napíš sem suroviny alebo stručný postup...' ?>"></textarea>
                     </div>
 
+                    <?php if ($photosEnabled): ?>
+                    <div class="mb-3" id="recipePhotosField">
+                        <label class="form-label small text-secondary" for="recipeImageInput">Fotky receptu</label>
+                        <div id="recipePhotosList" class="photo-thumbs"></div>
+                        <div class="photo-pick">
+                            <div id="recipeImagePickWrap" class="photo-pick-preview d-none">
+                                <img id="recipeImagePick" src="" alt="Náhľad novej fotky">
+                                <button type="button" class="btn btn-sm photo-pick-clear" id="recipeImagePickClear"
+                                        aria-label="Zrušiť výber fotky" title="Zrušiť výber"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                            <input type="file" name="recipe_image" id="recipeImageInput" class="form-control"
+                                   accept="image/jpeg,image/png,image/webp" aria-describedby="recipeImageHelp">
+                        </div>
+                        <div id="recipePhotoDateWrap" class="mt-2 d-none">
+                            <label class="form-label small text-secondary" for="recipePhotoDate">Dátum novej fotky</label>
+                            <input type="date" name="photo_date" id="recipePhotoDate" class="form-control">
+                        </div>
+                        <div class="form-text" id="recipeImageHelp">Nová fotka sa pridá do galérie, staršie ostanú. JPG, PNG alebo WEBP, max 8 MB.</div>
+                    </div>
+                    <?php else: ?>
                     <div class="mb-3">
                         <label class="form-label small text-secondary">Fotka receptu</label>
                         <div id="recipeImagePreviewWrap" class="mb-2 d-none">
@@ -596,10 +636,11 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
                                accept="image/jpeg,image/png,image/webp">
                         <div class="form-text">JPG, PNG alebo WEBP, max 8 MB — automaticky sa zmenší.</div>
                     </div>
+                    <?php endif; ?>
 
                     <div class="mb-1">
                         <label class="form-label small text-secondary">Naposledy varené <span class="opacity-50">(nepovinné)</span></label>
-                        <input type="date" name="last_made_date" class="form-control" max="<?= date('Y-m-d') ?>">
+                        <input type="date" name="last_made_date" class="form-control" max="<?= app_today() ?>">
                     </div>
 
                     <div class="alert alert-danger py-2 small d-none" id="recipeFormError"></div>
@@ -625,9 +666,20 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div id="viewRecipeImageWrap" class="mb-3 d-none">
-                    <img id="viewRecipeImage" src="" alt="" class="img-fluid rounded w-100 recipe-view-image"
-                         style="object-fit:cover;">
+                <div id="viewRecipeGallery" class="recipe-gallery mb-3 d-none">
+                    <div id="viewRecipeCarousel" class="carousel slide recipe-gallery-carousel">
+                        <div class="carousel-inner" id="viewRecipeSlides"></div>
+                        <button class="carousel-control-prev" type="button" data-bs-target="#viewRecipeCarousel"
+                                data-bs-slide="prev" aria-label="Novšia fotka">
+                            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                        </button>
+                        <button class="carousel-control-next" type="button" data-bs-target="#viewRecipeCarousel"
+                                data-bs-slide="next" aria-label="Staršia fotka">
+                            <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <div class="recipe-gallery-caption" id="viewRecipePhotoCaption" aria-live="polite"></div>
+                    <div class="recipe-gallery-thumbs" id="viewRecipeThumbs" role="group" aria-label="Fotky receptu"></div>
                 </div>
 
                 <div class="d-flex flex-wrap gap-2 mb-3">
@@ -726,6 +778,49 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
     </div>
 </div>
 <?php endif; ?>
+<!-- ================= MODAL: Uvarené (dátum + voliteľná fotka) ================= -->
+<div class="modal fade" id="madeModal" tabindex="-1" aria-hidden="true" aria-labelledby="madeModalTitle">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form id="madeForm" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="madeModalTitle"><i class="bi bi-check2-circle me-2 text-success"></i>Uvarené</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="fw-semibold mb-3" id="madeRecipeName"></p>
+                    <input type="hidden" name="recipe_id" value="">
+                    <div class="mb-3">
+                        <label class="form-label small text-secondary" for="madeDate">Kedy sa varilo</label>
+                        <input type="date" name="made_date" id="madeDate" class="form-control" required>
+                    </div>
+                    <?php if ($photosEnabled): ?>
+                    <div class="mb-1">
+                        <label class="form-label small text-secondary" for="madeImageInput">Fotka jedla <span class="opacity-50">(nepovinné)</span></label>
+                        <div class="photo-pick">
+                            <div id="madeImagePickWrap" class="photo-pick-preview d-none">
+                                <img id="madeImagePick" src="" alt="Náhľad fotky">
+                                <button type="button" class="btn btn-sm photo-pick-clear" id="madeImagePickClear"
+                                        aria-label="Zrušiť výber fotky" title="Zrušiť výber"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                            <input type="file" name="recipe_image" id="madeImageInput" class="form-control"
+                                   accept="image/jpeg,image/png,image/webp" aria-describedby="madeImageHelp">
+                        </div>
+                        <div class="form-text" id="madeImageHelp">Pridá sa do galérie receptu s týmto dátumom, staršie fotky ostanú.</div>
+                    </div>
+                    <?php endif; ?>
+                    <div class="alert alert-danger py-2 small d-none mt-3 mb-0" id="madeFormError"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Zrušiť</button>
+                    <button type="submit" class="btn btn-success btn-sm fw-semibold" id="madeFormSubmit">
+                        <i class="bi bi-check2 me-1"></i>Uložiť
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
@@ -864,9 +959,10 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OPEN_RECIPE = <?= (int) $openRecipeId ?>;
     window.APP_SUROVINY = <?= json_encode($allSuroviny, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
     window.APP_JEDNOTKY = <?= json_encode(SUROVINA_JEDNOTKY, JSON_UNESCAPED_UNICODE) ?>;
+    window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
 </script>
 <script src="suroviny.js?v=21"></script>
-<script src="script.js?v=21"></script>
+<script src="script.js?v=22"></script>
 </body>
 </html>
 <?php

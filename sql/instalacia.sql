@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS `recipes` (
   `prep_time` int(11) DEFAULT NULL,             -- minúty
   `servings` smallint(5) UNSIGNED DEFAULT NULL, -- počet porcií, základ pre prepočet množstiev
   `category` varchar(50) DEFAULT NULL,
-  `image_path` varchar(255) DEFAULT NULL,       -- napr. uploads/recipes/recipe_xxx.jpg
+  `image_path` varchar(255) DEFAULT NULL,       -- titulná (najnovšia) fotka, kópia z recipe_photos
   `reminder_sent_at` date DEFAULT NULL,         -- kedy sa poslala pripomienka „dlho ste nevarili"
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS `recipe_logs` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `recipe_id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
-  `action` varchar(50) NOT NULL,                -- created | updated | made | rated | deleted
+  `action` varchar(50) NOT NULL,                -- created | updated | made | rated | photo | photo_deleted | deleted
   `note` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
@@ -130,6 +130,20 @@ CREATE TABLE IF NOT EXISTS `recipe_ratings` (
   KEY `fk_rating_user` (`user_id`),
   CONSTRAINT `fk_rating_recipe` FOREIGN KEY (`recipe_id`) REFERENCES `recipes` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_rating_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Fotky receptu: ku každému vareniu môže pribudnúť fotka a staršie ostávajú.
+-- Na karte receptu je najnovšia; jej cesta je skopírovaná aj v recipes.image_path.
+CREATE TABLE IF NOT EXISTS `recipe_photos` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `recipe_id` int(11) NOT NULL,
+  `image_path` varchar(255) NOT NULL,           -- napr. uploads/recipes/recipe_xxx.jpg
+  `photo_date` date NOT NULL,                   -- kedy sa jedlo varilo (dátum pod fotkou)
+  `uploaded_by` int(11) DEFAULT NULL,           -- users.id, kto fotku pridal
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_rp_recipe_date` (`recipe_id`,`photo_date`),
+  CONSTRAINT `fk_rp_recipe` FOREIGN KEY (`recipe_id`) REFERENCES `recipes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------------------------------------------------

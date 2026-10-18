@@ -251,6 +251,190 @@ function delete_recipe_image(?string $imagePath): void
 }
 
 /* ======================================================================
+   Recepty — galéria fotiek (tabuľka recipe_photos). Ku každému vareniu
+   môže pribudnúť fotka a staršie ostávajú, každá so svojím dátumom.
+   Titulná fotka na karte je najnovšia; jej cesta je skopírovaná aj
+   v recipes.image_path, takže karta, zdieľanie a staršie časti appky
+   galériu poznať nemusia.
+   ====================================================================== */
+
+/** Časové pásmo appky — podľa neho sa určuje „dnes" (dátum varenia, pripomienky). */
+const APP_TIMEZONE = 'Europe/Bratislava';
+
+/** Dnešný dátum v tvare Y-m-d. */
+function app_today(): string
+{
+    return (new DateTime('now', new DateTimeZone(APP_TIMEZONE)))->format('Y-m-d');
+}
+
+/** Dátum z formulára (Y-m-d) → ten istý reťazec, ak je platný a nie je v budúcnosti; inak null. */
+function parse_app_date($value): ?string
+{
+    if (!is_string($value) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', trim($value), $m)) {
+        return null;
+    }
+    if (!checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+        return null;
+    }
+    $date = trim($value);
+    return ($date >= '2000-01-01' && $date <= app_today()) ? $date : null;
+}
+
+/** 2026-10-05 → „5. 10. 2026" (do histórie receptu). */
+function format_sk_date(string $date): string
+{
+    $d = DateTime::createFromFormat('!Y-m-d', $date);
+    return $d ? $d->format('j. n. Y') : $date;
+}
+
+/**
+ * Existuje už tabuľka recipe_photos? Ak niekto nahrá novú verziu skôr, než
+ * spustí sql/migracia-1.1.sql, appka funguje ďalej po starom (jedna fotka).
+ */
+function recipes_have_photos(PDO $pdo): bool
+{
+    static $available = null;
+    if ($available === null) {
+        try {
+            $pdo->query('SELECT 1 FROM recipe_photos LIMIT 1');
+            $available = true;
+        } catch (Throwable $e) {
+            debug_log('FOTKY: chýba tabuľka recipe_photos, spusti sql/migracia-1.1.sql (' . $e->getMessage() . ')');
+            $available = false;
+        }
+    }
+    return $available;
+}
+
+/**
+ * Kedy bola fotka nahratá, podľa jej názvu: uniqid() v process_recipe_image_upload()
+ * dáva „recipe_" + 8 šestnástkových znakov sekúnd. Ak názov nesedí, vráti null.
+ */
+function photo_date_from_path(string $imagePath): ?string
+{
+    if (!preg_match('/recipe_([0-9a-f]{8})[0-9a-f]{5}/i', basename($imagePath), $m)) {
+        return null;
+    }
+    $date = (new DateTime('@' . hexdec($m[1])))->setTimezone(new DateTimeZone(APP_TIMEZONE));
+    return $date->format('Y-m-d');
+}
+
+/**
+ * Fotky receptov, od najnovšej. Bez $recipeId pre všetky recepty naraz (jeden dotaz).
+ * Návrat: [recipe_id => [['id'=>, 'path'=>, 'date'=>'Y-m-d', 'by'=>'meno alebo ""'], ...]]
+ */
+function get_recipe_photos(PDO $pdo, ?int $recipeId = null): array
+{
+    if (!recipes_have_photos($pdo)) {
+        return [];
+    }
+    $sql = "SELECT p.id, p.recipe_id, p.image_path, p.photo_date,
+                   COALESCE(NULLIF(TRIM(u.full_name), ''), u.username, '') AS uploaded_by_name
+            FROM recipe_photos p
+            LEFT JOIN users u ON u.id = p.uploaded_by"
+        . ($recipeId !== null ? ' WHERE p.recipe_id = ?' : '')
+        . ' ORDER BY p.recipe_id, p.photo_date DESC, p.id DESC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($recipeId !== null ? [$recipeId] : []);
+
+    $result = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $result[(int) $row['recipe_id']][] = [
+            'id'   => (int) $row['id'],
+            'path' => $row['image_path'],
+            'date' => $row['photo_date'],
+            'by'   => $row['uploaded_by_name'] ?? '',
+        ];
+    }
+    return $result;
+}
+
+/** Pridá fotku do galérie receptu. Transakciu rieši volajúci. */
+function add_recipe_photo(PDO $pdo, int $recipeId, string $imagePath, string $photoDate, int $userId): void
+{
+    $pdo->prepare('INSERT INTO recipe_photos (recipe_id, image_path, photo_date, uploaded_by) VALUES (?, ?, ?, ?)')
+        ->execute([$recipeId, $imagePath, $photoDate, $userId]);
+    log_recipe_action($pdo, $recipeId, $userId, 'photo', format_sk_date($photoDate));
+}
+
+/**
+ * Poistka: titulná fotka receptu, ktorá v galérii chýba (napr. migrácia ešte
+ * nepreniesla starú fotku), sa do galérie doplní, aby sa pridaním novej
+ * nestratila. Transakciu rieši volajúci.
+ */
+function adopt_cover_photo(PDO $pdo, array $recipe): void
+{
+    $path = $recipe['image_path'] ?? '';
+    if ($path === '' || $path === null) {
+        return;
+    }
+    $stmt = $pdo->prepare('SELECT 1 FROM recipe_photos WHERE recipe_id = ? AND image_path = ?');
+    $stmt->execute([(int) $recipe['id'], $path]);
+    if ($stmt->fetchColumn()) {
+        return;
+    }
+    $date = photo_date_from_path($path) ?? ($recipe['last_made_date'] ?: app_today());
+    $pdo->prepare('INSERT INTO recipe_photos (recipe_id, image_path, photo_date, uploaded_by) VALUES (?, ?, ?, NULL)')
+        ->execute([(int) $recipe['id'], $path, $date]);
+}
+
+/** Titulná fotka receptu (recipes.image_path) = najnovšia fotka z galérie, alebo žiadna. */
+function refresh_recipe_cover(PDO $pdo, int $recipeId): void
+{
+    $pdo->prepare(
+        'UPDATE recipes SET image_path = (
+             SELECT p.image_path FROM recipe_photos p
+             WHERE p.recipe_id = ? ORDER BY p.photo_date DESC, p.id DESC LIMIT 1
+         ) WHERE id = ?'
+    )->execute([$recipeId, $recipeId]);
+}
+
+/**
+ * Zmaže jednu fotku z galérie — len admin (kontrola je tu, nielen v rozhraní).
+ * Vráti aj čerstvý zoznam fotiek receptu, nech ho formulár hneď prekreslí.
+ */
+function delete_recipe_photo(PDO $pdo, int $photoId, int $userId, string $role): array
+{
+    if ($role !== 'admin') {
+        return ['success' => false, 'error' => 'Fotky môže mazať len administrátor.'];
+    }
+    if (!recipes_have_photos($pdo)) {
+        return ['success' => false, 'error' => 'Galéria fotiek ešte nie je v databáze pripravená.'];
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM recipe_photos WHERE id = ?');
+    $stmt->execute([$photoId]);
+    $photo = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$photo) {
+        return ['success' => false, 'error' => 'Fotka už neexistuje.'];
+    }
+    $recipeId = (int) $photo['recipe_id'];
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('DELETE FROM recipe_photos WHERE id = ?')->execute([$photoId]);
+        refresh_recipe_cover($pdo, $recipeId);
+        log_recipe_action($pdo, $recipeId, $userId, 'photo_deleted', format_sk_date($photo['photo_date']));
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        debug_log('FOTKY: mazanie fotky zlyhalo: ' . $e->getMessage());
+        return ['success' => false, 'error' => 'Fotku sa nepodarilo zmazať.'];
+    }
+
+    // Súbor zmažeme z disku, len ak ho už nič iné nepoužíva.
+    $used = $pdo->prepare(
+        'SELECT (SELECT COUNT(*) FROM recipe_photos WHERE image_path = ?) + (SELECT COUNT(*) FROM recipes WHERE image_path = ?)'
+    );
+    $used->execute([$photo['image_path'], $photo['image_path']]);
+    if ((int) $used->fetchColumn() === 0) {
+        delete_recipe_image($photo['image_path']);
+    }
+
+    return ['success' => true, 'photos' => get_recipe_photos($pdo, $recipeId)[$recipeId] ?? []];
+}
+
+/* ======================================================================
    Recepty — hviezdičkové hodnotenia
    ====================================================================== */
 
@@ -825,9 +1009,10 @@ function parse_servings($value): ?int
 
 /**
  * Pridanie nového receptu. $surovinyRows = riadky z parse_suroviny_rows(),
- * alebo null, ak sa suroviny nemajú ukladať vôbec.
+ * alebo null, ak sa suroviny nemajú ukladať vôbec. $photoDate = dátum pod
+ * fotkou v galérii (null = deň posledného varenia, inak dnes).
  */
-function add_recipe(PDO $pdo, int $userId, string $name, ?string $ingredients, ?string $url, ?int $prepTime, ?string $category, ?string $lastMadeDate = null, ?string $imagePath = null, ?array $surovinyRows = null, ?int $servings = null): array
+function add_recipe(PDO $pdo, int $userId, string $name, ?string $ingredients, ?string $url, ?int $prepTime, ?string $category, ?string $lastMadeDate = null, ?string $imagePath = null, ?array $surovinyRows = null, ?int $servings = null, ?string $photoDate = null): array
 {
     if (empty(trim($name))) {
         return ['success' => false, 'error' => 'Názov receptu je povinný.'];
@@ -858,6 +1043,9 @@ function add_recipe(PDO $pdo, int $userId, string $name, ?string $ingredients, ?
             save_recipe_suroviny($pdo, $recipeId, $surovinyRows);
         }
         log_recipe_action($pdo, $recipeId, $userId, 'created');
+        if ($imagePath !== null && recipes_have_photos($pdo)) {
+            add_recipe_photo($pdo, $recipeId, $imagePath, $photoDate ?? parse_app_date($lastMadeDate) ?? app_today(), $userId);
+        }
         $pdo->commit();
 
         return ['success' => true, 'id' => $recipeId];
@@ -881,25 +1069,31 @@ function add_recipe(PDO $pdo, int $userId, string $name, ?string $ingredients, ?
 /**
  * Úprava existujúceho receptu
  */
-function update_recipe(PDO $pdo, int $recipeId, int $userId, string $name, ?string $ingredients, ?string $url, ?int $prepTime, ?string $category, ?string $lastMadeDate = null, ?string $newImagePath = null, bool $removeImage = false, ?array $surovinyRows = null, ?int $servings = null): array
+function update_recipe(PDO $pdo, int $recipeId, int $userId, string $name, ?string $ingredients, ?string $url, ?int $prepTime, ?string $category, ?string $lastMadeDate = null, ?string $newImagePath = null, bool $removeImage = false, ?array $surovinyRows = null, ?int $servings = null, ?string $photoDate = null): array
 {
     if ($recipeId <= 0 || empty(trim($name))) {
+        delete_recipe_image($newImagePath);
         return ['success' => false, 'error' => 'Neplatné vstupné údaje.'];
     }
 
     // Overíme existenciu
     $recipe = get_recipe($pdo, $recipeId);
     if (!$recipe) {
+        delete_recipe_image($newImagePath);
         return ['success' => false, 'error' => 'Recept neexistuje.'];
     }
 
-    // Zistíme finálnu cestu k fotke: nová nahraná fotka > zaškrtnuté "odstrániť" > ponechať pôvodnú
+    // S galériou sa nová fotka PRIDÁ k starším a mažú sa len jednotlivo (admin).
+    // Bez nej (nespustená migrácia) po starom: nová fotka > „odstrániť" > ponechať pôvodnú.
+    $photosMode = recipes_have_photos($pdo);
     $oldImagePath = $recipe['image_path'] ?? null;
     $finalImagePath = $oldImagePath;
-    if ($newImagePath !== null) {
-        $finalImagePath = $newImagePath;
-    } elseif ($removeImage) {
-        $finalImagePath = null;
+    if (!$photosMode) {
+        if ($newImagePath !== null) {
+            $finalImagePath = $newImagePath;
+        } elseif ($removeImage) {
+            $finalImagePath = null;
+        }
     }
 
     try {
@@ -930,10 +1124,15 @@ function update_recipe(PDO $pdo, int $recipeId, int $userId, string $name, ?stri
         }
 
         log_recipe_action($pdo, $recipeId, $userId, 'updated');
+        if ($photosMode && $newImagePath !== null) {
+            adopt_cover_photo($pdo, $recipe);
+            add_recipe_photo($pdo, $recipeId, $newImagePath, $photoDate ?? app_today(), $userId);
+            refresh_recipe_cover($pdo, $recipeId);
+        }
         $pdo->commit();
 
         // Starú fotku zmažeme z disku až po úspešnom uložení, a len ak sa naozaj zmenila
-        if ($finalImagePath !== $oldImagePath) {
+        if (!$photosMode && $finalImagePath !== $oldImagePath) {
             delete_recipe_image($oldImagePath);
         }
 
@@ -950,18 +1149,51 @@ function update_recipe(PDO $pdo, int $recipeId, int $userId, string $name, ?stri
         return ['success' => false, 'error' => 'Úprava receptu zlyhala.'];
     }
 }
-/** Označí recept ako práve pripravený (nastaví last_made_date na dnes). */
-function mark_recipe_made(PDO $pdo, int $recipeId, int $userId): array
+/**
+ * Recept sa uvaril: $madeDate (null = dnes) sa zapíše ako posledné varenie
+ * a voliteľná fotka sa pridá do galérie s týmto dátumom. Staršie varenie
+ * dopísané spätne nepresunie „naposledy varené" dozadu.
+ */
+function mark_recipe_made(PDO $pdo, int $recipeId, int $userId, ?string $madeDate = null, ?string $imagePath = null): array
 {
     $recipe = get_recipe($pdo, $recipeId);
     if (!$recipe) {
+        delete_recipe_image($imagePath);
         return ['success' => false, 'error' => 'Recept neexistuje.'];
     }
 
-    $stmt = $pdo->prepare('UPDATE recipes SET last_made_date = CURDATE() WHERE id = ?');
-    $stmt->execute([$recipeId]);
+    $today = app_today();
+    $date = $madeDate ?? $today;
+    $photosMode = recipes_have_photos($pdo);
+    if ($imagePath !== null && !$photosMode) {
+        // Bez galérie (nespustená migrácia) fotku k vareniu uložiť nevieme.
+        delete_recipe_image($imagePath);
+        $imagePath = null;
+    }
 
-    log_recipe_action($pdo, $recipeId, $userId, 'made', $recipe['name']);
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'UPDATE recipes SET last_made_date = CASE
+                 WHEN last_made_date IS NULL OR last_made_date < ? THEN ? ELSE last_made_date END
+             WHERE id = ?'
+        )->execute([$date, $date, $recipeId]);
+
+        $note = $recipe['name'] . ($date !== $today ? ' — varené ' . format_sk_date($date) : '');
+        log_recipe_action($pdo, $recipeId, $userId, 'made', $note);
+
+        if ($imagePath !== null) {
+            adopt_cover_photo($pdo, $recipe);
+            add_recipe_photo($pdo, $recipeId, $imagePath, $date, $userId);
+            refresh_recipe_cover($pdo, $recipeId);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        debug_log('mark_recipe_made zlyhalo: ' . $e->getMessage());
+        delete_recipe_image($imagePath);
+        return ['success' => false, 'error' => 'Nepodarilo sa uložiť varenie.'];
+    }
 
     return ['success' => true];
 }
@@ -981,6 +1213,12 @@ function delete_recipe(PDO $pdo, int $recipeId, int $userId, string $role): arra
         return ['success' => false, 'error' => 'Recept neexistuje.'];
     }
 
+    // Všetky fotky receptu (titulná + galéria) — zmažú sa z disku po zmazaní receptu.
+    $imagePaths = [$recipe['image_path'] ?? null];
+    foreach (get_recipe_photos($pdo, $recipeId)[$recipeId] ?? [] as $photo) {
+        $imagePaths[] = $photo['path'];
+    }
+
     $pdo->beginTransaction();
     try {
         // Log zapisujeme PRED zmazaním; FK recipe_logs.recipe_id má ON DELETE
@@ -992,8 +1230,10 @@ function delete_recipe(PDO $pdo, int $recipeId, int $userId, string $role): arra
 
         $pdo->commit();
 
-        // Fotku mažeme z disku až PO úspešnom commite — ak by DB transakcia zlyhala, fotka ostáva
-        delete_recipe_image($recipe['image_path'] ?? null);
+        // Fotky mažeme z disku až PO úspešnom commite — ak by DB transakcia zlyhala, fotky ostávajú
+        foreach (array_unique(array_filter($imagePaths)) as $imagePath) {
+            delete_recipe_image($imagePath);
+        }
 
         return ['success' => true];
     } catch (Throwable $e) {
@@ -1118,7 +1358,7 @@ function send_due_recipe_reminder(PDO $pdo, bool $onlyDaytime = true): ?string
         return null;
     }
 
-    $now = new DateTime('now', new DateTimeZone('Europe/Bratislava'));
+    $now = new DateTime('now', new DateTimeZone(APP_TIMEZONE));
     $hour = (int) $now->format('G');
     if ($onlyDaytime && ($hour < 9 || $hour >= 20)) {
         return null;

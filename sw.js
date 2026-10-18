@@ -4,7 +4,7 @@
 // preto sa NIKDY nesmie servovať z cache — vždy ide na sieť. Cachujeme len
 // statické súbory (CSS/JS/ikony), aby appka rýchlejšie štartovala a aby sa
 // dala pridať na plochu ako PWA. Bump CACHE_NAME pri každej zmene statických súborov.
-const CACHE_NAME = 'recepty-static-v21';
+const CACHE_NAME = 'recepty-static-v22';
 const OFFLINE_URL = 'offline.html';
 
 const STATIC_ASSETS = [
