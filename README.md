@@ -210,6 +210,8 @@ Chyby appka zapisuje do `includes/debug-log.txt`. Pri hľadaní problému nastav
 
 ## A9. Aktualizácia na novú verziu
 
+Ak máš nastavené automatické nahrávanie ([A10](#a10-automatické-nahrávanie-na-server)), krok 2 urobí GitHub sám po vydaní verzie.
+
 1. Zálohuj databázu a priečinok `uploads/recipes/` (pozri [B12](#b12-zálohovanie)).
 2. Nahraj nové súbory appky cez staré. Súbor `includes/.env` a priečinok `uploads/recipes/` nechaj tak, ako sú.
 3. Ak nová verzia prináša súbor `sql/migracia-X.Y.sql`, naimportuj ho cez phpMyAdmin (**Import**). Pri prechode z 1.0 na 1.1 je to `sql/migracia-1.1.sql`.
@@ -218,6 +220,73 @@ Chyby appka zapisuje do `includes/debug-log.txt`. Pri hľadaní problému nastav
 Kým migrácia nie je naimportovaná, appka beží ďalej po starom, len bez nových funkcií (v logu je riadok `FOTKY: chýba tabuľka recipe_photos`). Migráciu je bezpečné spustiť aj opakovane.
 
 **Čo urobí `migracia-1.1.sql`:** vytvorí tabuľku `recipe_photos` a doterajšiu fotku každého receptu do nej prenesie ako prvú fotku galérie. Dátum fotky zistí z názvu súboru (appka fotky pomenúva podľa času nahratia) a autora z histórie receptu.
+
+## A10. Automatické nahrávanie na server
+
+Keď je projekt na GitHube, nová verzia sa dá na server nahrať automaticky. Stačí na GitHube vydať verziu (Release) a GitHub sám:
+
+1. spustí testy (pozri [B14](#b14-automatické-testy-a-pravidlá-pre-novú-verziu)); ak niečo zlyhá, na server sa nenahrá nič,
+2. cez šifrované FTP (FTPS) nahrá len súbory, ktoré sa od minulého nahratia zmenili, a zmaže tie, ktoré v novej verzii už nie sú,
+3. overí, že appka na serveri odpovedá, že server vydáva práve nahratú verziu a že súbory s heslami nie sú dostupné z internetu.
+
+Keď niektorý krok zlyhá, GitHub pošle e-mail tomu, kto verziu vydal. Celý postup je v `.github/workflows/nasadenie.yml`.
+
+**Na server sa nikdy nenahrá ani sa z neho nezmaže:** `includes/.env`, `vendor/`, `uploads/` (fotky), `sql/`, `install.php`, priečinok `testy/`, súbory pre GitHub, `README.md`, `LICENSE` a `composer.json` / `composer.lock`.
+
+### Jednorazové nastavenie
+
+1. Appka už musí na serveri bežať, prvú inštaláciu urob ručne podľa [A2](#a2-inštalácia-na-webhosting). Pred každým nahratím GitHub overí, že v cieľovom priečinku je `login.php` a `sw.js`, aby súbory omylom nenahral do iného webu na tom istom hostingu.
+2. V administrácii hostingu si odporúčam založiť samostatný FTP účet len na nahrávanie.
+3. Na GitHube otvor repozitár → **Settings → Secrets and variables → Actions → New repository secret** a pridaj:
+
+| Secret | Hodnota |
+|---|---|
+| `FTP_SERVER` | Adresa FTP servera z administrácie hostingu. |
+| `FTP_USERNAME` | Meno FTP účtu. |
+| `FTP_PASSWORD` | Heslo FTP účtu. |
+| `FTP_DIR` | Priečinok appky na FTP, s lomkou na konci, napr. `/recepty/`. Ak sa FTP účet prihlasuje rovno do priečinka appky, tento Secret nevytváraj. |
+| `APP_URL` | Adresa appky, napr. `https://recepty.example.com`. |
+
+Hodnoty Secrets po uložení neuvidí nikto, ani ty (dajú sa len prepísať), a v záznamoch z GitHubu sa zobrazujú ako `***`. Pri verejnom repozitári je vidno len to, že nahrávanie existuje a kedy prebehlo, nie kam.
+
+4. Nastavenie over skúškou: **Actions → Nasadenie na server → Run workflow**, do poľa „verzia" napíš poslednú vydanú verziu (napr. `V1.1.0`), zaškrtni **Len skúška** a spusti. GitHub sa prihlási na FTP, skontroluje priečinok a vypíše, čo by nahral, ale na serveri nič nezmení.
+
+### Vydanie novej verzie
+
+1. Nahraj zmeny do `main`. Testy prebehnú automaticky, výsledok je v záložke **Actions**.
+2. Na GitHube vytvor Release s novým tagom (napr. `V1.2.0`) a zverejni ho.
+3. V záložke **Actions** sleduj priebeh. Prvé nahratie nahrá všetky súbory, ďalšie už len zmeny.
+4. Ak verzia prináša `sql/migracia-X.Y.sql`, zálohuj databázu a migráciu naimportuj cez phpMyAdmin ([A9](#a9-aktualizácia-na-novú-verziu)). Appka beží aj bez nej, len bez nových funkcií.
+
+Release označený ako **pre-release** sa na server nenahrá.
+
+**Keď sa zmení `composer.lock`** (nové alebo aktualizované knižnice), test na to upozorní. Priečinok `vendor/` sa automaticky nenahráva, preto ho pred vydaním verzie nahraj ručne: spusti `composer install --no-dev` a nahraj `vendor/` cez FTP.
+
+Zoznam nahratých súborov si GitHub ukladá na server do `includes/.ftp-deploy-sync-state.json` a podľa neho nabudúce nahrá len zmeny. Súbor nemaž. Ak sa stratí, ďalšie nahratie nahrá všetko znova.
+
+### Keď nahrávanie zlyhá
+
+| Hlásenie | Riešenie |
+|---|---|
+| Chýba Secret … | Doplň uvedený Secret (krok 3). |
+| FTP prihlásenie zlyhalo | Nesprávne `FTP_USERNAME` alebo `FTP_PASSWORD`. |
+| K FTP serveru sa nedá pripojiť | Nesprávny `FTP_SERVER`, alebo hosting povoľuje FTP len z niektorých krajín či adries. GitHub sa pripája zo zahraničia. |
+| FTP server neumožnil šifrované spojenie | Hosting nepodporuje šifrované FTP (FTPS) na porte 21. |
+| V priečinku z FTP_DIR nie je appka | `FTP_DIR` ukazuje inam, než kde na serveri leží `index.php` appky. |
+| Server nevydáva nahratú verziu sw.js | Súbory sa nahrali, ale web ich vydáva z iného priečinka (zlé `FTP_DIR`), alebo hosting chvíľu drží starú verziu v cache. |
+| … je dostupný z internetu | Na serveri chýba alebo nefunguje `includes/.htaccess` či `sql/.htaccess`. Treba to opraviť hneď. |
+
+## A11. Návrat k predchádzajúcej verzii
+
+Ak nová verzia na serveri nefunguje:
+
+1. Na GitHube otvor **Actions → Nasadenie na server → Run workflow**.
+2. Do poľa „verzia" napíš tag verzie, ktorá fungovala (napr. `V1.1.0`, na veľkosti písmen nezáleží).
+3. Klikni na **Run workflow**.
+
+GitHub nahrá súbory staršej verzie a zmaže tie, ktoré pridala novšia. Testy sa pri návrate nespúšťajú, kontrola po nahratí áno. Opravenú verziu potom vydáš ako nový Release.
+
+Databázu pri návrate vracať netreba, ak sa dodrží pravidlo z [B14](#b14-automatické-testy-a-pravidlá-pre-novú-verziu): migrácie len pridávajú tabuľky a stĺpce a staršia verzia appky ich jednoducho ignoruje. Záloha databázy pred migráciou ([A9](#a9-aktualizácia-na-novú-verziu)) je poistka pre prípad, že by sa pokazili samotné dáta.
 
 ---
 
@@ -261,6 +330,9 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `sql/migracia-1.1.sql` | Aktualizácia databázy z verzie 1.0 na 1.1 (galéria fotiek). Pri novej inštalácii netreba. |
 | `uploads/recipes/` | Fotky receptov. |
 | `vendor/` | Knižnice stiahnuté Composerom. Nie je súčasťou projektu na GitHube. |
+| `testy/` | Automatické testy a kontroly pred nahratím na server a po ňom (pozri [B14](#b14-automatické-testy-a-pravidlá-pre-novú-verziu)). Na server sa nenahráva. |
+| `.github/workflows/testy.yml` | Spustenie testov na GitHube pri každom nahratí do `main`. |
+| `.github/workflows/nasadenie.yml` | Nahratie verzie na server po vydaní a návrat k staršej verzii ([A10](#a10-automatické-nahrávanie-na-server), [A11](#a11-návrat-k-predchádzajúcej-verzii)). |
 
 ## B3. Databáza
 
@@ -418,7 +490,7 @@ Statické súbory si prehliadače držia v cache. Po každej zmene v `style.css`
 1. v `sw.js` zvýšiť číslo v `CACHE_NAME` (napr. `recepty-static-v21` na `v22`),
 2. v `index.php` a `login.php` zvýšiť číslo za `?v=` pri odkazoch na zmenené súbory.
 
-Bez toho uvidia používatelia starú verziu, kým sa cache neobnoví sama.
+Bez toho uvidia používatelia starú verziu, kým sa cache neobnoví sama. Automatický test ([B14](#b14-automatické-testy-a-pravidlá-pre-novú-verziu)) skontroluje, či sa na to nezabudlo.
 
 ## B11. Zápis chýb
 
@@ -453,7 +525,51 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 - Suroviny sa v appke nedajú premenovať, zlúčiť ani im doplniť kategória. Dá sa to len priamo v databáze.
 - Rozhranie je len po slovensky.
 
-## B14. História verzií
+## B14. Automatické testy a pravidlá pre novú verziu
+
+Testy sú v priečinku `testy/`. GitHub ich spúšťa pri každom nahratí do `main` a pred nahratím novej verzie na server (výsledok je v záložke **Actions**). Hlavný skript `testy/spusti-testy.sh` overí:
+
+1. prostredie: PHP 8.4.1 alebo novšie, potrebné rozšírenia a priečinok `vendor/`,
+2. syntax všetkých PHP súborov,
+3. pravidlá pre novú verziu (nižšie, skript `testy/kontrola-pravidiel.sh`),
+4. **novú inštaláciu:** import `sql/instalacia.sql` (aj druhýkrát po sebe) a celý priechod appkou,
+5. **databázu z predchádzajúcej verzie bez migrácie:** nová appka na nej musí bežať,
+6. **migrácie** na tej istej databáze (každú dvakrát po sebe), znova priechod appkou a porovnanie štruktúry s novou inštaláciou.
+
+Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, otvorí správu používateľov, biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Po každom priechode skontroluje aj záznam chýb appky.
+
+Po nahratí na server skript `testy/kontrola-po-nahrati.sh` overí ostrú appku a `testy/kontrola-ftp.sh` pred nahratím skontroluje FTP a cieľový priečinok.
+
+### Spustenie na vlastnom počítači
+
+Treba PHP 8.4.1 alebo novšie, bežiacu MariaDB a stiahnuté knižnice (`composer install --no-dev`). V priečinku projektu spusti:
+
+```
+TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
+```
+
+Účet databázy musí vedieť zakladať databázy a používateľov. Test si založí databázy `recepty_test_nova` a `recepty_test_stara` a používateľa `recepty_test` a databázy na konci zmaže (s `TEST_PONECHAT=1` ich nechá). Appku spúšťa z dočasnej kópie, takže tvoj `includes/.env`, záznam chýb ani fotky nezmení. Ďalšie nastavenia (`TEST_DB_HOST`, `TEST_DB_PORT`, `PHP_BIN`, `TEST_PORT`) sú popísané na začiatku skriptu. Na Windows sa dá spustiť cez Git Bash alebo WSL.
+
+### Pravidlá pre novú verziu
+
+| Pravidlo | Ako ho overí test |
+|---|---|
+| Po zmene CSS alebo JS zvýšiť `CACHE_NAME` v `sw.js` a číslo za `?v=` v `index.php` a `login.php`. | Porovná s predchádzajúcou verziou (tagom). Chyba. |
+| Zmeny databázy dať do `sql/migracia-X.Y.sql` a doplniť aj do `sql/instalacia.sql`. | Štruktúra databázy po migrácii sa musí zhodovať s novou inštaláciou. Chyba. |
+| Appka musí bežať aj bez migrácie (kontrola existencie tabuľky, napr. `recipes_have_photos()`). | Nová appka sa spustí nad databázou predchádzajúcej verzie. Chyba. |
+| Migráciu musí ísť spustiť opakovane bez zdvojenia dát. | Spustí ju dvakrát a porovná počty riadkov. Chyba. |
+| Migrácie len pridávajú. Tabuľku ani stĺpec, ktorý používa predchádzajúca verzia, nemazať ani nepremenovať v tej istej verzii; urobí sa to až v ďalšej, keď je jasné, že nová funguje. Inak by pri návrate ([A11](#a11-návrat-k-predchádzajúcej-verzii)) nestačilo vrátiť súbory. | Netestuje sa, treba na to myslieť. |
+| Zmena `composer.lock` znamená ručne nahrať `vendor/`. | Upozornenie. |
+| Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
+
+## B15. História verzií
+
+**1.2**
+
+- Automatické nahrávanie na server po vydaní verzie na GitHube: šifrované FTP, len zmenené súbory, kontrola cieľového priečinka pred nahratím a kontrola appky po nahratí.
+- Návrat k staršej verzii jedným spustením na GitHube.
+- Automatické testy pri každom nahratí do `main`: syntax PHP, priechod appkou nad novou aj starou databázou, migrácie, porovnanie štruktúry databázy a pravidlá pre cache a verzie súborov.
+- Appka ani databáza sa nemenia, migrácia netreba.
 
 **1.1**
 

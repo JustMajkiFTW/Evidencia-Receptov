@@ -1,0 +1,199 @@
+# Nahratie appky na server cez FTPS.
+#
+# 1. Vydanie verzie (Release na GitHube): najprv prebehnú testy, potom sa na server
+#    nahrajú zmenené súbory a overí sa, že appka beží. Pre-release sa nenahráva.
+# 2. Návrat k staršej verzii: Actions → Nasadenie na server → Run workflow,
+#    do poľa „verzia“ napíš názov tagu (napr. V1.1.0) a spusti.
+#
+# Nastavenie (Settings → Secrets and variables → Actions → New repository secret):
+#   FTP_SERVER    adresa FTP servera z administrácie hostingu
+#   FTP_USERNAME  meno FTP účtu
+#   FTP_PASSWORD  heslo FTP účtu
+#   FTP_DIR       priečinok appky na FTP, s lomkou na konci (napr. /recepty/);
+#                 prázdny = priečinok, do ktorého sa FTP účet prihlási
+#   APP_URL       adresa appky, napr. https://recepty.example.com
+#
+# Na server sa nikdy nenahrá ani nezmaže: includes/.env, vendor/, uploads/ (fotky),
+# sql/, install.php, testy a súbory pre GitHub. Podrobnosti sú v README (A10 a A11).
+
+name: Nasadenie na server
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      verzia:
+        description: 'Ktorá verzia sa má nahrať na server (názov tagu, napr. V1.1.0)'
+        required: true
+        type: string
+      skuska:
+        description: 'Len skúška: vypíše, čo by sa nahralo, ale nič nezmení'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Dve nahrávania naraz by si mohli prepisovať súbory — druhé počká, kým prvé skončí.
+concurrency:
+  group: nasadenie-na-server
+  cancel-in-progress: false
+
+jobs:
+  testy:
+    name: Testy pred nahratím
+    # Pri návrate k staršej verzii sa testy nespúšťajú: tá verzia už na serveri bežala
+    # a staršie verzie testy ani nemusia obsahovať.
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    uses: ./.github/workflows/testy.yml
+    with:
+      ref: ${{ github.event.release.tag_name }}
+      verzia: ${{ github.event.release.tag_name }}
+
+  nasadenie:
+    name: Nahratie na server
+    needs: testy
+    if: >-
+      always() && (
+        (github.event_name == 'release' && needs.testy.result == 'success') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ZADANA_VERZIA: ${{ github.event.release.tag_name || inputs.verzia }}
+      SKUSKA: ${{ inputs.skuska && 'true' || 'false' }}
+
+    steps:
+      - name: Kontrola nastavenia
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_DIR: ${{ secrets.FTP_DIR }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          chyba=0
+          for nazov in FTP_SERVER FTP_USERNAME FTP_PASSWORD APP_URL; do
+            if [ -z "${!nazov}" ]; then
+              echo "::error::Chýba Secret $nazov. Doplň ho v Settings → Secrets and variables → Actions."
+              chyba=1
+            fi
+          done
+          if [ -n "$FTP_DIR" ] && [ "${FTP_DIR: -1}" != "/" ]; then
+            echo "::error::Secret FTP_DIR musí končiť lomkou, napr. /recepty/"
+            chyba=1
+          fi
+          case "$APP_URL" in
+            https://*|http://*) ;;
+            *) echo "::error::Secret APP_URL musí začínať https:// (napr. https://recepty.example.com)"; chyba=1 ;;
+          esac
+          exit $chyba
+
+      - name: Kontrola verzie
+        id: verzia
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Nájde tag aj vtedy, keď sa líši veľkosťou písmen (v1.1.0 = V1.1.0).
+          tagy=$(gh api "repos/${{ github.repository }}/git/matching-refs/tags" --paginate --jq '.[].ref | sub("^refs/tags/"; "")')
+          presny=$(printf '%s\n' "$tagy" | awk -v hladany="$ZADANA_VERZIA" 'tolower($0) == tolower(hladany) { print; exit }')
+          if [ -z "$presny" ]; then
+            echo "::error::Verzia '$ZADANA_VERZIA' neexistuje. Dostupné verzie: $(printf '%s\n' "$tagy" | paste -sd ' ' -)"
+            exit 1
+          fi
+          echo "tag=$presny" >> "$GITHUB_OUTPUT"
+          echo "Nahráva sa verzia $presny"
+
+      - name: Stiahnutie verzie ${{ steps.verzia.outputs.tag }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.verzia.outputs.tag }}
+          path: verzia
+          persist-credentials: false
+
+      - name: Stiahnutie kontrolných skriptov
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: nastroje
+          sparse-checkout: testy
+          persist-credentials: false
+
+      - name: Kontrola priečinka na serveri
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_DIR: ${{ secrets.FTP_DIR }}
+        run: bash nastroje/testy/kontrola-ftp.sh
+
+      - name: Nahratie na server (FTPS)
+        uses: SamKirkland/FTP-Deploy-Action@3a9c65ae0fc12ac924ccef8afc26941cc43aad0b # v4.4.0
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          # Spojenie je šifrované; certifikát sa neoveruje prísne, lebo adresa FTP
+          # servera z administrácie hostingu nemusí sedieť s menom v certifikáte.
+          security: loose
+          local-dir: ./verzia/
+          server-dir: ${{ secrets.FTP_DIR || './' }}
+          # Zoznam nahratých súborov (podľa neho sa nabudúce nahrajú len zmeny).
+          # Je v includes/, kam sa z internetu nedá dostať.
+          state-name: includes/.ftp-deploy-sync-state.json
+          dry-run: ${{ env.SKUSKA }}
+          log-level: standard
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.idea/**
+            .github/**
+            testy/**
+            vendor/**
+            uploads/**
+            sql/**
+            includes/.env
+            includes/debug-log.txt
+            debug-log.txt
+            install.php
+            README.md
+            LICENSE
+            composer.json
+            composer.lock
+
+      - name: Kontrola appky po nahratí
+        if: env.SKUSKA != 'true'
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+        run: bash nastroje/testy/kontrola-po-nahrati.sh "$APP_URL" verzia
+
+      - name: Zhrnutie
+        if: always()
+        env:
+          TAG: ${{ steps.verzia.outputs.tag }}
+          STAV: ${{ job.status }}
+        run: |
+          {
+            if [ "$SKUSKA" = "true" ]; then
+              echo "## Skúška nahratia verzie ${TAG:-$ZADANA_VERZIA}"
+              echo
+              echo "Na serveri sa nič nezmenilo. Zoznam súborov, ktoré by sa nahrali alebo zmazali, je v kroku 'Nahratie na server (FTPS)'."
+            elif [ "$STAV" = "success" ]; then
+              echo "## ✅ Verzia ${TAG} je na serveri"
+              echo
+              echo "Appka po nahratí odpovedá a súbory s heslami nie sú dostupné z internetu."
+              echo
+              echo "Ak má nová verzia súbor \`sql/migracia-X.Y.sql\`, naimportuj ho cez phpMyAdmin (appka beží aj bez neho, len bez nových funkcií)."
+            else
+              echo "## ❌ Nahratie verzie ${TAG:-$ZADANA_VERZIA} sa nepodarilo"
+              echo
+              echo "Pozri, ktorý krok je označený červenou. Ak appka na serveri nefunguje, vráť predchádzajúcu verziu:"
+              echo
+              echo "**Actions → Nasadenie na server → Run workflow** → do poľa 'verzia' napíš predchádzajúci tag a spusti."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

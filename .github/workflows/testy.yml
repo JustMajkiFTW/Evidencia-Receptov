@@ -1,0 +1,73 @@
+# Automatický test appky (testy/spusti-testy.sh) nad PHP 8.4 a MariaDB.
+# Spúšťa sa pri každom nahratí do main, pri pull requeste a pred nahratím
+# novej verzie na server (volá ho nasadenie.yml). Výsledok je v záložke Actions.
+
+name: Testy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Ktorá verzia sa má otestovať (tag alebo commit).
+        type: string
+        required: false
+        default: ''
+      verzia:
+        description: Názov vydávanej verzie (overí sa záznam v Histórii verzií v README).
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  testy:
+    name: Automatický test appky
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: testovacie-heslo-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
+    steps:
+      - name: Stiahnutie kódu
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0 # celá história aj s tagmi — test porovnáva s predchádzajúcou verziou
+          persist-credentials: false
+
+      - name: PHP 8.4
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql, mysqli, gd, curl, mbstring, openssl
+          coverage: none
+          tools: composer
+
+      - name: Knižnice (composer install)
+        run: composer install --no-dev --no-progress --no-interaction
+
+      - name: Testy
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: '3306'
+          TEST_DB_ROOT_USER: root
+          TEST_DB_ROOT_PASS: testovacie-heslo-root
+          VERZIA: ${{ inputs.verzia }}
+        run: bash testy/spusti-testy.sh
