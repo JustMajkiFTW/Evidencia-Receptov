@@ -780,3 +780,59 @@ body {
 .recipe-gallery.at-start .carousel-control-prev,
 .recipe-gallery.at-end .carousel-control-next { display: none; }
 .recipe-gallery-thumbs { position: relative; }
+
+/* ============================================================
+   Offline režim — recepty sa dajú pozerať aj bez internetu.
+   <html data-offline="kopia">      uložená kópia stránky zo sw.js
+   <html data-offline="bez-siete">  pripojenie sa stratilo počas používania
+   ============================================================ */
+.offline-pasik { display: none; }
+html[data-offline] .offline-pasik {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .75rem 1rem;
+    padding: .9rem 1rem;
+    border: 2px solid var(--app-accent);
+    border-radius: var(--app-radius);
+    background: var(--app-accent-soft);
+    color: var(--app-text);
+    font-size: 1.05rem;
+    line-height: 1.4;
+}
+.offline-pasik-ikona {
+    flex-shrink: 0;
+    font-size: 1.75rem;
+    color: var(--app-accent);
+}
+.offline-pasik-text {
+    flex: 1 1 220px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.offline-pasik-text strong { font-size: 1.15rem; }
+.offline-pasik-tlacidlo {
+    min-height: 48px;
+    padding: .5rem 1.1rem;
+    border-radius: 12px;
+    font-size: 1.05rem;
+}
+html[data-offline="bez-siete"] .offline-pasik-tlacidlo { display: none; }
+/* Internet je späť: pásik zozelenie a tlačidlo načíta aktuálnu stránku. */
+html[data-offline] .offline-pasik.je-online {
+    border-color: var(--bs-success);
+    background: rgba(var(--bs-success-rgb), .12);
+}
+.offline-pasik.je-online .offline-pasik-ikona { color: var(--bs-success); }
+@media (max-width: 575px) {
+    .offline-pasik-tlacidlo { width: 100%; }
+}
+
+/* Tlačidlá, ktoré potrebujú server, sú offline vyblednuté. Ťuknutie na ne
+   ukáže vysvetlenie (script.js), preto ostávajú klikateľné. */
+html[data-offline] [data-vyzaduje-siet] {
+    opacity: .4;
+    filter: grayscale(1);
+}
+html[data-offline] .recipe-card .rating-star { cursor: default; }

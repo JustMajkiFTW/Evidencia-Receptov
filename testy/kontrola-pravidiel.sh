@@ -5,7 +5,8 @@
 #       → musí byť zvýšený CACHE_NAME v sw.js a číslo za ?v= v index.php / login.php,
 #   - zmenil sa composer.lock → upozornenie, že vendor/ treba na server nahrať ručne,
 #   - zmenil sa sql/instalacia.sql, ale nepribudla migrácia → upozornenie,
-#   - pri vydaní verzie (premenná VERZIA, napr. V1.2.0) → README má záznam v Histórii verzií.
+#   - pri vydaní verzie (premenná VERZIA, napr. V1.2.0) → README má záznam v Histórii verzií,
+#   - knižnice z CDN v index.php musia byť aj v CDN_ASSETS v sw.js (offline režim), bez ohľadu na tag.
 #
 # Porovnáva sa s aktuálnym stavom priečinka, takže zachytí aj zmeny, ktoré ešte nie sú v commite.
 # Návratový kód: 0 = v poriadku (môžu byť upozornenia), 1 = porušené pravidlo.
@@ -17,19 +18,36 @@ source testy/spolocne.sh
 
 nadpis "Pravidlá pre novú verziu"
 
+# --- Knižnice z CDN pre offline režim ---------------------------------------------------
+# Nezávisí od predchádzajúcej verzie: každá adresa z CDN v index.php musí byť aj
+# v CDN_ASSETS v sw.js, inak by uložená kópia stránky offline nemala vzhľad.
+CDN_CHYBA=0
+CDN_POCET=0
+while IFS= read -r adresa; do
+    [ -z "$adresa" ] && continue
+    CDN_POCET=$((CDN_POCET + 1))
+    if ! grep -qF "'$adresa'" sw.js; then
+        chyba "Knižnica $adresa z index.php chýba v CDN_ASSETS v sw.js — offline by appka nemala vzhľad."
+        CDN_CHYBA=1
+    fi
+done < <(grep -oE 'https://cdn\.jsdelivr\.net/[^"]+' index.php | sort -u)
+if [ "$CDN_CHYBA" -eq 0 ]; then
+    ok "Knižnice z CDN v index.php sú v sw.js pre offline režim ($CDN_POCET)"
+fi
+
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
     pozor "Priečinok nie je git repozitár — kontrola pravidiel sa preskočí."
-    exit 0
+    exit "$CDN_CHYBA"
 fi
 
 PREDOSLA="${PREDOSLA_VERZIA:-$(predosla_verzia)}"
 if [ -z "$PREDOSLA" ]; then
     pozor "Nenašiel som žiadnu predchádzajúcu verziu (tag) — kontrola pravidiel sa preskočí."
-    exit 0
+    exit "$CDN_CHYBA"
 fi
 echo "  Porovnávam s verziou $PREDOSLA"
 
-PORUSENIA=0
+PORUSENIA=$CDN_CHYBA
 porusenie() { chyba "$1"; PORUSENIA=$((PORUSENIA + 1)); }
 
 zmeneny() { ! git diff --quiet "$PREDOSLA" -- "$1" 2>/dev/null; }

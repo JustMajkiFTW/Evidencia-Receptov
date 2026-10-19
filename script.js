@@ -14,6 +14,13 @@ if ('serviceWorker' in navigator) {
             // len nepôjde nainštalovať ako PWA / offline fallback nebude dostupný.
         });
     });
+    // Nový service worker (prvá návšteva alebo aktualizácia appky) prevzal stránku:
+    // požiadame ho, nech si hneď uloží kópiu receptov pre offline režim.
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!document.documentElement.dataset.offline) {
+            navigator.serviceWorker.controller?.postMessage('uloz-stranku');
+        }
+    });
 }
 
 /* ========================================================================
@@ -166,6 +173,151 @@ function showToast(message, isError = false, action = null) {
 
     toast.show();
 }
+
+/* ========================================================================
+   Offline režim — recepty sa dajú pozerať aj bez internetu.
+
+   sw.js pri výpadku servera ukáže uloženú kópiu stránky a označí ju
+   <html data-offline="kopia" data-offline-ulozene="čas uloženia">. Keď sa
+   pripojenie stratí počas používania, nastavíme data-offline="bez-siete".
+   V oboch prípadoch tlačidlá s atribútom data-vyzaduje-siet (pridanie,
+   úprava, Uvarené, hodnotenie, nákup…) namiesto akcie ukážu vysvetlenie.
+   V uloženej kópii ostanú zablokované aj po návrate internetu, kým sa
+   stránka nenačíta znova — jej bezpečnostný token (CSRF) môže byť neplatný.
+   ======================================================================== */
+const OfflineRezim = (() => {
+    const html = document.documentElement;
+    const jeKopia = () => html.dataset.offline === 'kopia';
+    const jeAktivny = () => Boolean(html.dataset.offline);
+    let internetSpat = false; // v kópii: prišla udalosť 'online', stránku treba načítať znova
+
+    // Náhrada za fotku, ktorá nie je uložená v zariadení (priehľadná, ladí s oboma motívmi).
+    const NAHRADA_FOTKY = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">' +
+        '<g fill="none" stroke="#d97706" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">' +
+        '<rect x="150" y="80" width="100" height="78" rx="12"/><circle cx="200" cy="119" r="20"/>' +
+        '<path d="M138 70l124 98"/></g>' +
+        '<text x="200" y="215" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" ' +
+        'font-size="22" font-weight="600" fill="#d97706">Fotka nie je uložená v zariadení</text></svg>');
+
+    /** Kedy bola kópia uložená: „dnes o 21:30", „včera o 8:05", „12. 10. o 18:00". */
+    function casUlozenia() {
+        const datum = new Date(html.dataset.offlineUlozene || '');
+        if (isNaN(datum.getTime())) return '';
+        const cas = datum.getHours() + ':' + String(datum.getMinutes()).padStart(2, '0');
+        const den = new Date(datum);
+        den.setHours(0, 0, 0, 0);
+        const dnes = new Date();
+        dnes.setHours(0, 0, 0, 0);
+        const dniDozadu = Math.round((dnes - den) / 86400000);
+        if (dniDozadu === 0) return 'dnes o ' + cas;
+        if (dniDozadu === 1) return 'včera o ' + cas;
+        const rok = datum.getFullYear() !== dnes.getFullYear() ? ' ' + datum.getFullYear() : '';
+        return datum.getDate() + '. ' + (datum.getMonth() + 1) + '.' + rok + ' o ' + cas;
+    }
+
+    function aktualizujPasik() {
+        const pasik = document.getElementById('offlinePasik');
+        if (!pasik || !jeAktivny()) return;
+        const nadpis = document.getElementById('offlinePasikNadpis');
+        const popis = document.getElementById('offlinePasikPopis');
+        const tlacidloText = document.getElementById('offlinePasikTlacidloText');
+        const ikona = pasik.querySelector('.offline-pasik-ikona');
+        const spat = jeKopia() && internetSpat;
+
+        pasik.classList.toggle('je-online', spat);
+        ikona?.classList.toggle('bi-wifi-off', !spat);
+        ikona?.classList.toggle('bi-wifi', spat);
+
+        if (spat) {
+            nadpis.textContent = 'Internet je späť';
+            popis.textContent = 'Načítaj aktuálne recepty, potom môžeš znova pridávať a upravovať.';
+            tlacidloText.textContent = 'Načítať aktuálne recepty';
+        } else if (jeKopia()) {
+            const kedy = casUlozenia();
+            nadpis.textContent = 'Bez pripojenia';
+            popis.textContent = 'Pozeráš recepty uložené v zariadení' + (kedy ? ' (' + kedy + ')' : '') +
+                '. Pridávať a upravovať sa dá, až keď bude internet.';
+            tlacidloText.textContent = 'Skúsiť znova';
+        } else {
+            nadpis.textContent = 'Bez pripojenia';
+            popis.textContent = 'Recepty si môžeš pozerať ďalej. Pridávať a upravovať sa dá, až keď sa pripojenie vráti.';
+        }
+    }
+
+    // Klik na tlačidlo, ktoré potrebuje server, zachytíme ešte pred jeho vlastnou akciou
+    // (fáza capture na dokumente). Formuláre offline neodošleme vôbec.
+    function zablokuj(event) {
+        if (!jeAktivny()) return;
+        if (event.type === 'click') {
+            if (!(event.target instanceof Element) || !event.target.closest('[data-vyzaduje-siet]')) return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        showToast(jeKopia() && internetSpat
+            ? 'Internet je späť. Najprv ťukni hore na „Načítať aktuálne recepty“.'
+            : 'Bez internetu sa to nedá. Recepty si teraz môžeš len pozerať.', true);
+    }
+    document.addEventListener('click', zablokuj, true);
+    document.addEventListener('submit', zablokuj, true);
+
+    function nahradFotku(img) {
+        if (!jeAktivny() || img.dataset.offlineNahrada || !img.getAttribute('src')) return;
+        img.dataset.offlineNahrada = '1';
+        img.removeAttribute('srcset');
+        img.src = NAHRADA_FOTKY;
+        img.alt = 'Fotka nie je uložená v zariadení';
+    }
+    document.addEventListener('error', (event) => {
+        if (event.target instanceof HTMLImageElement) nahradFotku(event.target);
+    }, true);
+    // Fotky, ktoré zlyhali skôr, než sa načítal tento skript (zachytil ich skript v hlavičke index.php).
+    (window.APP_CHYBNE_FOTKY || []).forEach(nahradFotku);
+
+    window.addEventListener('online', () => {
+        if (html.dataset.offline === 'bez-siete') {
+            delete html.dataset.offline;
+            showToast('Pripojenie je späť.');
+        } else if (jeKopia()) {
+            internetSpat = true;
+        }
+        aktualizujPasik();
+    });
+    window.addEventListener('offline', () => {
+        internetSpat = false;
+        if (!jeKopia()) html.dataset.offline = 'bez-siete';
+        aktualizujPasik();
+    });
+
+    document.getElementById('offlinePasikTlacidlo')?.addEventListener('click', () => location.reload());
+    aktualizujPasik();
+
+    // Pri obnovení stránky prehliadač vráti pozíciu podľa hornej lišty, takže pásik
+    // (ktorý online stránka nemala) ostane nad okrajom obrazovky. Kto bol hore,
+    // vráti sa hore, aby pásik videl. Hlbšie odscrollovanú pozíciu ani vlastné
+    // posúvanie používateľa nemeníme. Sledujeme len chvíľu po načítaní.
+    if (jeKopia()) {
+        let posuvalPouzivatel = false;
+        ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach((typ) =>
+            window.addEventListener(typ, () => { posuvalPouzivatel = true; }, { once: true, passive: true }));
+        const ukazPasik = () => {
+            const pasik = document.getElementById('offlinePasik');
+            if (posuvalPouzivatel || !pasik) return;
+            // Pásik je (aspoň čiastočne) nad obrazovkou, ale stránka nie je posunutá oveľa ďalej.
+            const r = pasik.getBoundingClientRect();
+            if (r.top < 0 && r.bottom > -60) {
+                window.scrollTo(0, 0);
+            }
+        };
+        window.addEventListener('scroll', ukazPasik, { passive: true });
+        window.addEventListener('load', () => {
+            ukazPasik();
+            setTimeout(() => window.removeEventListener('scroll', ukazPasik), 1500);
+        });
+    }
+
+    return { jeAktivny, jeKopia };
+})();
 
 /* ========================================================================
    Drobné spoločné pomôcky: dátumy, escapovanie, odoslanie akcie na server.
@@ -1374,8 +1526,11 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
         starsEl.querySelectorAll('.rating-star').forEach(starEl => {
             const value = parseInt(starEl.dataset.value, 10);
 
-            // Náhľad pri prejdení myšou, po odídení sa vráti na uložené hodnotenie
-            starEl.addEventListener('mouseenter', () => paintStars(starsEl, value));
+            // Náhľad pri prejdení myšou, po odídení sa vráti na uložené hodnotenie.
+            // Offline sa hodnotiť nedá, preto ani náhľad neukazujeme.
+            starEl.addEventListener('mouseenter', () => {
+                if (!OfflineRezim.jeAktivny()) paintStars(starsEl, value);
+            });
             starEl.addEventListener('mouseleave', () => paintStars(starsEl, myRating));
 
             starEl.addEventListener('click', async () => {
@@ -1573,8 +1728,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Príchod z upozornenia (index.php?recept=12): otvoríme náhľad daného receptu
     // a parameter z adresy odstránime, aby sa pri obnovení stránky neotváral znova.
-    if (window.APP_OPEN_RECIPE) {
-        const card = tableBody.querySelector('.recipe-row[data-recipe-id="' + window.APP_OPEN_RECIPE + '"]');
+    // V uloženej kópii (offline) je APP_OPEN_RECIPE z času uloženia, preto číslo berieme z adresy.
+    const openRecipeId = OfflineRezim.jeKopia()
+        ? (parseInt(new URLSearchParams(location.search).get('recept') || '', 10) || 0)
+        : window.APP_OPEN_RECIPE;
+    if (openRecipeId) {
+        const card = tableBody.querySelector('.recipe-row[data-recipe-id="' + openRecipeId + '"]');
         if (card) {
             try {
                 card.scrollIntoView({ block: 'center' });

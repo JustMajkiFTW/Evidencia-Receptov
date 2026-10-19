@@ -251,12 +251,23 @@ $allSuroviny = get_all_suroviny($pdo);
 $recipeSuroviny = get_all_recipe_suroviny($pdo);
 $photosEnabled = recipes_have_photos($pdo);
 $recipePhotos = get_recipe_photos($pdo);
+
+// Značka pre sw.js: túto stránku si môže uložiť a ukázať ju bez internetu (len na čítanie).
+header('X-Recepty-Offline: 1');
 ?>
 <!DOCTYPE html>
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
     <script src="theme.js"></script>
+    <script>
+        // Offline režim: fotky, ktoré sa nenačítali skôr, než sa načíta script.js
+        // (ten ich potom nahradí obrázkom „Fotka nie je uložená v zariadení").
+        window.APP_CHYBNE_FOTKY = [];
+        document.addEventListener('error', function (e) {
+            if (e.target && e.target.tagName === 'IMG') window.APP_CHYBNE_FOTKY.push(e.target);
+        }, true);
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Evidencia receptov</title>
 
@@ -271,7 +282,7 @@ $recipePhotos = get_recipe_photos($pdo);
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=22">
+    <link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
 
@@ -283,6 +294,19 @@ $recipePhotos = get_recipe_photos($pdo);
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
         </div>
     </div>
+</div>
+
+<!-- Pásik offline režimu: zobrazí ho style.css/script.js, keď je <html data-offline="…">
+     (uložená kópia stránky zo sw.js alebo stratené pripojenie počas používania). -->
+<div id="offlinePasik" class="offline-pasik mx-3 mt-3" role="status" aria-live="polite">
+    <i class="bi bi-wifi-off offline-pasik-ikona" aria-hidden="true"></i>
+    <div class="offline-pasik-text">
+        <strong id="offlinePasikNadpis">Bez pripojenia</strong>
+        <span id="offlinePasikPopis">Recepty si môžeš pozerať, ale meniť ich teraz nemôžeš.</span>
+    </div>
+    <button type="button" class="btn btn-warning fw-semibold offline-pasik-tlacidlo" id="offlinePasikTlacidlo">
+        <i class="bi bi-arrow-clockwise me-1"></i><span id="offlinePasikTlacidloText">Skúsiť znova</span>
+    </button>
 </div>
 
 <header class="app-navbar mx-3 mt-3 px-3 px-md-4 py-3">
@@ -297,11 +321,11 @@ $recipePhotos = get_recipe_photos($pdo);
         </div>
     </div>
     <div class="app-navbar-actions">
-        <button type="button" class="btn btn-primary btn-sm fw-semibold app-nav-add" onclick="openRecipeModal()">
+        <button type="button" class="btn btn-primary btn-sm fw-semibold app-nav-add" onclick="openRecipeModal()" data-vyzaduje-siet>
             <i class="bi bi-plus-lg"></i><span class="btn-label btn-label-long">Pridať recept</span><span class="btn-label btn-label-short">Pridať</span>
         </button>
         <?php if ($shoppingEnabled): ?>
-        <button type="button" class="btn btn-outline-primary btn-sm position-relative" onclick="openShoppingModal()"
+        <button type="button" class="btn btn-outline-primary btn-sm position-relative" onclick="openShoppingModal()" data-vyzaduje-siet
                 title="Nákupný zoznam" aria-label="Nákupný zoznam">
             <i class="bi bi-cart3"></i><span class="btn-label">Nákup</span>
             <span class="badge rounded-pill text-bg-danger shopping-count<?= $shoppingCount ? '' : ' d-none' ?>"
@@ -312,17 +336,17 @@ $recipePhotos = get_recipe_photos($pdo);
             <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
         </button>
         <?php if (is_admin()): ?>
-        <a href="admin/index.php" class="btn btn-outline-secondary btn-sm" title="Používatelia" aria-label="Používatelia">
+        <a href="admin/index.php" class="btn btn-outline-secondary btn-sm" title="Používatelia" aria-label="Používatelia" data-vyzaduje-siet>
             <i class="bi bi-people-fill"></i><span class="btn-label">Používatelia</span>
         </a>
         <?php endif; ?>
-        <button type="button" class="btn btn-outline-primary btn-sm" onclick="setupPasskeyFromApp()" title="Zapnúť biometriu" aria-label="Zapnúť biometriu">
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="setupPasskeyFromApp()" title="Zapnúť biometriu" aria-label="Zapnúť biometriu" data-vyzaduje-siet>
             <i class="bi bi-fingerprint"></i><span class="btn-label">Biometria</span>
         </button>
-        <button type="button" class="btn btn-outline-primary btn-sm" onclick="enablePushNotifications()" title="Povoliť notifikácie" aria-label="Povoliť notifikácie">
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="enablePushNotifications()" title="Povoliť notifikácie" aria-label="Povoliť notifikácie" data-vyzaduje-siet>
             <i class="bi bi-bell-fill"></i><span class="btn-label">Notifikácie</span>
         </button>
-        <a href="logout.php" class="btn btn-outline-danger btn-sm" title="Odhlásiť" aria-label="Odhlásiť">
+        <a href="logout.php" class="btn btn-outline-danger btn-sm" title="Odhlásiť" aria-label="Odhlásiť" data-vyzaduje-siet>
             <i class="bi bi-box-arrow-right"></i><span class="btn-label">Odhlásiť</span>
         </a>
     </div>
@@ -478,7 +502,7 @@ $recipePhotos = get_recipe_photos($pdo);
 
                         <div class="recipe-rating d-flex align-items-center flex-wrap gap-2 mb-1"
                              data-recipe-id="<?= $r['id'] ?>" data-user-rating="<?= $myRating ?>">
-                            <span class="rating-stars">
+                            <span class="rating-stars" data-vyzaduje-siet>
                                 <?php for ($i = 1; $i <= 5; $i++): ?>
                                     <i class="bi <?= $i <= $myRating ? 'bi-star-fill' : 'bi-star' ?> rating-star" data-value="<?= $i ?>"
                                        role="button" title="Hodnotiť: <?= $i ?>/5"></i>
@@ -495,28 +519,28 @@ $recipePhotos = get_recipe_photos($pdo);
                     </div>
 
                     <div class="recipe-card-actions">
-                        <button class="btn btn-outline-success btn-sm btn-mark-made" data-id="<?= $r['id'] ?>"
+                        <button class="btn btn-outline-success btn-sm btn-mark-made" data-id="<?= $r['id'] ?>" data-vyzaduje-siet
                                 data-name="<?= htmlspecialchars($r['name'], ENT_QUOTES) ?>"
                                 title="Uvarené — zapísať dátum a pridať fotku" aria-label="Uvarené">
                             <i class="bi bi-check2-circle"></i>
                         </button>
                         <?php if ($shoppingEnabled && $suroviny): ?>
-                        <button type="button" class="btn btn-outline-secondary btn-sm btn-add-shopping" data-id="<?= $r['id'] ?>"
+                        <button type="button" class="btn btn-outline-secondary btn-sm btn-add-shopping" data-id="<?= $r['id'] ?>" data-vyzaduje-siet
                                 title="Pridať suroviny do nákupu" aria-label="Pridať suroviny do nákupu">
                             <i class="bi bi-cart-plus"></i>
                         </button>
                         <?php endif; ?>
-                        <button type="button" class="btn btn-outline-info btn-sm"
+                        <button type="button" class="btn btn-outline-info btn-sm" data-vyzaduje-siet
                                 onclick="openHistoryModal(<?= $r['id'] ?>, '<?= htmlspecialchars($r['name'], ENT_QUOTES) ?>')"
                                 title="História receptu">
                             <i class="bi bi-clock-history"></i>
                         </button>
-                        <button type="button" class="btn btn-outline-primary btn-sm"
+                        <button type="button" class="btn btn-outline-primary btn-sm" data-vyzaduje-siet
                                 onclick='openRecipeModal(<?= $editPayload ?>)' title="Upraviť recept">
                             <i class="bi bi-pencil"></i>
                         </button>
                         <?php if (is_admin()): ?>
-                            <button class="btn btn-outline-danger btn-sm btn-delete-recipe"
+                            <button class="btn btn-outline-danger btn-sm btn-delete-recipe" data-vyzaduje-siet
                                     data-id="<?= $r['id'] ?>"
                                     data-name="<?= htmlspecialchars($r['name'], ENT_QUOTES) ?>" title="Zmazať recept">
                                 <i class="bi bi-trash"></i>
@@ -723,7 +747,7 @@ $recipePhotos = get_recipe_photos($pdo);
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Zavrieť</button>
                 <?php if ($shoppingEnabled): ?>
-                <button type="button" class="btn btn-outline-primary btn-sm fw-semibold d-none" id="viewRecipeShoppingBtn">
+                <button type="button" class="btn btn-outline-primary btn-sm fw-semibold d-none" id="viewRecipeShoppingBtn" data-vyzaduje-siet>
                     <i class="bi bi-cart-plus me-1"></i>Do nákupu
                 </button>
                 <?php endif; ?>
@@ -731,7 +755,7 @@ $recipePhotos = get_recipe_photos($pdo);
                         style="background-color:#0d6efd; border-color:#0d6efd;">
                     <i class="bi bi-share-fill me-1"></i>Zdieľať
                 </button>
-                <button type="button" class="btn btn-primary btn-sm fw-semibold" id="viewRecipeEditBtn">
+                <button type="button" class="btn btn-primary btn-sm fw-semibold" id="viewRecipeEditBtn" data-vyzaduje-siet>
                     <i class="bi bi-pencil me-1"></i>Upraviť recept
                 </button>
             </div>
@@ -740,7 +764,7 @@ $recipePhotos = get_recipe_photos($pdo);
 </div>
 <?php if ($shoppingEnabled): ?>
 <!-- Plávajúce tlačidlo košíka — nákupný zoznam je po ruke aj po odscrollovaní dole -->
-<button type="button" class="shopping-fab<?= $shoppingCount ? '' : ' d-none' ?>" id="shoppingFab"
+<button type="button" class="shopping-fab<?= $shoppingCount ? '' : ' d-none' ?>" id="shoppingFab" data-vyzaduje-siet
         onclick="openShoppingModal()" aria-label="Otvoriť nákupný zoznam" title="Nákupný zoznam">
     <i class="bi bi-cart3"></i>
     <span class="badge rounded-pill text-bg-danger shopping-fab-count"><?= $shoppingCount ?></span>
@@ -962,7 +986,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
 </script>
 <script src="suroviny.js?v=21"></script>
-<script src="script.js?v=22"></script>
+<script src="script.js?v=23"></script>
 </body>
 </html>
 <?php

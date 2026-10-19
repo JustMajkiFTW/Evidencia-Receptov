@@ -240,6 +240,7 @@ $p = new Prehliadac($adresa);
 $o = $p->get('index.php');
 over(in_array($o->kod, [301, 302, 303], true) && str_contains($o->presmerovanie(), 'login.php'),
     'Hlavná stránka bez prihlásenia presmeruje na prihlásenie', $o->popis());
+over(!isset($o->hlavicky['x-recepty-offline']), 'Presmerovanie na prihlásenie si zariadenie neuloží na offline');
 
 $o = $p->get('login.php');
 $csrf = csrf_zo_stranky($o->telo);
@@ -260,6 +261,10 @@ over(in_array($o->kod, [301, 302, 303], true) && str_contains($o->presmerovanie(
 
 $o = $p->get('index.php');
 over($o->kod === 200 && bez_chyby($o), 'Hlavná stránka sa po prihlásení načíta', $o->popis());
+over(($o->hlavicky['x-recepty-offline'] ?? '') === '1',
+    'Hlavnú stránku si zariadenie môže uložiť na čítanie bez internetu (hlavička X-Recepty-Offline)');
+over(str_contains($o->telo, 'id="offlinePasik"') && substr_count($o->telo, 'data-vyzaduje-siet') >= 5,
+    'Stránka má pásik offline režimu a označené tlačidlá, ktoré potrebujú server');
 $csrf = csrf_zo_stranky($o->telo);
 over($csrf !== null, 'Hlavná stránka obsahuje bezpečnostný token (CSRF)');
 $csrf = (string) $csrf;
@@ -281,6 +286,7 @@ echo "\nRecepty\n";
 
 $o = akcia($p, 'zly-token', 'get_logs', ['recipe_id' => 1]);
 over($o->kod === 403 && ($o->json()['success'] ?? null) === false, 'Akcia s neplatným tokenom sa odmietne', $o->popis());
+over(!isset($o->hlavicky['x-recepty-offline']), 'Odpoveď akcie (JSON) nemá značku pre offline');
 
 $nazov = "Kurací vývar test $znacka";
 $suroviny = json_encode([

@@ -18,6 +18,7 @@ Tento dokument má dve časti:
 - **Hodnotenie hviezdičkami** a **história** každého receptu (kto ho pridal, upravil, uvaril, ohodnotil).
 - **Upozornenia do telefónu** na nový recept, na hodnotenie tvojho receptu a pripomienky dlho nevarených receptov.
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
+- **Recepty aj bez internetu.** Posledné načítané recepty sa uložia v zariadení a bez pripojenia sa dajú pozerať (meniť nie).
 - **Svetlý a tmavý vzhľad**, veľké ovládacie prvky vhodné aj pre starších používateľov.
 
 ---
@@ -137,6 +138,7 @@ Heslo k databáze nesmie byť prázdne. Predvolený účet `root` bez hesla, ak�
 |---|---|---|---|
 | Recepty, suroviny, porcie, nákupný zoznam | áno | áno | áno |
 | Pridanie na plochu (PWA) | áno | nie | áno |
+| Recepty bez internetu | áno | nie | áno |
 | Upozornenia | áno | nie | áno |
 | Biometria | nie | nie | áno |
 | Prístup z telefónu | nie | áno | áno |
@@ -207,6 +209,7 @@ Chyby appka zapisuje do `includes/debug-log.txt`. Pri hľadaní problému nastav
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou, na ktorej appka beží, alebo appka nebeží na HTTPS. |
 | Po nahratí novej verzie vidno starý vzhľad | V `sw.js` nebola zvýšená verzia cache, pozri [Úprava a nasadenie novej verzie](#úprava-a-nasadenie-novej-verzie). |
 | Stále sa treba prihlasovať | Pri prihlásení nebolo zaškrtnuté „Zostať prihlásený", alebo prehliadač maže cookies. |
+| Bez internetu sa namiesto receptov ukáže „Si offline" | V zariadení ešte nie je uložená kópia receptov: appku treba aspoň raz otvoriť s internetom a s prihlásením. Kópia sa zmaže aj pri odhlásení. Bez HTTPS (okrem `localhost`) sa nič neukladá, pozri [B10](#b10-aplikácia-na-ploche-a-service-worker). |
 
 ## A9. Aktualizácia na novú verziu
 
@@ -313,9 +316,9 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `webauthn-client.js` | Biometria v prehliadači. |
 | `theme.js` | Svetlý a tmavý vzhľad, prepnutie na HTTPS. Načítava sa ako prvý na každej stránke. |
 | `style.css` | Vlastné štýly nad Bootstrapom. |
-| `sw.js` | Service worker: cache statických súborov, offline stránka, príjem upozornení. |
+| `sw.js` | Service worker: cache statických súborov a knižníc z CDN, uložená kópia receptov na čítanie bez internetu, fotky, offline stránka, príjem upozornení. |
 | `manifest.json`, `app-icons/` | Údaje a ikony pre inštaláciu na plochu. |
-| `offline.html` | Stránka zobrazená bez pripojenia. |
+| `offline.html` | Stránka zobrazená bez pripojenia, keď v zariadení nie je uložená kópia receptov, a pre stránky, ktoré bez servera nefungujú. |
 | `admin/index.php` | Správa používateľov (len admin). |
 | `admin/prevod-surovin.php` | Jednorazový prevod receptov zo starej verzie, kde boli suroviny voľným textom. Pri novej inštalácii nie je potrebný. |
 | `includes/config.php` | Nastavenie session, zápis chýb, načítanie `.env`, pripojenie k databáze. |
@@ -475,22 +478,40 @@ Zariadenie, ktoré odber zrušilo, appka z databázy sama vymaže pri najbližš
 
 ## B10. Aplikácia na ploche a service worker
 
-`manifest.json` umožňuje pridať appku na plochu. `sw.js` rieši tri veci:
+`manifest.json` umožňuje pridať appku na plochu. `sw.js` rieši tieto veci:
 
-- **Cache statických súborov** (štýly, skripty, ikony), aby sa appka načítala rýchlo.
-- **Stránky PHP nikdy z cache.** Vždy sa načítajú zo servera, pri výpadku pripojenia sa ukáže `offline.html`.
+- **Cache statických súborov** (štýly, skripty, ikony) a knižníc Bootstrap z CDN, aby sa appka načítala rýchlo a mala vzhľad aj bez internetu.
+- **Recepty bez internetu.** Hlavná stránka sa vždy načíta zo servera a jej kópia sa uloží v zariadení. Keď server neodpovie, ukáže sa táto kópia (pozri [Offline režim](#offline-režim)).
+- **Fotky receptov** v samostatnej cache, najviac 250 naposledy uložených. Názov fotky je jedinečný a obsah sa nemení, preto sa po uložení berú z cache.
+- **Ostatné stránky PHP nikdy z cache** (prihlásenie, správa používateľov, biometria). Pri výpadku pripojenia sa ukáže `offline.html`.
 - **Príjem upozornení** a otvorenie správneho receptu po kliknutí.
 
-Appka offline nefunguje, bez pripojenia ukáže len informačnú stránku.
+### Offline režim
+
+Pri každom načítaní hlavnej stránky prihláseným používateľom si `sw.js` uloží jej kópiu. `index.php` ju na to označí hlavičkou `X-Recepty-Offline: 1`, takže presmerovanie na prihlásenie ani odpovede akcií sa neuložia. Keď sa server nedá zastihnúť, neodpovie do 10 sekúnd alebo hlási výpadok hostingu (502, 503, 504), ukáže sa uložená kópia:
+
+- hore je pásik **Bez pripojenia** s časom uloženia a tlačidlom **Skúsiť znova**,
+- funguje hľadanie, filter kategórií, radenie, náhľad receptu, galéria uložených fotiek, prepočet porcií aj zdieľanie textu receptu,
+- tlačidlá, ktoré potrebujú server (pridanie, úprava, Uvarené, hodnotenie, história, nákupný zoznam, notifikácie, biometria, správa používateľov, odhlásenie), sú vyblednuté a po ťuknutí vysvetlia, že bez internetu to nejde; v `index.php` majú atribút `data-vyzaduje-siet`,
+- fotka, ktorá v zariadení uložená nie je, sa nahradí obrázkom „Fotka nie je uložená v zariadení",
+- keď sa internet vráti, pásik zozelenie a ponúkne **Načítať aktuálne recepty**. Dovtedy ostanú tlačidlá zablokované, lebo uložená kópia môže mať neplatný bezpečnostný token (CSRF).
+
+Keď sa pripojenie stratí počas používania appky, zobrazí sa rovnaký pásik a zablokujú sa rovnaké tlačidlá. Po návrate pripojenia sa všetko odblokuje samo.
+
+Uložená je vždy len jedna kópia, po prihlásení iného používateľa sa prepíše jeho stránkou. Kópia aj fotky sa zmažú pri odhlásení a vždy, keď server pošle zariadenie na prihlásenie (napr. vypršané prihlásenie).
+
+Po nahratí novej verzie si nový service worker kópiu stránky uloží hneď, ako prevezme otvorenú stránku (požiada ho o to `script.js`), takže offline režim funguje už po prvom otvorení appky s internetom.
 
 ### Úprava a nasadenie novej verzie
 
-Statické súbory si prehliadače držia v cache. Po každej zmene v `style.css`, `script.js`, `suroviny.js`, `theme.js` alebo `webauthn-client.js` preto treba:
+Statické súbory si prehliadače držia v cache. Po každej zmene v `style.css`, `script.js`, `suroviny.js`, `theme.js`, `webauthn-client.js` alebo `offline.html` preto treba:
 
-1. v `sw.js` zvýšiť číslo v `CACHE_NAME` (napr. `recepty-static-v21` na `v22`),
+1. v `sw.js` zvýšiť číslo v `CACHE_NAME` (napr. `recepty-static-v22` na `v23`),
 2. v `index.php` a `login.php` zvýšiť číslo za `?v=` pri odkazoch na zmenené súbory.
 
 Bez toho uvidia používatelia starú verziu, kým sa cache neobnoví sama. Automatický test ([B14](#b14-automatické-testy-a-pravidlá-pre-novú-verziu)) skontroluje, či sa na to nezabudlo.
+
+Pri zmene verzie Bootstrapu alebo ikon v `index.php` treba rovnaké adresy zapísať aj do `CDN_ASSETS` v `sw.js`, pri ikonách aj adresu písma (`fonts/bootstrap-icons.woff2?…` zo súboru `bootstrap-icons.min.css`). Inak by uložená kópia offline nemala vzhľad. Adresy z `index.php` kontroluje aj automatický test, písmo ikon nie.
 
 ## B11. Zápis chýb
 
@@ -518,7 +539,7 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 
 ## B13. Známe obmedzenia
 
-- Bez pripojenia na internet nefunguje.
+- Bez internetu sa recepty dajú len pozerať, a to v stave z posledného načítania. Pridávať, upravovať, hodnotiť ani používať nákupný zoznam sa nedá. Offline sú len fotky, ktoré sa v zariadení predtým zobrazili.
 - Nákupný zoznam sa medzi zariadeniami neobnovuje naživo.
 - Jednotky sa pri prepočte porcií neprevádzajú.
 - Kategórie receptov sa nedajú meniť v appke, len v kóde.
@@ -536,7 +557,7 @@ Testy sú v priečinku `testy/`. GitHub ich spúšťa pri každom nahratí do `m
 5. **databázu z predchádzajúcej verzie bez migrácie:** nová appka na nej musí bežať,
 6. **migrácie** na tej istej databáze (každú dvakrát po sebe), znova priechod appkou a porovnanie štruktúry s novou inštaláciou.
 
-Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, otvorí správu používateľov, biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Po každom priechode skontroluje aj záznam chýb appky.
+Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, otvorí správu používateľov, biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
 
 Po nahratí na server skript `testy/kontrola-po-nahrati.sh` overí ostrú appku a `testy/kontrola-ftp.sh` pred nahratím skontroluje FTP a cieľový priečinok.
 
@@ -560,9 +581,19 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Migráciu musí ísť spustiť opakovane bez zdvojenia dát. | Spustí ju dvakrát a porovná počty riadkov. Chyba. |
 | Migrácie len pridávajú. Tabuľku ani stĺpec, ktorý používa predchádzajúca verzia, nemazať ani nepremenovať v tej istej verzii; urobí sa to až v ďalšej, keď je jasné, že nová funguje. Inak by pri návrate ([A11](#a11-návrat-k-predchádzajúcej-verzii)) nestačilo vrátiť súbory. | Netestuje sa, treba na to myslieť. |
 | Zmena `composer.lock` znamená ručne nahrať `vendor/`. | Upozornenie. |
+| Knižnice z CDN v `index.php` musia byť aj v `CDN_ASSETS` v `sw.js`, aby mala appka vzhľad aj offline. | Porovná adresy. Chyba. |
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.3**
+
+- Recepty sa dajú pozerať aj bez internetu. Appka si pri každom načítaní uloží kópiu receptov a pri výpadku pripojenia ju ukáže s pásikom Bez pripojenia a časom uloženia. Funguje hľadanie, filtre, náhľad receptu aj prepočet porcií.
+- Pridávanie, úpravy, Uvarené, hodnotenie a nákupný zoznam potrebujú internet. Ich tlačidlá sú offline vyblednuté a po ťuknutí vysvetlia prečo.
+- Bootstrap a ikony sa ukladajú do cache, fotky receptov do vlastnej cache s limitom 250. Pri odhlásení sa uložené recepty aj fotky zo zariadenia zmažú.
+- Stránka „Si offline" má väčšie tlačidlá a odkaz na uložené recepty.
+- Automatický test overuje, že adresy knižníc v `index.php` a `sw.js` sedia.
+- Databáza sa nemení, migrácia netreba.
 
 **1.2**
 
