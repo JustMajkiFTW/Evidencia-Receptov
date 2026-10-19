@@ -251,6 +251,7 @@ $allSuroviny = get_all_suroviny($pdo);
 $recipeSuroviny = get_all_recipe_suroviny($pdo);
 $photosEnabled = recipes_have_photos($pdo);
 $recipePhotos = get_recipe_photos($pdo);
+$recipeCategories = get_recipe_categories($pdo); // z tabuľky kategorie_receptov, bez migrácie základný zoznam
 
 // Značka pre sw.js: túto stránku si môže uložiť a ukázať ju bez internetu (len na čítanie).
 header('X-Recepty-Offline: 1');
@@ -282,7 +283,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=23">
+    <link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
 
@@ -336,8 +337,8 @@ header('X-Recepty-Offline: 1');
             <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
         </button>
         <?php if (is_admin()): ?>
-        <a href="admin/index.php" class="btn btn-outline-secondary btn-sm" title="Používatelia" aria-label="Používatelia" data-vyzaduje-siet>
-            <i class="bi bi-people-fill"></i><span class="btn-label">Používatelia</span>
+        <a href="admin/index.php" class="btn btn-outline-secondary btn-sm" title="Správa: používatelia a kategórie receptov" aria-label="Správa: používatelia a kategórie receptov" data-vyzaduje-siet>
+            <i class="bi bi-gear-fill"></i><span class="btn-label">Správa</span>
         </a>
         <?php endif; ?>
         <button type="button" class="btn btn-outline-primary btn-sm" onclick="setupPasskeyFromApp()" title="Zapnúť biometriu" aria-label="Zapnúť biometriu" data-vyzaduje-siet>
@@ -368,13 +369,9 @@ header('X-Recepty-Offline: 1');
         <select id="recipeCategoryFilter" class="form-select form-select-sm shadow-sm"
                 style="width:auto; min-width:170px;">
             <option value="">Všetky kategórie</option>
-            <option value="Polievky">Polievky</option>
-            <option value="Hlavné jedlá">Hlavné jedlá</option>
-            <option value="Bezmäsité">Bezmäsité jedlá</option>
-            <option value="Fit">Nízko kal. / Fit</option>
-            <option value="Dezerty">Dezerty a pečenie</option>
-            <option value="Rýchlovky">Rýchlovky / Večere</option>
-			<option value="Raňajky">Raňajky</option>
+            <?php foreach ($recipeCategories as $kategoria): ?>
+                <option value="<?= htmlspecialchars($kategoria['kluc']) ?>"><?= htmlspecialchars($kategoria['nazov']) ?></option>
+            <?php endforeach; ?>
         </select>
 
         <select id="recipeSortSelect" class="form-select form-select-sm shadow-sm" style="width:auto; min-width:220px;">
@@ -433,6 +430,7 @@ header('X-Recepty-Offline: 1');
                         'prep_time' => $r['prep_time'] ?? '',
                         'servings' => !empty($r['servings']) ? (int) $r['servings'] : null,
                         'category' => $r['category'] ?? '',
+                        'categoryLabel' => recipe_category_label($recipeCategories, $r['category'] ?? null),
                         'imagePath' => $coverPath,
                         'photos' => $photos,
                         'badgeText' => $badgeText,
@@ -485,7 +483,7 @@ header('X-Recepty-Offline: 1');
                         <div class="d-flex flex-wrap gap-1 mb-2">
                             <?php if (!empty($r['category'])): ?>
                                 <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle small px-2 py-1">
-                                    <?= htmlspecialchars($r['category']) ?>
+                                    <?= htmlspecialchars(recipe_category_label($recipeCategories, $r['category'])) ?>
                                 </span>
                             <?php endif; ?>
 
@@ -577,13 +575,9 @@ header('X-Recepty-Offline: 1');
                             <label class="form-label small text-secondary">Kategória</label>
                             <select name="category" class="form-select">
                                 <option value="">-- Nevybrané --</option>
-                                <option value="Polievky">Polievky</option>
-                                <option value="Hlavné jedlá">Hlavné jedlá</option>
-                                <option value="Bezmäsité">Bezmäsité jedlá</option>
-                                <option value="Fit">Nízko kal. / Fit</option>
-                                <option value="Dezerty">Dezerty a pečenie</option>
-                                <option value="Rýchlovky">Rýchlovky / Večere</option>
-								<option value="Raňajky">Raňajky</option>
+                                <?php foreach ($recipeCategories as $kategoria): ?>
+                                    <option value="<?= htmlspecialchars($kategoria['kluc']) ?>"><?= htmlspecialchars($kategoria['nazov']) ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="<?= $servingsEnabled ? 'col-6' : 'col-md-6' ?>">
@@ -985,8 +979,8 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_JEDNOTKY = <?= json_encode(SUROVINA_JEDNOTKY, JSON_UNESCAPED_UNICODE) ?>;
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
 </script>
-<script src="suroviny.js?v=21"></script>
-<script src="script.js?v=24"></script>
+<script src="suroviny.js?v=25"></script>
+<script src="script.js?v=25"></script>
 </body>
 </html>
 <?php

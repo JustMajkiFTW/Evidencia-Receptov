@@ -836,3 +836,30 @@ html[data-offline] [data-vyzaduje-siet] {
     filter: grayscale(1);
 }
 html[data-offline] .recipe-card .rating-star { cursor: default; }
+
+/* ============================================================
+   Správa kategórií receptov (admin/index.php) — veľké ovládacie prvky.
+   ============================================================ */
+.kategorie-zoznam { display: flex; flex-direction: column; gap: .75rem; }
+.kategoria-riadok {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem .75rem;
+    padding: .75rem;
+    border: 1px solid var(--app-border);
+    border-radius: 12px;
+}
+.kategoria-premenovat { display: flex; gap: .5rem; flex: 1 1 260px; min-width: 0; }
+.kategoria-premenovat .kategoria-nazov { flex: 1 1 auto; min-width: 0; }
+.kategoria-nazov { min-height: 48px; font-size: 1.05rem; }
+form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
+.kategoria-nazov-text { flex: 1 1 200px; font-size: 1.05rem; font-weight: 600; }
+.kategoria-pocet { white-space: nowrap; }
+.kategoria-akcie { display: flex; gap: .5rem; margin-left: auto; }
+.kategoria-tlacidlo { min-height: 48px; min-width: 48px; font-size: 1.05rem; white-space: nowrap; flex-shrink: 0; }
+.kategoria-premenovat { align-items: center; }
+@media (max-width: 575px) {
+    .kategoria-premenovat { flex-basis: 100%; }
+    .kategoria-akcie { margin-left: 0; }
+}

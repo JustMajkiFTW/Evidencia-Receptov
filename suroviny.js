@@ -39,6 +39,88 @@
     }
 
     /* --------------------------------------------------------------------
+       Prevod jednotiek pre prepočítané množstvá (prepočet porcií, nákupný
+       zoznam). Prevádza sa len v rámci jednej skupiny — lyžicu na gramy
+       previesť nejde, každá surovina má inú hustotu:
+         hmotnosť  g ↔ kg        (od 1000 g kilogramy)
+         objem     ml, dl, l → ml alebo l (od 1000 ml litre)
+         lyžice    ČL ↔ PL       (1 PL = 3 ČL)
+       Lyžice, šálky a kusy sa zobrazujú v zlomkoch (1½ ČL), lebo „0,33 PL"
+       sa odmerať nedá: ČL a šálky po štvrtinách, PL a kusy po polovičkách,
+       štipka na celé. V nákupe sa kusy a štipky zaokrúhľujú nahor na celé.
+       -------------------------------------------------------------------- */
+    const ZLOMKY = { 25: '¼', 50: '½', 75: '¾' };
+    const KUSOVE = ['ks', 'balenie', 'plátok', 'strúčik', ''];
+
+    /** Číslo zaokrúhlené na násobok kroku (½, ¼) a zapísané so zlomkom: 1.5 → „1½", 0.25 → „¼". */
+    function zlomkom(value, krok, nahor) {
+        const pocet = value / krok;
+        const zaokruhlene = Math.max(1, nahor ? Math.ceil(pocet - 1e-9) : Math.round(pocet)) * krok;
+        const cele = Math.floor(zaokruhlene + 1e-9);
+        const zlomok = ZLOMKY[Math.round((zaokruhlene - cele) * 100)] || '';
+        return { cislo: zaokruhlene, text: (cele > 0 ? String(cele) : '') + zlomok };
+    }
+
+    /** Metrické množstvo: veľké na celé čísla (313), stredné na desatiny (12,5), malé na stotiny (0,63). */
+    function metricke(value) {
+        if (value >= 100) return Math.round(value);
+        if (value >= 10) return Math.round(value * 10) / 10;
+        return Math.max(0.01, Math.round(value * 100) / 100);
+    }
+
+    /**
+     * Množstvo prevedené na najvhodnejšiu jednotku tej istej skupiny.
+     * opts.nakup: kusy sa zaokrúhľujú nahor na celé (radšej o vajce viac, než menej).
+     * Vráti { mnozstvo, jednotka, text } — text je napr. „1,25 kg", „1½ ČL", „3 ks".
+     */
+    function prevedDavku(mnozstvo, jednotka, opts = {}) {
+        const number = Number(String(mnozstvo ?? '').replace(',', '.'));
+        jednotka = jednotka || '';
+        if (!isFinite(number) || number <= 0) {
+            return { mnozstvo: null, jednotka, text: jednotka };
+        }
+        const hotovo = (cislo, jed, text) => ({
+            mnozstvo: cislo, jednotka: jed, text: [text ?? formatMnozstvo(cislo), jed].filter(Boolean).join(' '),
+        });
+
+        if (jednotka === 'g' || jednotka === 'kg') {
+            const g = jednotka === 'kg' ? number * 1000 : number;
+            return g >= 1000 ? hotovo(Math.round(g / 10) / 100, 'kg') : hotovo(metricke(g), 'g');
+        }
+        if (jednotka === 'ml' || jednotka === 'dl' || jednotka === 'l') {
+            const ml = number * ({ ml: 1, dl: 100, l: 1000 }[jednotka]);
+            return ml >= 1000 ? hotovo(Math.round(ml / 10) / 100, 'l') : hotovo(metricke(ml), 'ml');
+        }
+        if (jednotka === 'ČL' || jednotka === 'PL') {
+            const cl = jednotka === 'PL' ? number * 3 : number;
+            const pl = cl / 3;
+            // Na polievkové lyžice, keď to vyjde aspoň na 1 PL a odmeria sa to po polovičkách
+            // (6 ČL → 2 PL), alebo keď to v PL bolo už zadané. Inak čajové lyžičky.
+            const pekneVPL = Math.abs(pl * 2 - Math.round(pl * 2)) < 0.08;
+            if (pl >= 1 && (pekneVPL || jednotka === 'PL')) {
+                const s = zlomkom(pl, 0.5);
+                return hotovo(s.cislo, 'PL', s.text);
+            }
+            const s = zlomkom(cl, 0.25);
+            return hotovo(s.cislo, 'ČL', s.text);
+        }
+        if (jednotka === 'šálka') {
+            const s = zlomkom(number, 0.25);
+            return hotovo(s.cislo, jednotka, s.text);
+        }
+        if (KUSOVE.includes(jednotka)) {
+            // V recepte na polovice (1½ vajca), v nákupe nahor na celé — pol vajca sa kúpiť nedá.
+            const s = opts.nakup ? zlomkom(number, 1, true) : zlomkom(number, 0.5);
+            return hotovo(s.cislo, jednotka, s.text);
+        }
+        if (jednotka === 'štipka') {
+            const s = zlomkom(number, 1, opts.nakup);
+            return hotovo(s.cislo, jednotka, s.text);
+        }
+        return hotovo(metricke(number), jednotka);
+    }
+
+    /* --------------------------------------------------------------------
        Vyhľadávací výber suroviny.
        input musí byť vnútri prvku s triedou .surovina-combo (position: relative).
        options:
@@ -257,5 +339,5 @@
         };
     }
 
-    global.Suroviny = { normKey, displayName, formatMnozstvo, formatDavka, attachCombobox, createDetailFields, readDetailFields };
+    global.Suroviny = { normKey, displayName, formatMnozstvo, formatDavka, prevedDavku, attachCombobox, createDetailFields, readDetailFields };
 })(window);

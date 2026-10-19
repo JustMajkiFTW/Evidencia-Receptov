@@ -12,7 +12,8 @@ Tento dokument má dve časti:
 - **Recepty** s názvom, kategóriou, časom prípravy, počtom porcií, odkazom na pôvodný web a poznámkami.
 - **Galéria fotiek.** Ku každému vareniu sa dá pridať nová fotka a staršie ostávajú, každá so svojím dátumom. V náhľade receptu sa medzi nimi listuje.
 - **Suroviny z číselníka.** Vyberajú sa vo vyhľadávacom poli, ktoré ignoruje veľké písmená a diakritiku, takže „Múka hladká" a „muka hladka" je vždy tá istá surovina. V základe je 418 surovín v 14 kategóriách a ďalšie sa pridávajú priamo pri písaní receptu.
-- **Prepočet porcií.** V náhľade receptu sa tlačidlami − a + mení počet porcií a množstvá sa prepočítajú.
+- **Prepočet porcií.** V náhľade receptu sa tlačidlami − a + mení počet porcií. Množstvá sa prepočítajú a prevedú na jednotku, ktorá sa dá odmerať (2000 g → 2 kg, 0,5 PL → 1½ ČL).
+- **Kategórie receptov** spravuje admin priamo v appke: pridá, premenuje, zoradí aj zmaže nepoužívanú.
 - **Nákupný zoznam** spoločný pre všetkých. Suroviny z viacerých receptov sa zlúčia a sčítajú, zoznam sa dá odškrtávať a odoslať do Google Keep alebo inej appky. Zmeny od ostatných sa v otvorenom zozname objavia do pár sekúnd.
 - **Prehľad, čo sa kedy varilo.** Tlačidlom Uvarené sa zapíše deň varenia (aj spätne) a k nemu nepovinná fotka. Pri recepte je vidno, pred koľkými dňami sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodilo ho zopakovať.
 - **Hodnotenie hviezdičkami** a **história** každého receptu (kto ho pridal, upravil, uvaril, ohodnotil).
@@ -93,7 +94,7 @@ https://tvoja-domena/cron.php?key=HODNOTA_CRON_KEY
 
 ### Krok 8: Pridaj ďalších používateľov
 
-Verejná registrácia neexistuje. Účty vytvára administrátor: tlačidlo **Používatelia** v hornej lište. Každý používateľ si potom v appke môže:
+Verejná registrácia neexistuje. Účty vytvára administrátor: tlačidlo **Správa** v hornej lište. Každý používateľ si potom v appke môže:
 
 - pridať appku na plochu (v prehliadači telefónu „Pridať na plochu" alebo „Inštalovať"),
 - povoliť upozornenia tlačidlom so zvončekom,
@@ -217,12 +218,14 @@ Ak máš nastavené automatické nahrávanie ([A10](#a10-automatické-nahrávani
 
 1. Zálohuj databázu a priečinok `uploads/recipes/` (pozri [B12](#b12-zálohovanie)).
 2. Nahraj nové súbory appky cez staré. Súbor `includes/.env` a priečinok `uploads/recipes/` nechaj tak, ako sú.
-3. Ak nová verzia prináša súbor `sql/migracia-X.Y.sql`, naimportuj ho cez phpMyAdmin (**Import**). Pri prechode z 1.0 na 1.1 je to `sql/migracia-1.1.sql`.
+3. Ak nová verzia prináša súbor `sql/migracia-X.Y.sql`, naimportuj ho cez phpMyAdmin (**Import**). Pri prechode z 1.0 na 1.1 je to `sql/migracia-1.1.sql`, pri prechode na 1.5 `sql/migracia-1.5.sql`. Pri preskočení viacerých verzií naimportuj všetky chýbajúce migrácie od najstaršej.
 4. Otvor appku a skontroluj, že beží. Ak sa zobrazí „Chýba povinná konfiguračná premenná…", doplň uvedený riadok do `includes/.env` (vzor je v `includes/.env.example`).
 
-Kým migrácia nie je naimportovaná, appka beží ďalej po starom, len bez nových funkcií (v logu je riadok `FOTKY: chýba tabuľka recipe_photos`). Migráciu je bezpečné spustiť aj opakovane.
+Kým migrácia nie je naimportovaná, appka beží ďalej po starom, len bez nových funkcií (v logu je riadok `FOTKY: chýba tabuľka recipe_photos` alebo `KATEGÓRIE: chýba tabuľka kategorie_receptov`). Migráciu je bezpečné spustiť aj opakovane.
 
 **Čo urobí `migracia-1.1.sql`:** vytvorí tabuľku `recipe_photos` a doterajšiu fotku každého receptu do nej prenesie ako prvú fotku galérie. Dátum fotky zistí z názvu súboru (appka fotky pomenúva podľa času nahratia) a autora z histórie receptu.
+
+**Čo urobí `migracia-1.5.sql`:** vytvorí tabuľku `kategorie_receptov` a naplní ju doterajšími siedmimi kategóriami s rovnakými kľúčmi, aké majú uložené recepty, takže recepty sa nemenia. Bez nej appka ukazuje doterajší pevný zoznam a v správe sa kategórie upravovať nedajú. Ak admin niektorú zo siedmich základných kategórií zmaže, opakované spustenie migrácie ju vráti.
 
 ## A10. Automatické nahrávanie na server
 
@@ -319,7 +322,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `sw.js` | Service worker: cache statických súborov a knižníc z CDN, uložená kópia receptov na čítanie bez internetu, fotky, offline stránka, príjem upozornení. |
 | `manifest.json`, `app-icons/` | Údaje a ikony pre inštaláciu na plochu. |
 | `offline.html` | Stránka zobrazená bez pripojenia, keď v zariadení nie je uložená kópia receptov, a pre stránky, ktoré bez servera nefungujú. |
-| `admin/index.php` | Správa používateľov (len admin). |
+| `admin/index.php` | Správa používateľov a kategórií receptov (len admin). |
 | `admin/prevod-surovin.php` | Jednorazový prevod receptov zo starej verzie, kde boli suroviny voľným textom. Pri novej inštalácii nie je potrebný. |
 | `includes/config.php` | Nastavenie session, zápis chýb, načítanie `.env`, pripojenie k databáze. |
 | `includes/env.php` | Načítanie súboru `.env`. |
@@ -331,6 +334,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `webauthn/` | Serverová časť biometrie: príprava a overenie registrácie a prihlásenia. |
 | `sql/instalacia.sql` | Kompletná databáza pre novú inštaláciu. |
 | `sql/migracia-1.1.sql` | Aktualizácia databázy z verzie 1.0 na 1.1 (galéria fotiek). Pri novej inštalácii netreba. |
+| `sql/migracia-1.5.sql` | Aktualizácia databázy na verziu 1.5 (kategórie receptov v databáze). Pri novej inštalácii netreba. |
 | `uploads/recipes/` | Fotky receptov. |
 | `vendor/` | Knižnice stiahnuté Composerom. Nie je súčasťou projektu na GitHube. |
 | `testy/` | Automatické testy a kontroly pred nahratím na server a po ňom (pozri [B14](#b14-automatické-testy-a-pravidlá-pre-novú-verziu)). Na server sa nenahráva. |
@@ -352,6 +356,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `recipe_logs` | História receptov. |
 | `recipe_ratings` | Hodnotenia, jeden hlas používateľa na recept. |
 | `recipe_photos` | Galéria fotiek receptu: cesta k fotke, dátum varenia, kto ju pridal. |
+| `kategorie_receptov` | Kategórie receptov: kľúč uložený pri recepte, zobrazený názov, poradie. |
 | `suroviny` | Číselník surovín. |
 | `recept_suroviny` | Suroviny priradené k receptom, s množstvom, jednotkou a poznámkou. |
 | `recept_suroviny_zaloha` | Pôvodný text surovín z prevodu starých receptov. |
@@ -378,7 +383,14 @@ Názvy tabuliek a stĺpcov sú čiastočne po anglicky (staršia časť) a čias
 | 11 až 90 dní | žltý „Pred X dňami" |
 | viac než 90 dní | červený „čas na opakovanie!" |
 
-**Kategórie** sú pevne dané v `index.php` (Polievky, Hlavné jedlá, Bezmäsité, Fit, Dezerty, Rýchlovky, Raňajky). Zoznam je tam dvakrát, vo filtri a vo formulári, a pri zmene treba upraviť oba.
+**Kategórie** sú v tabuľke `kategorie_receptov` a spravuje ich admin v **Správe** (časť Kategórie receptov):
+
+- **Pridať** novú kategóriu. Pridá sa na koniec zoznamu. Rovnaký názov (ani s inými veľkými písmenami alebo bez diakritiky) sa nepridá druhýkrát.
+- **Premenovať.** Recept má v `recipes.category` uložený kľúč kategórie (napr. `Fit`), na obrazovke sa ukazuje názov („Nízko kal. / Fit"). Premenovanie mení len názov, takže sa hneď prejaví pri všetkých receptoch a recepty sa neprepisujú. Nová kategória má kľúč rovnaký ako názov, pod ktorým vznikla.
+- **Zmeniť poradie** šípkami. Poradie platí pre filter aj formulár receptu.
+- **Zmazať** sa dá len kategória, ktorú nepoužíva žiadny recept. Pri používanej je pri nej počet receptov a kôš je vypnutý.
+
+Ak má recept kategóriu, ktorá v zozname nie je (napr. z ručnej úpravy databázy), appka ju ukáže pod jej kľúčom na konci filtra aj formulára, aby sa pri úprave receptu nestratila, a správa na ňu upozorní. Kým nie je naimportovaná migrácia 1.5, appka používa pevný zoznam `RECEPT_KATEGORIE_ZAKLAD` z `includes/functions.php` a v správe sa kategórie upravovať nedajú.
 
 **Fotky.** Prehliadač fotku pred odoslaním zmenší, server ju potom prevedie na JPEG s rozmerom najviac 1200 × 800 bodov a uloží do `uploads/recipes/` pod náhodným menom. Prijíma JPG, PNG a WEBP do 8 MB.
 
@@ -392,7 +404,7 @@ Názvy tabuliek a stĺpcov sú čiastočne po anglicky (staršia časť) a čias
 
 **Uvarené.** Tlačidlo na karte otvorí okno s dňom varenia (predvolene dnes, dá sa zvoliť aj skorší deň) a nepovinnou fotkou. Spätne zapísané staršie varenie neposunie „naposledy varené" dozadu, len sa zapíše do histórie a fotka dostane svoj dátum.
 
-**Práva.** Pridávať a upravovať recepty a pridávať fotky môže každý prihlásený. Mazať recepty, mazať fotky z galérie a spravovať používateľov môže len admin.
+**Práva.** Pridávať a upravovať recepty a pridávať fotky môže každý prihlásený. Mazať recepty, mazať fotky z galérie a spravovať používateľov a kategórie môže len admin.
 
 **Tlačidlá na karte receptu:** uvarené (okno s dátumom a fotkou), do nákupu, história, upraviť, zmazať (len admin). Kliknutím kamkoľvek inam na kartu sa otvorí náhľad.
 
@@ -417,8 +429,22 @@ Pole „Poznámky / postup" je voľný text pre všetko ostatné (postup, pomôc
 Recept má nepovinný počet porcií. Ak je vyplnený a aspoň jedna surovina má množstvo, v náhľade sa zobrazia tlačidlá − a +.
 
 - V databáze ostávajú množstvá vždy pre pôvodný počet porcií, prepočet je len zobrazenie.
-- Zaokrúhľuje sa podľa veľkosti: od 100 na celé čísla, od 10 na jedno desatinné miesto, menšie hodnoty na dve.
-- Jednotky sa neprevádzajú a kusové suroviny sa nezaokrúhľujú na celé (môže vyjsť 0,5 vajca).
+- Pri pôvodnom počte porcií sa množstvá ukazujú presne tak, ako sú zapísané v recepte.
+- Po prepočte sa množstvo prevedie na najvhodnejšiu jednotku **tej istej skupiny** (funkcia `prevedDavku` v `suroviny.js`):
+
+| Skupina | Prevod | Príklad |
+|---|---|---|
+| hmotnosť | g a kg, od 1000 g kilogramy | 250 g × 8 = 2 kg |
+| objem | ml, dl a l sa zobrazia v ml, od 1000 ml v litroch | 0,5 l × ¼ = 125 ml |
+| lyžice | ČL a PL (1 PL = 3 ČL). Na PL, keď to vyjde aspoň na 1 PL po polovičkách alebo bolo zadané v PL, inak ČL | 3 ČL × 2 = 2 PL, 1 PL × ½ = 1½ ČL |
+| kusy, balenia, plátky, strúčiky | na polovice | 2 ks × ⅔ = 1½ ks |
+| šálka | na štvrtiny | ¾ šálka |
+| štipka | na celé | 1 štipka |
+
+- Medzi skupinami sa neprevádza (lyžica na gramy by potrebovala hustotu každej suroviny).
+- Lyžice, šálky a kusy sa zobrazujú v zlomkoch (¼, ½, ¾), ČL a šálky po štvrtinách, PL a kusy po polovičkách.
+- Gramy a mililitre sa zaokrúhľujú podľa veľkosti: od 100 na celé čísla, od 10 na jedno desatinné miesto, menšie hodnoty na dve.
+- Rovnaký prevod používa nákupný zoznam. Tam sa navyše kusy a štipky zaokrúhľujú nahor na celé, aby sa nekúpilo menej.
 
 ## B7. Nákupný zoznam
 
@@ -429,7 +455,7 @@ Zoznam je jeden pre všetkých používateľov. Otvára sa košíkom v hornej li
 **Zlučovanie:**
 
 - Rovnaká surovina s rovnakou jednotkou sa sčíta.
-- Pred sčítaním sa hmotnosť prevedie na gramy a objem na mililitre, takže 500 g + 1 kg = 1,5 kg. Zobrazuje sa v kg a l od hodnoty 1000.
+- Pred sčítaním sa hmotnosť prevedie na gramy a objem na mililitre, takže 500 g + 1 kg = 1,5 kg. Zobrazuje sa rovnako ako pri prepočte porcií ([B6](#b6-prepočet-porcií)): v kg a l od hodnoty 1000, lyžice v zlomkoch, kusy nahor na celé.
 - Položka bez množstva sa pripojí k existujúcej položke tej istej suroviny.
 - Rôzne druhy jednotiek (napr. gramy a lyžice) ostávajú ako dva riadky.
 - Pri položke je vidno, z ktorých receptov pochádza.
@@ -548,8 +574,7 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 
 - Bez internetu sa recepty dajú len pozerať, a to v stave z posledného načítania. Pridávať, upravovať, hodnotiť ani používať nákupný zoznam sa nedá. Offline sú len fotky, ktoré sa v zariadení predtým zobrazili.
 - Nákupný zoznam sa medzi zariadeniami obnovuje s oneskorením do 5 sekúnd, nie okamžite. Odznak s počtom pri tlačidle Nákup sa obnoví až po otvorení zoznamu alebo po návrate do appky.
-- Jednotky sa pri prepočte porcií neprevádzajú.
-- Kategórie receptov sa nedajú meniť v appke, len v kóde.
+- Pri prepočte porcií sa neprevádza medzi skupinami jednotiek (napr. lyžice na gramy), len v rámci jednej skupiny.
 - Suroviny sa v appke nedajú premenovať, zlúčiť ani im doplniť kategória. Dá sa to len priamo v databáze.
 - Rozhranie je len po slovensky.
 
@@ -564,7 +589,7 @@ Testy sú v priečinku `testy/`. GitHub ich spúšťa pri každom nahratí do `m
 5. **databázu z predchádzajúcej verzie bez migrácie:** nová appka na nej musí bežať,
 6. **migrácie** na tej istej databáze (každú dvakrát po sebe), znova priechod appkou a porovnanie štruktúry s novou inštaláciou.
 
-Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, otvorí správu používateľov, biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
+Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, v správe pridá, premenuje, posunie a zmaže kategóriu receptov (a overí, že používanú zmazať nejde), otvorí biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
 
 Po nahratí na server skript `testy/kontrola-po-nahrati.sh` overí ostrú appku a `testy/kontrola-ftp.sh` pred nahratím skontroluje FTP a cieľový priečinok.
 
@@ -592,6 +617,14 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.5**
+
+- Prepočet porcií prevádza jednotky na takú, ktorá sa dá odmerať: 2000 g → 2 kg, 0,13 l → 125 ml, 0,5 PL → 1½ ČL, 6 ČL → 2 PL. Lyžice a kusy sú v zlomkoch (1½ ks). Pri pôvodnom počte porcií sa ukazuje presne to, čo je v recepte.
+- Nákupný zoznam používa rovnaký prevod a kusy zaokrúhľuje nahor na celé.
+- Oprava: množstvo pridané do nákupu pre iný počet porcií sa zaokrúhľovalo pred prevodom na ml a g (0,375 l sa zobrazilo ako 380 ml).
+- Kategórie receptov spravuje admin v appke (tlačidlo Správa): pridať, premenovať, zmeniť poradie, zmazať nepoužívanú. Recepty ukazujú názov kategórie.
+- Treba naimportovať `sql/migracia-1.5.sql`. Kým nie je naimportovaná, appka beží s doterajším zoznamom kategórií.
 
 **1.4**
 

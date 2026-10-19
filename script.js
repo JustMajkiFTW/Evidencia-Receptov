@@ -637,15 +637,12 @@ const shopping = (function initShopping() {
             { label: 'Obnoviť stránku', onClick: () => location.reload() });
     }
 
-    /** „1,5 kg Múka hladká" — gramy a mililitre od 1000 vyššie ukážeme v kg a l. */
+    /**
+     * „1,5 kg Múka hladká", „1½ ČL Soľ" — množstvo v najvhodnejšej jednotke
+     * (Suroviny.prevedDavku). Kusy sa zaokrúhľujú nahor, aby sa nekúpilo menej.
+     */
     function itemLabel(item) {
-        let mnozstvo = item.mnozstvo;
-        let jednotka = item.jednotka;
-        if (mnozstvo && mnozstvo >= 1000 && (jednotka === 'g' || jednotka === 'ml')) {
-            mnozstvo = mnozstvo / 1000;
-            jednotka = jednotka === 'g' ? 'kg' : 'l';
-        }
-        const davka = S.formatDavka({ mnozstvo, jednotka });
+        const davka = S.prevedDavku(item.mnozstvo, item.jednotka, { nakup: true }).text;
         return { davka, text: (davka ? davka + ' ' : '') + item.nazov };
     }
 
@@ -1191,7 +1188,7 @@ function openRecipeViewModal(data) {
 
     const categoryBadge = document.getElementById('viewRecipeCategory');
     if (data.category) {
-        categoryBadge.textContent = data.category;
+        categoryBadge.textContent = data.categoryLabel || data.category;
         categoryBadge.classList.remove('d-none');
     } else {
         categoryBadge.classList.add('d-none');
@@ -1275,17 +1272,13 @@ function porcieLabel(count) {
 }
 
 /**
- * Prepočítané množstvo zaokrúhlené tak, aby sa dalo odmerať: veľké hodnoty
- * na celé čísla (313 g), stredné na jedno desatinné miesto (12,5), malé na dve (0,63).
+ * Dávka suroviny pre zvolený počet porcií. Pri pôvodnom počte presne tak, ako je
+ * zapísaná v recepte; po prepočte prevedená na jednotku, ktorá sa dá odmerať
+ * (2000 g → 2 kg, 0,5 PL → 1½ ČL, 0,13 l → 125 ml), pozri Suroviny.prevedDavku.
  */
-function scaleMnozstvo(value, factor) {
-    const number = Number(value);
-    if (!isFinite(number) || number <= 0) return null;
-    const scaled = number * factor;
-    if (factor === 1) return number;
-    if (scaled >= 100) return Math.round(scaled);
-    if (scaled >= 10) return Math.round(scaled * 10) / 10;
-    return Math.max(0.01, Math.round(scaled * 100) / 100);
+function prepocitanaDavka(row, factor) {
+    if (factor === 1 || !row.mnozstvo || !window.Suroviny) return formatSurovinaDavka(row);
+    return window.Suroviny.prevedDavku(Number(row.mnozstvo) * factor, row.jednotka).text;
 }
 
 /* ========================================================================
@@ -1305,8 +1298,7 @@ function renderViewSuroviny(data, targetServings) {
 
     list.replaceChildren(...suroviny.map((row) => {
         const li = document.createElement('li');
-        const scaledRow = row.mnozstvo ? Object.assign({}, row, { mnozstvo: scaleMnozstvo(row.mnozstvo, factor) }) : row;
-        const davka = formatSurovinaDavka(scaledRow);
+        const davka = prepocitanaDavka(row, factor);
         if (davka) {
             const qty = document.createElement('span');
             qty.className = 'suroviny-view-qty';
@@ -1370,7 +1362,7 @@ function renderViewSuroviny(data, targetServings) {
  */
 async function shareRecipe(data) {
     const lines = [`🍽️ ${data.name || 'Recept'}`];
-    if (data.category) lines.push(`Kategória: ${data.category}`);
+    if (data.category) lines.push(`Kategória: ${data.categoryLabel || data.category}`);
     if (data.prep_time) lines.push(`Čas prípravy: ${data.prep_time} min`);
     if (data.servings) lines.push(`Porcie: ${data.servings}`);
     const suroviny = data.suroviny || [];

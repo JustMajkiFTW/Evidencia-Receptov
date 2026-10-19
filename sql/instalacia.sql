@@ -1,7 +1,7 @@
 -- ======================================================================
 -- Evidencia receptov — kompletná databáza pre NOVÚ inštaláciu.
 --
--- Vytvorí všetky tabuľky a naplní zoznam surovín. Používateľov ani recepty
+-- Vytvorí všetky tabuľky a naplní zoznam surovín a kategórií receptov. Používateľov ani recepty
 -- nevytvára — prvého administrátora založíš cez install.php.
 --
 -- Import: phpMyAdmin → vyber databázu → Import → tento súbor,
@@ -145,6 +145,27 @@ CREATE TABLE IF NOT EXISTS `recipe_photos` (
   KEY `idx_rp_recipe_date` (`recipe_id`,`photo_date`),
   CONSTRAINT `fk_rp_recipe` FOREIGN KEY (`recipe_id`) REFERENCES `recipes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Kategórie receptov. `kluc` je hodnota uložená pri recepte (recipes.category),
+-- `nazov` sa ukazuje na obrazovke. Premenovanie mení len názov. Spravuje ich admin.
+CREATE TABLE IF NOT EXISTS `kategorie_receptov` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `kluc` varchar(50) NOT NULL,
+  `nazov` varchar(50) NOT NULL,
+  `poradie` int(11) NOT NULL DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_kategoria_kluc` (`kluc`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT IGNORE INTO `kategorie_receptov` (`kluc`, `nazov`, `poradie`) VALUES
+  ('Polievky', 'Polievky', 1),
+  ('Hlavné jedlá', 'Hlavné jedlá', 2),
+  ('Bezmäsité', 'Bezmäsité jedlá', 3),
+  ('Fit', 'Nízko kal. / Fit', 4),
+  ('Dezerty', 'Dezerty a pečenie', 5),
+  ('Rýchlovky', 'Rýchlovky / Večere', 6),
+  ('Raňajky', 'Raňajky', 7);
 
 -- ----------------------------------------------------------------------
 -- Suroviny a nákupný zoznam

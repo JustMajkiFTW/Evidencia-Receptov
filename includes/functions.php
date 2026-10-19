@@ -291,6 +291,197 @@ function format_sk_date(string $date): string
  * Existuje už tabuľka recipe_photos? Ak niekto nahrá novú verziu skôr, než
  * spustí sql/migracia-1.1.sql, appka funguje ďalej po starom (jedna fotka).
  */
+/* ======================================================================
+   Kategórie receptov (od verzie 1.5 v tabuľke kategorie_receptov, spravuje
+   ich admin v admin/index.php).
+
+   Recept má v stĺpci recipes.category uložený KĽÚČ kategórie (napr. „Fit"),
+   na obrazovke sa ukazuje NÁZOV („Nízko kal. / Fit"). Premenovanie mení len
+   názov, recepty sa preto prepisovať nemusia. Nová kategória má kľúč rovnaký
+   ako názov, pod ktorým vznikla.
+   ====================================================================== */
+
+/** Základné kategórie — naplní ich migrácia a použijú sa, kým migrácia nie je spustená. */
+const RECEPT_KATEGORIE_ZAKLAD = [
+    ['Polievky', 'Polievky'],
+    ['Hlavné jedlá', 'Hlavné jedlá'],
+    ['Bezmäsité', 'Bezmäsité jedlá'],
+    ['Fit', 'Nízko kal. / Fit'],
+    ['Dezerty', 'Dezerty a pečenie'],
+    ['Rýchlovky', 'Rýchlovky / Večere'],
+    ['Raňajky', 'Raňajky'],
+];
+const KATEGORIA_MAX_DLZKA = 50; // ako stĺpec recipes.category
+
+function recipe_categories_available(PDO $pdo): bool
+{
+    static $available = null;
+    if ($available === null) {
+        try {
+            $pdo->query('SELECT 1 FROM kategorie_receptov LIMIT 1');
+            $available = true;
+        } catch (Throwable $e) {
+            debug_log('KATEGÓRIE: chýba tabuľka kategorie_receptov, spusti sql/migracia-1.5.sql (' . $e->getMessage() . ')');
+            $available = false;
+        }
+    }
+    return $available;
+}
+
+/**
+ * Kategórie v poradí na zobrazenie: [['id', 'kluc', 'nazov', 'pocet', 'mimo_zoznamu'], …].
+ * 'pocet' = koľko receptov ju používa. Na konci sú aj kategórie, ktoré recepty
+ * používajú, ale v zozname nie sú ('mimo_zoznamu' => true) — aby sa pri úprave
+ * receptu nestratili a dali sa vyfiltrovať.
+ */
+function get_recipe_categories(PDO $pdo): array
+{
+    $pocty = [];
+    foreach ($pdo->query("SELECT category, COUNT(*) AS c FROM recipes WHERE category IS NOT NULL AND category <> '' GROUP BY category") as $r) {
+        $pocty[$r['category']] = (int) $r['c'];
+    }
+    // recipes.category sa porovnáva bez ohľadu na veľké písmená a diakritiku (ako v databáze).
+    $najdiPocet = static function (string $kluc) use (&$pocty): int {
+        foreach ($pocty as $hodnota => $pocet) {
+            if (surovina_key((string) $hodnota) === surovina_key($kluc)) {
+                unset($pocty[$hodnota]);
+                return $pocet;
+            }
+        }
+        return 0;
+    };
+
+    $kategorie = [];
+    if (recipe_categories_available($pdo)) {
+        $rows = $pdo->query('SELECT id, kluc, nazov FROM kategorie_receptov ORDER BY poradie, id')->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            $kategorie[] = ['id' => (int) $r['id'], 'kluc' => $r['kluc'], 'nazov' => $r['nazov'],
+                'pocet' => $najdiPocet($r['kluc']), 'mimo_zoznamu' => false];
+        }
+    } else {
+        foreach (RECEPT_KATEGORIE_ZAKLAD as [$kluc, $nazov]) {
+            $kategorie[] = ['id' => null, 'kluc' => $kluc, 'nazov' => $nazov,
+                'pocet' => $najdiPocet($kluc), 'mimo_zoznamu' => false];
+        }
+    }
+    foreach ($pocty as $hodnota => $pocet) {
+        $kategorie[] = ['id' => null, 'kluc' => (string) $hodnota, 'nazov' => (string) $hodnota,
+            'pocet' => $pocet, 'mimo_zoznamu' => true];
+    }
+    return $kategorie;
+}
+
+/** Názov kategórie na zobrazenie podľa kľúča uloženého pri recepte. */
+function recipe_category_label(array $kategorie, ?string $kluc): string
+{
+    if ($kluc === null || $kluc === '') {
+        return '';
+    }
+    foreach ($kategorie as $k) {
+        if (surovina_key($k['kluc']) === surovina_key($kluc)) {
+            return $k['nazov'];
+        }
+    }
+    return $kluc;
+}
+
+/** Skontroluje názov kategórie. Vráti chybu, alebo null. $okremId = kategória, ktorá sa premenúva. */
+function recipe_category_name_error(PDO $pdo, string $nazov, ?int $okremId = null): ?string
+{
+    if ($nazov === '') {
+        return 'Názov kategórie je povinný.';
+    }
+    if (mb_strlen($nazov, 'UTF-8') > KATEGORIA_MAX_DLZKA) {
+        return 'Názov kategórie môže mať najviac ' . KATEGORIA_MAX_DLZKA . ' znakov.';
+    }
+    $rows = $pdo->query('SELECT id, kluc, nazov FROM kategorie_receptov')->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        if ((int) $r['id'] === $okremId) {
+            continue;
+        }
+        if (surovina_key($r['nazov']) === surovina_key($nazov) || surovina_key($r['kluc']) === surovina_key($nazov)) {
+            return "Kategória „{$r['nazov']}“ už existuje.";
+        }
+    }
+    return null;
+}
+
+/** Pridá kategóriu na koniec zoznamu. Vráti ['success' => bool, 'error' => ?string]. */
+function add_recipe_category(PDO $pdo, string $nazov): array
+{
+    $nazov = trim(preg_replace('/\s+/u', ' ', $nazov));
+    if ($chyba = recipe_category_name_error($pdo, $nazov)) {
+        return ['success' => false, 'error' => $chyba];
+    }
+    $poradie = (int) $pdo->query('SELECT COALESCE(MAX(poradie), 0) + 1 FROM kategorie_receptov')->fetchColumn();
+    $stmt = $pdo->prepare('INSERT INTO kategorie_receptov (kluc, nazov, poradie) VALUES (?, ?, ?)');
+    $stmt->execute([$nazov, $nazov, $poradie]);
+    return ['success' => true, 'error' => null];
+}
+
+/** Premenuje kategóriu — mení sa len názov, kľúč pri receptoch ostáva. */
+function rename_recipe_category(PDO $pdo, int $id, string $nazov): array
+{
+    $nazov = trim(preg_replace('/\s+/u', ' ', $nazov));
+    $existuje = $pdo->prepare('SELECT COUNT(*) FROM kategorie_receptov WHERE id = ?');
+    $existuje->execute([$id]);
+    if (!(int) $existuje->fetchColumn()) {
+        return ['success' => false, 'error' => 'Kategória neexistuje.'];
+    }
+    if ($chyba = recipe_category_name_error($pdo, $nazov, $id)) {
+        return ['success' => false, 'error' => $chyba];
+    }
+    $pdo->prepare('UPDATE kategorie_receptov SET nazov = ? WHERE id = ?')->execute([$nazov, $id]);
+    return ['success' => true, 'error' => null];
+}
+
+/** Posunie kategóriu v zozname o jedno miesto vyššie ($smer = -1) alebo nižšie (+1). */
+function move_recipe_category(PDO $pdo, int $id, int $smer): void
+{
+    $ids = array_map('intval', $pdo->query('SELECT id FROM kategorie_receptov ORDER BY poradie, id')->fetchAll(PDO::FETCH_COLUMN));
+    $index = array_search($id, $ids, true);
+    if ($index === false) {
+        return;
+    }
+    $novy = $index + ($smer < 0 ? -1 : 1);
+    if ($novy < 0 || $novy >= count($ids)) {
+        return;
+    }
+    [$ids[$index], $ids[$novy]] = [$ids[$novy], $ids[$index]];
+    // Prečíslujeme všetky (1, 2, 3…), aby v poradí nikdy neboli dve rovnaké čísla.
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('UPDATE kategorie_receptov SET poradie = ? WHERE id = ?');
+        foreach ($ids as $i => $kategoriaId) {
+            $stmt->execute([$i + 1, $kategoriaId]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/** Zmaže kategóriu, ak ju nepoužíva žiadny recept. */
+function delete_recipe_category(PDO $pdo, int $id): array
+{
+    $stmt = $pdo->prepare('SELECT kluc, nazov FROM kategorie_receptov WHERE id = ?');
+    $stmt->execute([$id]);
+    $kategoria = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$kategoria) {
+        return ['success' => false, 'error' => 'Kategória neexistuje.'];
+    }
+    $pouziva = $pdo->prepare('SELECT COUNT(*) FROM recipes WHERE category = ?');
+    $pouziva->execute([$kategoria['kluc']]);
+    $pocet = (int) $pouziva->fetchColumn();
+    if ($pocet > 0) {
+        return ['success' => false, 'error' => "Kategóriu „{$kategoria['nazov']}“ používa {$pocet} " .
+            ($pocet === 1 ? 'recept' : ($pocet <= 4 ? 'recepty' : 'receptov')) . '. Najprv im zmeň kategóriu.'];
+    }
+    $pdo->prepare('DELETE FROM kategorie_receptov WHERE id = ?')->execute([$id]);
+    return ['success' => true, 'error' => null];
+}
+
 function recipes_have_photos(PDO $pdo): bool
 {
     static $available = null;
@@ -926,7 +1117,9 @@ function shopping_add_recipe(PDO $pdo, int $recipeId, int $userId, ?int $targetS
     $pdo->beginTransaction();
     try {
         foreach ($rows as $row) {
-            $mnozstvo = $row['mnozstvo'] !== null ? round((float) $row['mnozstvo'] * $factor, 2) : null;
+            // Zaokrúhli až databáza po prevode na základnú jednotku (g, ml) v shopping_add_item —
+            // inak by sa 0,375 l zaokrúhlilo na 0,38 l a v nákupe by bolo 380 ml namiesto 375 ml.
+            $mnozstvo = $row['mnozstvo'] !== null ? round((float) $row['mnozstvo'] * $factor, 6) : null;
             shopping_add_item($pdo, $userId, (int) $row['id'], $row['nazov'], $mnozstvo, $row['jednotka'], $recipe['name']);
         }
         $pdo->commit();

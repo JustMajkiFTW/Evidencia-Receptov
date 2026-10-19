@@ -324,7 +324,7 @@ $csrfToken = csrf_token();
     <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=9">
+    <link rel="stylesheet" href="../style.css?v=25">
 </head>
 <body class="p-3 p-md-4">
 <div class="container" style="max-width:760px;">
@@ -423,7 +423,7 @@ $csrfToken = csrf_token();
 </div>
 
 <?php if ($ready): ?>
-<script src="../suroviny.js?v=9"></script>
+<script src="../suroviny.js?v=25"></script>
 <script>
 (function () {
     const S = window.Suroviny;

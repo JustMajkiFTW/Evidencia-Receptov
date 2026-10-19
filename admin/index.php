@@ -65,6 +65,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $message = 'Používateľ zmazaný.';
                 }
             }
+        } elseif (str_starts_with($action, 'kategoria_')) {
+            // Kategórie receptov (len s tabuľkou z migrácie 1.5).
+            $kategoriaId = (int) ($_POST['kategoria_id'] ?? 0);
+            if (!recipe_categories_available($pdo)) {
+                $error = 'Na úpravu kategórií treba najprv naimportovať sql/migracia-1.5.sql.';
+            } elseif ($action === 'kategoria_pridat') {
+                $vysledok = add_recipe_category($pdo, (string) ($_POST['nazov'] ?? ''));
+                if ($vysledok['success']) { $message = 'Kategória pridaná.'; } else { $error = $vysledok['error']; }
+            } elseif ($action === 'kategoria_premenovat') {
+                $vysledok = rename_recipe_category($pdo, $kategoriaId, (string) ($_POST['nazov'] ?? ''));
+                if ($vysledok['success']) { $message = 'Kategória premenovaná.'; } else { $error = $vysledok['error']; }
+            } elseif ($action === 'kategoria_hore' || $action === 'kategoria_dole') {
+                move_recipe_category($pdo, $kategoriaId, $action === 'kategoria_hore' ? -1 : 1);
+            } elseif ($action === 'kategoria_zmazat') {
+                $vysledok = delete_recipe_category($pdo, $kategoriaId);
+                if ($vysledok['success']) { $message = 'Kategória zmazaná.'; } else { $error = $vysledok['error']; }
+            }
         }
     }
 }
@@ -76,6 +93,17 @@ foreach ($pdo->query('SELECT user_id, COUNT(*) c FROM webauthn_credentials GROUP
     $credCounts[$row['user_id']] = (int) $row['c'];
 }
 
+$kategorieDostupne = recipe_categories_available($pdo);
+$kategorie = get_recipe_categories($pdo);
+$kategorieZoZoznamu = array_values(array_filter($kategorie, fn($k) => !$k['mimo_zoznamu']));
+$kategorieMimo = array_values(array_filter($kategorie, fn($k) => $k['mimo_zoznamu']));
+
+/** „1 recept", „3 recepty", „7 receptov" */
+function pocet_receptov(int $pocet): string
+{
+    return $pocet . ' ' . ($pocet === 1 ? 'recept' : ($pocet >= 2 && $pocet <= 4 ? 'recepty' : 'receptov'));
+}
+
 $csrfToken = csrf_token();
 ?>
 <!DOCTYPE html>
@@ -84,19 +112,19 @@ $csrfToken = csrf_token();
     <meta charset="UTF-8">
     <script src="../theme.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Používatelia — Evidencia receptov</title>
+    <title>Správa — Evidencia receptov</title>
     <link rel="manifest" href="../manifest.json?v=4">
     <meta name="theme-color" content="#f59e0b">
     <link rel="icon" type="image/png" sizes="192x192" href="../app-icons/icon-192.png?v=4">
     <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="../style.css?v=25">
 </head>
 <body class="p-3 p-md-4">
 <div class="container" style="max-width:900px;">
     <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-4">
-        <h1 class="h4 mb-0"><i class="bi bi-people-fill me-2"></i>Používatelia</h1>
+        <h1 class="h4 mb-0"><i class="bi bi-gear-fill me-2"></i>Správa: Používatelia a kategórie</h1>
         <div class="d-flex gap-2">
             <button id="themeToggle" type="button" class="btn btn-outline-secondary btn-sm" title="Zmeniť motív" aria-label="Zmeniť motív">
                 <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
@@ -181,6 +209,88 @@ $csrfToken = csrf_token();
                 <?php endforeach; ?>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- Kategórie receptov: kľúč pri recepte sa nemení, premenovanie mení len zobrazený názov. -->
+    <div class="card mt-4" id="kategorie">
+        <div class="card-header fw-semibold">Kategórie receptov</div>
+        <div class="card-body">
+            <?php if (!$kategorieDostupne): ?>
+                <div class="alert alert-warning mb-3">
+                    Na úpravu kategórií treba v phpMyAdmin naimportovať <code>sql/migracia-1.5.sql</code>.
+                    Dovtedy appka používa základný zoznam nižšie.
+                </div>
+            <?php else: ?>
+                <p class="text-secondary small mb-3">
+                    Premenovanie zmení názov pri všetkých receptoch tejto kategórie. Zmazať sa dá len kategória,
+                    ktorú nepoužíva žiadny recept. Poradie platí pre výber vo formulári aj vo filtri.
+                </p>
+                <form method="post" action="#kategorie" class="d-flex flex-wrap gap-2 mb-3">
+                    <input type="hidden" name="action" value="kategoria_pridat">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                    <input type="text" name="nazov" class="form-control kategoria-nazov" maxlength="<?= KATEGORIA_MAX_DLZKA ?>"
+                           placeholder="Nová kategória, napr. Šaláty" aria-label="Názov novej kategórie" required>
+                    <button type="submit" class="btn btn-primary kategoria-tlacidlo"><i class="bi bi-plus-lg me-1"></i>Pridať kategóriu</button>
+                </form>
+            <?php endif; ?>
+
+            <ul class="list-unstyled mb-0 kategorie-zoznam">
+                <?php foreach ($kategorieZoZoznamu as $i => $k): ?>
+                    <li class="kategoria-riadok">
+                        <?php if ($kategorieDostupne): ?>
+                            <form method="post" action="#kategorie" class="kategoria-premenovat">
+                                <input type="hidden" name="action" value="kategoria_premenovat">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                <input type="hidden" name="kategoria_id" value="<?= (int) $k['id'] ?>">
+                                <input type="text" name="nazov" class="form-control kategoria-nazov" maxlength="<?= KATEGORIA_MAX_DLZKA ?>"
+                                       value="<?= htmlspecialchars($k['nazov']) ?>" aria-label="Názov kategórie <?= htmlspecialchars($k['nazov']) ?>" required>
+                                <button type="submit" class="btn btn-outline-primary kategoria-tlacidlo" title="Uložiť nový názov">
+                                    <i class="bi bi-check-lg"></i><span class="ms-1">Uložiť</span>
+                                </button>
+                            </form>
+                        <?php else: ?>
+                            <span class="kategoria-nazov-text"><?= htmlspecialchars($k['nazov']) ?></span>
+                        <?php endif; ?>
+                        <span class="kategoria-pocet text-secondary"><?= pocet_receptov($k['pocet']) ?></span>
+                        <?php if ($kategorieDostupne): ?>
+                            <div class="kategoria-akcie">
+                                <?php foreach ([['kategoria_hore', 'bi-arrow-up', 'Posunúť vyššie', $i === 0],
+                                                ['kategoria_dole', 'bi-arrow-down', 'Posunúť nižšie', $i === count($kategorieZoZoznamu) - 1]] as [$akcia, $ikona, $popis, $vypnute]): ?>
+                                    <form method="post" action="#kategorie">
+                                        <input type="hidden" name="action" value="<?= $akcia ?>">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                        <input type="hidden" name="kategoria_id" value="<?= (int) $k['id'] ?>">
+                                        <button type="submit" class="btn btn-outline-secondary kategoria-tlacidlo" title="<?= $popis ?>"
+                                                aria-label="<?= $popis ?>: <?= htmlspecialchars($k['nazov']) ?>"<?= $vypnute ? ' disabled' : '' ?>>
+                                            <i class="bi <?= $ikona ?>"></i>
+                                        </button>
+                                    </form>
+                                <?php endforeach; ?>
+                                <form method="post" action="#kategorie"
+                                      onsubmit="return confirm('Naozaj zmazať kategóriu <?= htmlspecialchars(addslashes($k['nazov']), ENT_QUOTES) ?>?');">
+                                    <input type="hidden" name="action" value="kategoria_zmazat">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                    <input type="hidden" name="kategoria_id" value="<?= (int) $k['id'] ?>">
+                                    <button type="submit" class="btn btn-outline-danger kategoria-tlacidlo"
+                                            title="<?= $k['pocet'] > 0 ? 'Používa ju ' . pocet_receptov($k['pocet']) . ', najprv im zmeň kategóriu' : 'Zmazať kategóriu' ?>"
+                                            aria-label="Zmazať kategóriu <?= htmlspecialchars($k['nazov']) ?>"<?= $k['pocet'] > 0 ? ' disabled' : '' ?>>
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+
+            <?php if ($kategorieMimo): ?>
+                <div class="alert alert-secondary small mt-3 mb-0">
+                    Niektoré recepty majú kategóriu, ktorá v zozname nie je:
+                    <?= htmlspecialchars(implode(', ', array_map(fn($k) => $k['nazov'] . ' (' . pocet_receptov($k['pocet']) . ')', $kategorieMimo))) ?>.
+                    Pridaj ju pod rovnakým názvom, alebo receptom zmeň kategóriu.
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>

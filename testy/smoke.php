@@ -205,6 +205,23 @@ function testovacia_fotka(string $farba): CURLFile
     return new CURLFile($subor, 'image/jpeg', 'fotka.jpg');
 }
 
+/** Kategórie zo správy (admin/index.php): [id => názov] v poradí na stránke. */
+function kategorie_zo_spravy(string $html): array
+{
+    preg_match_all('/name="kategoria_id" value="(\d+)">\s*<input type="text" name="nazov"[^>]*value="([^"]*)"/', $html, $zhody, PREG_SET_ORDER);
+    $kategorie = [];
+    foreach ($zhody as $z) {
+        $kategorie[(int) $z[1]] = html_entity_decode($z[2], ENT_QUOTES);
+    }
+    return $kategorie;
+}
+
+/** Hláška správy (zelená alebo červená) z admin/index.php. */
+function hlaska_spravy(string $html): string
+{
+    return preg_match('/class="alert alert-(?:success|danger)">([^<]*)</', $html, $m) ? html_entity_decode($m[1], ENT_QUOTES) : '';
+}
+
 function akcia(Prehliadac $p, string $csrf, string $akcia, array $polia = []): Odpoved
 {
     return $p->post('index.php', ['action' => $akcia, 'csrf_token' => $csrf] + $polia);
@@ -416,14 +433,81 @@ $o = $p->get('index.php');
 over(!isset(recepty_zo_stranky($o->telo)[$zmazatId]), 'Zmazaný recept už nie je v zozname');
 
 /* ---------------------------------------------------------------------- */
-/* 7. Ďalšie stránky                                                       */
+/* 7. Kategórie receptov                                                   */
+/* ---------------------------------------------------------------------- */
+echo "\nKategórie receptov\n";
+$o = $p->get('index.php');
+over(str_contains($o->telo, '<option value="Fit">Nízko kal. / Fit</option>'), 'Filter aj formulár ponúkajú kategórie s názvom (Fit → Nízko kal. / Fit)');
+$fitId = 0;
+$o = akcia($p, $csrf, 'add_recipe', ['name' => "Fit recept $znacka", 'category' => 'Fit']);
+$fitId = (int) ($o->json()['id'] ?? 0);
+$o = $p->get('index.php');
+$fit = recepty_zo_stranky($o->telo)[$fitId] ?? null;
+over(($fit['category'] ?? '') === 'Fit' && ($fit['categoryLabel'] ?? '') === 'Nízko kal. / Fit',
+    'Recept má uložený kľúč kategórie a ukazuje jej názov', json_encode($fit, JSON_UNESCAPED_UNICODE));
+
+$o = $p->get('admin/index.php');
+over($o->kod === 200 && str_contains($o->telo, 'Kategórie receptov'), 'Správa obsahuje časť Kategórie receptov', $o->popis());
+$adminCsrf = (string) csrf_zo_stranky($o->telo);
+$sprava = fn(array $polia) => $p->post('admin/index.php', $polia + ['csrf_token' => $adminCsrf]);
+
+if ($plny) {
+    $kategorie = kategorie_zo_spravy($o->telo);
+    over(count($kategorie) >= 7 && in_array('Nízko kal. / Fit', $kategorie, true), 'Správa ukazuje kategórie z databázy', json_encode($kategorie, JSON_UNESCAPED_UNICODE));
+
+    $nova = "Šaláty $znacka";
+    $o = $sprava(['action' => 'kategoria_pridat', 'nazov' => "  $nova "]);
+    $kategorie = kategorie_zo_spravy($o->telo);
+    $novaId = (int) array_search($nova, $kategorie, true);
+    over($novaId > 0 && array_key_last($kategorie) === $novaId, 'Nová kategória sa pridá na koniec zoznamu', hlaska_spravy($o->telo));
+
+    $o = $sprava(['action' => 'kategoria_pridat', 'nazov' => mb_strtoupper($nova)]);
+    over(str_contains(hlaska_spravy($o->telo), 'už existuje'), 'Rovnaká kategória sa druhýkrát nepridá (ani veľkými písmenami)', hlaska_spravy($o->telo));
+    $o = $sprava(['action' => 'kategoria_pridat', 'nazov' => 'nizko kal. / fit']);
+    over(str_contains(hlaska_spravy($o->telo), 'už existuje'), 'Kategória s názvom existujúcej (bez diakritiky) sa nepridá', hlaska_spravy($o->telo));
+
+    $o = $sprava(['action' => 'kategoria_hore', 'kategoria_id' => $novaId]);
+    $poradie = array_keys(kategorie_zo_spravy($o->telo));
+    over(array_search($novaId, $poradie, true) === count($poradie) - 2, 'Posun vyššie zmení poradie', json_encode($poradie));
+
+    $o = akcia($p, $csrf, 'add_recipe', ['name' => "Šalát $znacka", 'category' => $nova]);
+    $salatId = (int) ($o->json()['id'] ?? 0);
+    $o = $sprava(['action' => 'kategoria_premenovat', 'kategoria_id' => $novaId, 'nazov' => "Šaláty a prílohy $znacka"]);
+    over((kategorie_zo_spravy($o->telo)[$novaId] ?? '') === "Šaláty a prílohy $znacka", 'Kategória sa dá premenovať', hlaska_spravy($o->telo));
+    $o = $p->get('index.php');
+    $salat = recepty_zo_stranky($o->telo)[$salatId] ?? null;
+    over(($salat['category'] ?? '') === $nova && ($salat['categoryLabel'] ?? '') === "Šaláty a prílohy $znacka",
+        'Recept po premenovaní ukazuje nový názov, kľúč ostal', json_encode($salat, JSON_UNESCAPED_UNICODE));
+    over(str_contains($o->telo, '<option value="' . htmlspecialchars($nova) . '">Šaláty a prílohy'), 'Filter ukazuje nový názov');
+
+    $o = $sprava(['action' => 'kategoria_zmazat', 'kategoria_id' => $novaId]);
+    over(str_contains(hlaska_spravy($o->telo), 'používa 1 recept') && isset(kategorie_zo_spravy($o->telo)[$novaId]),
+        'Používaná kategória sa zmazať nedá', hlaska_spravy($o->telo));
+    akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $salatId]);
+    $o = $sprava(['action' => 'kategoria_zmazat', 'kategoria_id' => $novaId]);
+    over(!isset(kategorie_zo_spravy($o->telo)[$novaId]), 'Nepoužívaná kategória sa zmaže', hlaska_spravy($o->telo));
+
+    $o = $sprava(['action' => 'kategoria_pridat', 'nazov' => '   ']);
+    over(str_contains(hlaska_spravy($o->telo), 'povinný'), 'Prázdny názov sa odmietne', hlaska_spravy($o->telo));
+    $o = $sprava(['action' => 'kategoria_pridat', 'nazov' => 'Nová', 'csrf_token' => 'zly-token']);
+    over(str_contains(hlaska_spravy($o->telo), 'Vypršala platnosť formulára'), 'Úprava kategórií s neplatným tokenom sa odmietne', hlaska_spravy($o->telo));
+} else {
+    over(str_contains($o->telo, 'sql/migracia-1.5.sql'), 'Bez migrácie správa vysvetlí, že treba naimportovať migráciu');
+    $o = $sprava(['action' => 'kategoria_pridat', 'nazov' => "Šaláty $znacka"]);
+    over($o->kod === 200 && bez_chyby($o) && str_contains(hlaska_spravy($o->telo), 'migracia-1.5.sql'),
+        'Bez migrácie sa kategória nepridá, appka nespadne', hlaska_spravy($o->telo));
+}
+akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $fitId]);
+
+/* ---------------------------------------------------------------------- */
+/* 8. Ďalšie stránky                                                       */
 /* ---------------------------------------------------------------------- */
 echo "\nĎalšie stránky\n";
 $o = $p->get("index.php?recept=$receptId");
 over($o->kod === 200 && bez_chyby($o), 'Odkaz z upozornenia (index.php?recept=…) sa otvorí', $o->popis());
 
 $o = $p->get('admin/index.php');
-over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Používatelia'), 'Správa používateľov sa otvorí', $o->popis());
+over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Používatelia'), 'Správa používateľov a kategórií sa otvorí', $o->popis());
 
 $o = $p->postJson('webauthn/register_options.php', []);
 over($o->kod === 200 && $o->json() !== null && !isset($o->json()['error']), 'Biometria: príprava registrácie (knižnice vo vendor/ fungujú)', $o->popis());
@@ -437,7 +521,7 @@ $o = $p->get('cron.php?key=' . urlencode($cronKey));
 over($o->kod === 200 && bez_chyby($o), 'cron.php so správnym kľúčom prebehne', $o->popis());
 
 /* ---------------------------------------------------------------------- */
-/* 8. Zostať prihlásený a odhlásenie                                       */
+/* 9. Zostať prihlásený a odhlásenie                                       */
 /* ---------------------------------------------------------------------- */
 echo "\nZostať prihlásený a odhlásenie\n";
 $zapamatane = new Prehliadac($adresa);
