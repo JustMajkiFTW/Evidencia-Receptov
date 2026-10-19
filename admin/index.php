@@ -93,6 +93,7 @@ foreach ($pdo->query('SELECT user_id, COUNT(*) c FROM webauthn_credentials GROUP
     $credCounts[$row['user_id']] = (int) $row['c'];
 }
 
+$surovinyBezKategorie = suroviny_available($pdo) ? count(get_suroviny_for_admin($pdo, '', 1000)) : 0;
 $kategorieDostupne = recipe_categories_available($pdo);
 $kategorie = get_recipe_categories($pdo);
 $kategorieZoZoznamu = array_values(array_filter($kategorie, fn($k) => !$k['mimo_zoznamu']));
@@ -119,7 +120,7 @@ $csrfToken = csrf_token();
     <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=25">
+    <link rel="stylesheet" href="../style.css?v=26">
 </head>
 <body class="p-3 p-md-4">
 <div class="container" style="max-width:900px;">
@@ -129,6 +130,8 @@ $csrfToken = csrf_token();
             <button id="themeToggle" type="button" class="btn btn-outline-secondary btn-sm" title="Zmeniť motív" aria-label="Zmeniť motív">
                 <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
             </button>
+            <a href="suroviny.php" class="btn btn-outline-primary btn-sm position-relative"><i class="bi bi-basket-fill me-1"></i>Suroviny<?php if ($surovinyBezKategorie): ?>
+                <span class="badge rounded-pill text-bg-warning ms-1" title="Suroviny bez kategórie"><?= $surovinyBezKategorie ?></span><?php endif; ?></a>
             <a href="prevod-surovin.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left-right me-1"></i>Prevod surovín</a>
             <a href="../index.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Späť</a>
         </div>

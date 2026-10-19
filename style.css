@@ -863,3 +863,32 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     .kategoria-premenovat { flex-basis: 100%; }
     .kategoria-akcie { margin-left: 0; }
 }
+
+/* ============================================================
+   Správa surovín (admin/suroviny.php) — veľké ovládacie prvky.
+   ============================================================ */
+.suroviny-zoznam { display: flex; flex-direction: column; gap: .75rem; }
+.surovina-riadok {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    padding: .75rem;
+    border: 1px solid var(--app-border);
+    border-radius: 12px;
+}
+.surovina-uprava { display: flex; flex-wrap: wrap; gap: .5rem; }
+.surovina-uprava input[name="nazov"] { flex: 2 1 200px; min-width: 0; }
+.surovina-uprava select { flex: 1 1 200px; min-width: 0; }
+.surovina-pole { min-height: 48px; font-size: 1.05rem; }
+.surovina-tlacidlo { min-height: 48px; min-width: 48px; font-size: 1.05rem; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; }
+.surovina-info { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .5rem; }
+.surovina-info > .text-secondary { padding-top: .75rem; }
+.surovina-akcie { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; }
+.surovina-zlucit > summary { list-style: none; }
+.surovina-zlucit > summary::-webkit-details-marker { display: none; }
+.surovina-zlucit[open] { flex-basis: 100%; }
+.surovina-zlucit-form { margin-top: .5rem; padding: .75rem; border: 1px dashed var(--app-border); border-radius: 10px; }
+
+/* Návrh existujúcej suroviny pri preklepe („Nemysleli ste Paradajky?") */
+.surovina-option.is-podobna { border-left: 3px solid var(--app-accent); }
+.surovina-option-otazka { color: var(--app-muted); }

@@ -130,8 +130,42 @@
          allowNew   — ponúknuť „Pridať ako novú surovinu" (predvolene áno)
          newLabel   — (nazov) => text možnosti pre položku, ktorá v číselníku nie je
          onPick     — (item) po výbere; nová surovina má id === null a isNew === true
+         podobne    — pri novom názve ponúknuť podobné existujúce suroviny, napr. pri
+                      preklepe „Paradjky" → „Nemysleli ste Paradajky?" (predvolene áno)
        -------------------------------------------------------------------- */
     let comboCounter = 0;
+
+    /**
+     * Koľko úprav (vloženie, zmazanie, zámena alebo prehodenie dvoch susedných
+     * písmen) treba, aby z a vzniklo b. Nad max sa počítanie ukončí a vráti max + 1.
+     */
+    function vzdialenost(a, b, max) {
+        if (Math.abs(a.length - b.length) > max) return max + 1;
+        let pred = null;
+        let riadok = Array.from({ length: b.length + 1 }, (_, j) => j);
+        for (let i = 1; i <= a.length; i++) {
+            const novy = [i];
+            let najmenej = i;
+            for (let j = 1; j <= b.length; j++) {
+                const cena = a[i - 1] === b[j - 1] ? 0 : 1;
+                let d = Math.min(riadok[j] + 1, novy[j - 1] + 1, riadok[j - 1] + cena);
+                if (pred && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+                    d = Math.min(d, pred[j - 2] + 1);
+                }
+                novy.push(d);
+                if (d < najmenej) najmenej = d;
+            }
+            if (najmenej > max) return max + 1;
+            pred = riadok;
+            riadok = novy;
+        }
+        return riadok[b.length];
+    }
+
+    /** Povolený počet preklepov podľa dĺžky: krátke slová 1, dlhšie (od 9 znakov) 2. */
+    function tolerancia(dlzka) {
+        return dlzka >= 9 ? 2 : 1;
+    }
 
     function attachCombobox(input, options) {
         const items = options.items || [];
@@ -143,6 +177,7 @@
         }
         const isTaken = options.isTaken || (() => false);
         const allowNew = options.allowNew !== false;
+        const podobne = options.podobne !== false;
         const maxResults = 8;
         const listId = 'surovinaOptions' + (++comboCounter);
 
@@ -212,6 +247,21 @@
 
             current = scored.slice(0, maxResults).map((s) => ({ item: s.item }));
 
+            // Nový názov, ktorý sa len málo líši od existujúcej suroviny (preklep):
+            // ponúkneme ju pred „Pridať ako novú". Keď inak nič nesedí, je zvýraznená
+            // ako prvá, takže Enter vyberie existujúcu surovinu namiesto preklepu.
+            if (!exact && allowNew && podobne && query.length >= 3) {
+                const uz = new Set(current.map((o) => o.item));
+                const max = tolerancia(query.length);
+                keyedItems()
+                    .filter((item) => !uz.has(item) && !isTaken(item))
+                    .map((item) => ({ item, d: vzdialenost(query, item.key, max) }))
+                    .filter((x) => x.d <= max)
+                    .sort((a, b) => a.d - b.d || a.item.key.length - b.item.key.length)
+                    .slice(0, 3)
+                    .forEach((x) => current.push({ item: x.item, podobna: true }));
+            }
+
             if (exact && isTaken(exact)) {
                 current.push({ disabled: true, label: '„' + exact.nazov + '“ už v recepte je' });
             } else if (!exact && allowNew && query.length >= 2) {
@@ -239,7 +289,17 @@
                         : 'Pridať „' + option.item.nazov + '“ ako novú surovinu');
                 } else {
                     const name = document.createElement('span');
-                    name.textContent = option.item.nazov;
+                    if (option.podobna) {
+                        el.classList.add('is-podobna');
+                        const otazka = document.createElement('span');
+                        otazka.className = 'surovina-option-otazka';
+                        otazka.textContent = 'Nemysleli ste ';
+                        const nazov = document.createElement('strong');
+                        nazov.textContent = option.item.nazov;
+                        name.append(otazka, nazov, '?');
+                    } else {
+                        name.textContent = option.item.nazov;
+                    }
                     el.appendChild(name);
                     if (option.item.kategoria) {
                         const cat = document.createElement('span');

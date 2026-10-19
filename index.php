@@ -283,7 +283,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=25">
+    <link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
 
@@ -337,7 +337,7 @@ header('X-Recepty-Offline: 1');
             <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
         </button>
         <?php if (is_admin()): ?>
-        <a href="admin/index.php" class="btn btn-outline-secondary btn-sm" title="Správa: používatelia a kategórie receptov" aria-label="Správa: používatelia a kategórie receptov" data-vyzaduje-siet>
+        <a href="admin/index.php" class="btn btn-outline-secondary btn-sm" title="Správa: používatelia, kategórie receptov a suroviny" aria-label="Správa: používatelia, kategórie receptov a suroviny" data-vyzaduje-siet>
             <i class="bi bi-gear-fill"></i><span class="btn-label">Správa</span>
         </a>
         <?php endif; ?>
@@ -979,8 +979,8 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_JEDNOTKY = <?= json_encode(SUROVINA_JEDNOTKY, JSON_UNESCAPED_UNICODE) ?>;
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
 </script>
-<script src="suroviny.js?v=25"></script>
-<script src="script.js?v=25"></script>
+<script src="suroviny.js?v=26"></script>
+<script src="script.js?v=26"></script>
 </body>
 </html>
 <?php

@@ -11,7 +11,7 @@ Tento dokument má dve časti:
 
 - **Recepty** s názvom, kategóriou, časom prípravy, počtom porcií, odkazom na pôvodný web a poznámkami.
 - **Galéria fotiek.** Ku každému vareniu sa dá pridať nová fotka a staršie ostávajú, každá so svojím dátumom. V náhľade receptu sa medzi nimi listuje.
-- **Suroviny z číselníka.** Vyberajú sa vo vyhľadávacom poli, ktoré ignoruje veľké písmená a diakritiku, takže „Múka hladká" a „muka hladka" je vždy tá istá surovina. V základe je 418 surovín v 14 kategóriách a ďalšie sa pridávajú priamo pri písaní receptu.
+- **Suroviny z číselníka.** Vyberajú sa vo vyhľadávacom poli, ktoré ignoruje veľké písmená a diakritiku, takže „Múka hladká" a „muka hladka" je vždy tá istá surovina. V základe je 418 surovín v 14 kategóriách a ďalšie sa pridávajú priamo pri písaní receptu. Pri preklepe appka ponúkne existujúcu surovinu („Nemysleli ste Paradajky?“) a admin vie novú surovinu zaradiť do kategórie, premenovať alebo zlúčiť s inou.
 - **Prepočet porcií.** V náhľade receptu sa tlačidlami − a + mení počet porcií. Množstvá sa prepočítajú a prevedú na jednotku, ktorá sa dá odmerať (2000 g → 2 kg, 0,5 PL → 1½ ČL).
 - **Kategórie receptov** spravuje admin priamo v appke: pridá, premenuje, zoradí aj zmaže nepoužívanú.
 - **Nákupný zoznam** spoločný pre všetkých. Suroviny z viacerých receptov sa zlúčia a sčítajú, zoznam sa dá odškrtávať a odoslať do Google Keep alebo inej appky. Zmeny od ostatných sa v otvorenom zozname objavia do pár sekúnd.
@@ -323,6 +323,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `manifest.json`, `app-icons/` | Údaje a ikony pre inštaláciu na plochu. |
 | `offline.html` | Stránka zobrazená bez pripojenia, keď v zariadení nie je uložená kópia receptov, a pre stránky, ktoré bez servera nefungujú. |
 | `admin/index.php` | Správa používateľov a kategórií receptov (len admin). |
+| `admin/suroviny.php` | Správa surovín (len admin): kategória, premenovanie, zlúčenie, zmazanie nepoužívanej. |
 | `admin/prevod-surovin.php` | Jednorazový prevod receptov zo starej verzie, kde boli suroviny voľným textom. Pri novej inštalácii nie je potrebný. |
 | `includes/config.php` | Nastavenie session, zápis chýb, načítanie `.env`, pripojenie k databáze. |
 | `includes/env.php` | Načítanie súboru `.env`. |
@@ -404,7 +405,7 @@ Ak má recept kategóriu, ktorá v zozname nie je (napr. z ručnej úpravy datab
 
 **Uvarené.** Tlačidlo na karte otvorí okno s dňom varenia (predvolene dnes, dá sa zvoliť aj skorší deň) a nepovinnou fotkou. Spätne zapísané staršie varenie neposunie „naposledy varené" dozadu, len sa zapíše do histórie a fotka dostane svoj dátum.
 
-**Práva.** Pridávať a upravovať recepty a pridávať fotky môže každý prihlásený. Mazať recepty, mazať fotky z galérie a spravovať používateľov a kategórie môže len admin.
+**Práva.** Pridávať a upravovať recepty a pridávať fotky môže každý prihlásený. Mazať recepty, mazať fotky z galérie a spravovať používateľov, kategórie a suroviny môže len admin.
 
 **Tlačidlá na karte receptu:** uvarené (okno s dátumom a fotkou), do nákupu, história, upraviť, zmazať (len admin). Kliknutím kamkoľvek inam na kartu sa otvorí náhľad.
 
@@ -419,6 +420,17 @@ Kľúč sa počíta na troch miestach a všade musí vyjsť rovnako:
 - stĺpec `kluc` v `sql/instalacia.sql`.
 
 **Vo formulári receptu** sa surovina vyhľadá a pridá ako riadok s nepovinným množstvom, jednotkou a poznámkou. Ak surovina v číselníku nie je, ponúkne sa jej pridanie. Nová surovina vznikne až pri uložení receptu a nemá kategóriu.
+
+**Návrh pri preklepe.** Keď sa napísaný názov v číselníku nenájde, ale od niektorej suroviny sa líši len o jedno písmeno (pri názvoch od 9 znakov o dve), výber ju ponúkne ako „Nemysleli ste Paradajky?“ pred možnosťou pridať novú. Rátajú sa vynechané, pridané, zamenené aj prehodené susedné písmená (funkcia `vzdialenost` v `suroviny.js`). Ak inak nič nesedí, návrh je zvýraznený ako prvý, takže Enter vyberie existujúcu surovinu. Zámerne novú surovinu stačí ťuknúť na „Pridať … ako novú surovinu“. Rovnako to funguje v nákupnom zozname.
+
+**Správa surovín** (Správa → Suroviny, len admin, `admin/suroviny.php`). Predvolene ukazuje suroviny bez kategórie, teda tie, ktoré pribudli pri písaní receptov. Hľadaním sa dá upraviť ktorákoľvek. Odznak pri tlačidle Suroviny v Správe ukazuje, koľko surovín je bez kategórie.
+
+- **Kategória:** výber z kategórií, ktoré už suroviny majú. Nákupný zoznam ju hneď použije (surovina bez kategórie je v skupine „Ostatné“).
+- **Premenovanie** opraví názov vo všetkých receptoch aj v nekúpených položkách nákupu a zapíše sa do histórie dotknutých receptov. Ak taký názov (bez ohľadu na veľké písmená a diakritiku) už má iná surovina, appka ponúkne zlúčenie.
+- **Zlúčenie** („Zlúčiť s inou…“): vyberie sa surovina, ktorá ostane. Recepty a položky nákupu prejdú na ňu, zlučovaná surovina sa zmaže a ak tá, ktorá ostane, nemala kategóriu, prevezme ju. Všetko prebehne v jednej transakcii. Rovnaké nekúpené položky v nákupe sa sčítajú. Ak mal recept obe suroviny, bude v ňom dvakrát a appka na to upozorní. Zlúčenie sa zapíše do histórie receptov a nedá sa vrátiť.
+- **Zmazanie** je možné len pri surovine, ktorú nepoužíva žiadny recept. Položka v nákupe ostane ako vlastná.
+
+Zmeny surovín nepotrebujú migráciu, všetko je v existujúcich tabuľkách.
 
 **Jednotky** sú dané zoznamom `SUROVINA_JEDNOTKY` vo `functions.php`: g, kg, ml, dl, l, ks, PL, ČL, šálka, štipka, balenie, plátok, strúčik.
 
@@ -573,7 +585,6 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 ## B13. Známe obmedzenia
 
 - Bez internetu sa recepty dajú len pozerať, meniť nie (pozri [Offline režim](#offline-režim)).
-- Suroviny sa v appke nedajú premenovať, zlúčiť ani im doplniť kategória. Dá sa to len priamo v databáze.
 - Rozhranie je len po slovensky.
 
 ## B14. Automatické testy a pravidlá pre novú verziu
@@ -587,7 +598,7 @@ Testy sú v priečinku `testy/`. GitHub ich spúšťa pri každom nahratí do `m
 5. **databázu z predchádzajúcej verzie bez migrácie:** nová appka na nej musí bežať,
 6. **migrácie** na tej istej databáze (každú dvakrát po sebe), znova priechod appkou a porovnanie štruktúry s novou inštaláciou.
 
-Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, v správe pridá, premenuje, posunie a zmaže kategóriu receptov (a overí, že používanú zmazať nejde), otvorí biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
+Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, v správe pridá, premenuje, posunie a zmaže kategóriu receptov (a overí, že používanú zmazať nejde), v správe surovín zaradí, premenuje a zlúči surovinu s preklepom, otvorí biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
 
 Po nahratí na server skript `testy/kontrola-po-nahrati.sh` overí ostrú appku a `testy/kontrola-ftp.sh` pred nahratím skontroluje FTP a cieľový priečinok.
 
@@ -615,6 +626,13 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.6**
+
+- Správa surovín (Správa → Suroviny): surovinu pridanú pri recepte vie admin zaradiť do kategórie, premenovať, zlúčiť s inou (preklep, iný názov tej istej veci) a zmazať nepoužívanú. Zmeny sa prejavia vo všetkých receptoch aj v nákupnom zozname.
+- Pri písaní suroviny s preklepom appka ponúkne existujúcu: „Nemysleli ste Paradajky?“. Funguje vo formulári receptu aj v nákupnom zozname.
+- Tlačidlo Suroviny v Správe ukazuje počet surovín bez kategórie.
+- Databáza sa nemení, migrácia netreba.
 
 **1.5**
 

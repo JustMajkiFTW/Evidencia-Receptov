@@ -794,6 +794,202 @@ function get_all_suroviny(PDO $pdo): array
  * Suroviny VŠETKÝCH receptov naraz (jeden dotaz), v poradí, v akom boli zadané.
  * Návrat: [recipe_id => [['id'=>, 'nazov'=>, 'mnozstvo'=>, 'jednotka'=>, 'poznamka'=>], ...]]
  */
+/* ======================================================================
+   Správa surovín (admin/suroviny.php): zaradenie do kategórie, oprava
+   názvu, zlúčenie dvoch surovín a zmazanie nepoužívanej. Bez migrácie —
+   všetko je v existujúcich tabuľkách suroviny, recept_suroviny a nakupny_zoznam.
+   ====================================================================== */
+
+/** Kategórie surovín, ktoré sa už používajú (zoradené podľa abecedy). */
+function get_surovina_categories(PDO $pdo): array
+{
+    $rows = $pdo->query("SELECT DISTINCT kategoria FROM suroviny WHERE kategoria IS NOT NULL AND kategoria <> ''")->fetchAll(PDO::FETCH_COLUMN);
+    $collator = class_exists('Collator') ? new Collator('sk_SK') : null;
+    usort($rows, fn($a, $b) => $collator ? $collator->compare($a, $b) : strcmp(surovina_key($a), surovina_key($b)));
+    return $rows;
+}
+
+/**
+ * Suroviny pre správu: [['id', 'nazov', 'kategoria', 'receptov', 'v_nakupe'], …].
+ * $hladaj prázdne = len suroviny bez kategórie; inak hľadá vo všetkých
+ * (bez diakritiky a veľkých písmen, ako výber v recepte), najviac $limit.
+ */
+function get_suroviny_for_admin(PDO $pdo, string $hladaj = '', int $limit = 100): array
+{
+    $sql = "SELECT s.id, s.nazov, s.kluc, s.kategoria,
+                   (SELECT COUNT(DISTINCT rs.recept_id) FROM recept_suroviny rs WHERE rs.surovina_id = s.id) AS receptov,
+                   (SELECT COUNT(*) FROM nakupny_zoznam n WHERE n.surovina_id = s.id AND n.kupene = 0) AS v_nakupe
+            FROM suroviny s";
+    $params = [];
+    $kluc = surovina_key($hladaj);
+    if ($kluc === '') {
+        $sql .= " WHERE s.kategoria IS NULL OR s.kategoria = ''";
+    } else {
+        $podmienky = [];
+        foreach (explode(' ', $kluc) as $slovo) {
+            $podmienky[] = 's.kluc LIKE ?';
+            $params[] = '%' . addcslashes($slovo, '%_\\') . '%';
+        }
+        $sql .= ' WHERE ' . implode(' AND ', $podmienky);
+    }
+    $sql .= ' ORDER BY s.kluc LIMIT ' . max(1, $limit);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return array_map(static fn(array $r): array => [
+        'id'        => (int) $r['id'],
+        'nazov'     => $r['nazov'],
+        'kategoria' => $r['kategoria'] ?? '',
+        'receptov'  => (int) $r['receptov'],
+        'v_nakupe'  => (int) $r['v_nakupe'],
+    ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function get_surovina(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT id, nazov, kluc, kategoria FROM suroviny WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+/** Recepty, ktoré surovinu používajú: [recept_id => názov]. */
+function surovina_recipes(PDO $pdo, int $surovinaId): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT DISTINCT r.id, r.name FROM recept_suroviny rs JOIN recipes r ON r.id = rs.recept_id
+         WHERE rs.surovina_id = ? ORDER BY r.name'
+    );
+    $stmt->execute([$surovinaId]);
+    return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'name', 'id');
+}
+
+/**
+ * Zmení názov a kategóriu suroviny. Ak nový názov už má iná surovina, nič sa
+ * nezmení a vráti sa 'konflikt' = tá surovina (správa potom ponúkne zlúčenie).
+ */
+function update_surovina(PDO $pdo, int $id, string $nazov, string $kategoria, int $userId): array
+{
+    $surovina = get_surovina($pdo, $id);
+    if (!$surovina) {
+        return ['success' => false, 'error' => 'Surovina neexistuje.'];
+    }
+    $nazov = surovina_display_name($nazov);
+    $kluc = surovina_key($nazov);
+    if ($kluc === '') {
+        return ['success' => false, 'error' => 'Názov suroviny je povinný.'];
+    }
+    $kategoria = trim($kategoria);
+    if ($kategoria !== '' && !in_array($kategoria, get_surovina_categories($pdo), true)) {
+        return ['success' => false, 'error' => 'Neznáma kategória suroviny.'];
+    }
+
+    $stmt = $pdo->prepare('SELECT id, nazov, kluc, kategoria FROM suroviny WHERE kluc = ? AND id <> ?');
+    $stmt->execute([$kluc, $id]);
+    if ($konflikt = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        return ['success' => false, 'error' => "Surovina „{$konflikt['nazov']}“ už existuje.", 'konflikt' => $konflikt];
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('UPDATE suroviny SET nazov = ?, kluc = ?, kategoria = ? WHERE id = ?')
+            ->execute([$nazov, $kluc, $kategoria !== '' ? $kategoria : null, $id]);
+        // Nekúpené položky nákupu majú názov aj kľúč skopírované — opravíme ich tiež.
+        $pdo->prepare('UPDATE nakupny_zoznam SET nazov = ?, kluc = ? WHERE surovina_id = ?')->execute([$nazov, $kluc, $id]);
+        if ($nazov !== $surovina['nazov']) {
+            foreach (array_keys(surovina_recipes($pdo, $id)) as $receptId) {
+                log_recipe_action($pdo, (int) $receptId, $userId, 'updated', "Surovina „{$surovina['nazov']}“ premenovaná na „{$nazov}“");
+            }
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return ['success' => true, 'error' => null, 'nazov' => $nazov];
+}
+
+/**
+ * Zlúči surovinu $zId do $doId: recepty aj nákupný zoznam prejdú na $doId
+ * a $zId sa zmaže. Všetko v jednej transakcii. Ak $doId nemá kategóriu,
+ * prevezme ju od zlučovanej. Vráti počty a recepty, v ktorých boli obe.
+ */
+function merge_suroviny(PDO $pdo, int $zId, int $doId, int $userId): array
+{
+    if ($zId === $doId) {
+        return ['success' => false, 'error' => 'Surovinu nejde zlúčiť samú so sebou.'];
+    }
+    $z = get_surovina($pdo, $zId);
+    $do = get_surovina($pdo, $doId);
+    if (!$z || !$do) {
+        return ['success' => false, 'error' => 'Surovina neexistuje.'];
+    }
+
+    $recepty = surovina_recipes($pdo, $zId);
+    $obe = array_intersect_key($recepty, surovina_recipes($pdo, $doId));
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('UPDATE recept_suroviny SET surovina_id = ? WHERE surovina_id = ?')->execute([$doId, $zId]);
+        $pdo->prepare('UPDATE nakupny_zoznam SET surovina_id = ?, nazov = ?, kluc = ? WHERE surovina_id = ?')
+            ->execute([$doId, $do['nazov'], $do['kluc'], $zId]);
+        if (($do['kategoria'] ?? '') === '' && ($z['kategoria'] ?? '') !== '') {
+            $pdo->prepare('UPDATE suroviny SET kategoria = ? WHERE id = ?')->execute([$z['kategoria'], $doId]);
+        }
+        $pdo->prepare('DELETE FROM suroviny WHERE id = ?')->execute([$zId]);
+        merge_shopping_duplicates($pdo, $doId);
+        foreach (array_keys($recepty) as $receptId) {
+            log_recipe_action($pdo, (int) $receptId, $userId, 'updated', "Surovina „{$z['nazov']}“ zlúčená do „{$do['nazov']}“");
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return ['success' => true, 'error' => null, 'receptov' => count($recepty), 'obe' => array_values($obe),
+        'z' => $z['nazov'], 'do' => $do['nazov']];
+}
+
+/**
+ * Po zlúčení môžu byť na nákupnom zozname dve nekúpené položky tej istej
+ * suroviny s rovnakou jednotkou — sčítame ich do jednej, ako pri pridávaní.
+ */
+function merge_shopping_duplicates(PDO $pdo, int $surovinaId): void
+{
+    $stmt = $pdo->prepare('SELECT * FROM nakupny_zoznam WHERE surovina_id = ? AND kupene = 0 ORDER BY id');
+    $stmt->execute([$surovinaId]);
+    $prve = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $kluc = $row['mnozstvo'] === null ? 'bez' : 'j:' . (string) $row['jednotka'];
+        if (!isset($prve[$kluc])) {
+            $prve[$kluc] = $row;
+            continue;
+        }
+        $ciel = &$prve[$kluc];
+        $ciel['mnozstvo'] = $row['mnozstvo'] === null ? null : (float) $ciel['mnozstvo'] + (float) $row['mnozstvo'];
+        $ciel['zdroj'] = shopping_merge_zdroj($ciel['zdroj'], $row['zdroj']);
+        $pdo->prepare('UPDATE nakupny_zoznam SET mnozstvo = ?, zdroj = ? WHERE id = ?')
+            ->execute([$ciel['mnozstvo'], $ciel['zdroj'], $ciel['id']]);
+        $pdo->prepare('DELETE FROM nakupny_zoznam WHERE id = ?')->execute([$row['id']]);
+        unset($ciel);
+    }
+}
+
+/** Zmaže surovinu, ktorú nepoužíva žiadny recept (položky v nákupe ostanú ako vlastné). */
+function delete_surovina(PDO $pdo, int $id): array
+{
+    $surovina = get_surovina($pdo, $id);
+    if (!$surovina) {
+        return ['success' => false, 'error' => 'Surovina neexistuje.'];
+    }
+    $pocet = count(surovina_recipes($pdo, $id));
+    if ($pocet > 0) {
+        return ['success' => false, 'error' => "Surovinu „{$surovina['nazov']}“ používa {$pocet} " .
+            ($pocet === 1 ? 'recept' : ($pocet <= 4 ? 'recepty' : 'receptov')) . '. Zlúč ju s inou surovinou.'];
+    }
+    $pdo->prepare('DELETE FROM suroviny WHERE id = ?')->execute([$id]);
+    return ['success' => true, 'error' => null, 'nazov' => $surovina['nazov']];
+}
+
 function get_all_recipe_suroviny(PDO $pdo): array
 {
     if (!suroviny_available($pdo)) {

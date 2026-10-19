@@ -222,6 +222,17 @@ function hlaska_spravy(string $html): string
     return preg_match('/class="alert alert-(?:success|danger)">([^<]*)</', $html, $m) ? html_entity_decode($m[1], ENT_QUOTES) : '';
 }
 
+/** Suroviny na stránke správy surovín: [id => názov]. */
+function suroviny_zo_spravy(string $html): array
+{
+    preg_match_all('/name="surovina_id" value="(\d+)">\s*<input type="text" name="nazov"[^>]*value="([^"]*)"/', $html, $zhody, PREG_SET_ORDER);
+    $suroviny = [];
+    foreach ($zhody as $z) {
+        $suroviny[(int) $z[1]] = html_entity_decode($z[2], ENT_QUOTES);
+    }
+    return $suroviny;
+}
+
 function akcia(Prehliadac $p, string $csrf, string $akcia, array $polia = []): Odpoved
 {
     return $p->post('index.php', ['action' => $akcia, 'csrf_token' => $csrf] + $polia);
@@ -451,7 +462,8 @@ over($o->kod === 200 && str_contains($o->telo, 'Kategórie receptov'), 'Správa 
 $adminCsrf = (string) csrf_zo_stranky($o->telo);
 $sprava = fn(array $polia) => $p->post('admin/index.php', $polia + ['csrf_token' => $adminCsrf]);
 
-if ($plny) {
+// Tabuľka kategórií je od verzie 1.5 — staršia databáza bez migrácie ju nemá.
+if ($plny || str_contains($o->telo, 'value="kategoria_pridat"')) {
     $kategorie = kategorie_zo_spravy($o->telo);
     over(count($kategorie) >= 7 && in_array('Nízko kal. / Fit', $kategorie, true), 'Správa ukazuje kategórie z databázy', json_encode($kategorie, JSON_UNESCAPED_UNICODE));
 
@@ -500,7 +512,90 @@ if ($plny) {
 akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $fitId]);
 
 /* ---------------------------------------------------------------------- */
-/* 8. Ďalšie stránky                                                       */
+/* 8. Suroviny (správa, nepotrebuje migráciu)                              */
+/* ---------------------------------------------------------------------- */
+echo "\nSuroviny\n";
+// Recept s preklepom v novej surovine a s ďalšou novou surovinou, ktorú potom nič nepoužíva.
+$preklep = "Paradjky $znacka";
+$o = akcia($p, $csrf, 'add_recipe', ['name' => "Šalát s preklepom $znacka", 'servings' => '2', 'suroviny_json' => json_encode([
+    ['nazov' => $preklep, 'mnozstvo' => '300', 'jednotka' => 'g', 'poznamka' => ''],
+    ['nazov' => 'Paradajky', 'mnozstvo' => '1', 'jednotka' => 'ks', 'poznamka' => ''],
+], JSON_UNESCAPED_UNICODE)]);
+$preklepRecept = (int) ($o->json()['id'] ?? 0);
+over(uspech($o) && $preklepRecept > 0, 'Recept s novou surovinou (preklep) sa uloží', $o->popis());
+$o = akcia($p, $csrf, 'add_recipe', ['name' => "Na zmazanie $znacka", 'suroviny_json' => json_encode([
+    ['nazov' => "Nepoužitá $znacka", 'mnozstvo' => '', 'jednotka' => '', 'poznamka' => ''],
+], JSON_UNESCAPED_UNICODE)]);
+akcia($p, $csrf, 'delete_recipe', ['recipe_id' => (int) ($o->json()['id'] ?? 0)]);
+akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);
+akcia($p, $csrf, 'shopping_add_recipe', ['recipe_id' => $preklepRecept]);
+
+$o = $p->get('admin/suroviny.php');
+$sCsrf = (string) csrf_zo_stranky($o->telo);
+$bez = suroviny_zo_spravy($o->telo);
+$preklepId = (int) array_search($preklep, $bez, true);
+$nepouzitaId = (int) array_search("Nepoužitá $znacka", $bez, true);
+over($o->kod === 200 && bez_chyby($o) && $preklepId > 0 && $nepouzitaId > 0, 'Správa surovín ukáže nové suroviny bez kategórie', $o->popis());
+$o = $p->get('admin/index.php');
+over(str_contains($o->telo, 'href="suroviny.php"'), 'Zo Správy vedie odkaz na Suroviny');
+$suroviny = fn(array $polia) => $p->post('admin/suroviny.php', $polia + ['csrf_token' => $sCsrf, 'hladaj' => '']);
+
+$o = $p->get('admin/suroviny.php?hladaj=' . rawurlencode('paradajky cherry'));
+over(in_array('Paradajky cherry', suroviny_zo_spravy($o->telo), true), 'Hľadanie nájde surovinu aj bez diakritiky');
+
+$o = $suroviny(['action' => 'surovina_ulozit', 'surovina_id' => $nepouzitaId, 'nazov' => "Nepoužitá $znacka", 'kategoria' => 'Zelenina']);
+over(!isset(suroviny_zo_spravy($o->telo)[$nepouzitaId]), 'Zaradená surovina zmizne zo zoznamu bez kategórie', hlaska_spravy($o->telo));
+$o = $suroviny(['action' => 'surovina_ulozit', 'surovina_id' => $nepouzitaId, 'nazov' => 'X', 'kategoria' => 'Neexistujúca']);
+over(str_contains(hlaska_spravy($o->telo), 'Neznáma kategória'), 'Neznáma kategória sa odmietne', hlaska_spravy($o->telo));
+
+$o = $suroviny(['action' => 'surovina_ulozit', 'surovina_id' => $preklepId, 'nazov' => "Paradajky opravené $znacka", 'kategoria' => '']);
+over(isset(suroviny_zo_spravy($o->telo)[$preklepId]) && suroviny_zo_spravy($o->telo)[$preklepId] === "Paradajky opravené $znacka", 'Premenovanie suroviny', hlaska_spravy($o->telo));
+$o = $p->get('index.php');
+$nazvy = array_column(recepty_zo_stranky($o->telo)[$preklepRecept]['suroviny'] ?? [], 'nazov');
+over(in_array("Paradajky opravené $znacka", $nazvy, true), 'Recept ukazuje nový názov suroviny', json_encode($nazvy, JSON_UNESCAPED_UNICODE));
+
+$o = $suroviny(['action' => 'surovina_ulozit', 'surovina_id' => $preklepId, 'nazov' => 'paradajky', 'kategoria' => '']);
+over(str_contains($o->telo, 'už existuje') && str_contains($o->telo, 'name="action" value="surovina_zlucit"'),
+    'Premenovanie na existujúci názov ponúkne zlúčenie');
+preg_match('/name="z_id" value="' . $preklepId . '">\s*<input type="hidden" name="do_id" value="(\d+)"/', $o->telo, $m);
+$paradajkyId = (int) ($m[1] ?? 0);
+over($paradajkyId > 0, 'Ponuka zlúčenia mieri na existujúcu surovinu Paradajky');
+
+$o = $suroviny(['action' => 'surovina_zmazat', 'surovina_id' => $preklepId]);
+over(str_contains(hlaska_spravy($o->telo), 'používa 1 recept'), 'Používanú surovinu zmazať nejde', hlaska_spravy($o->telo));
+
+$o = $suroviny(['action' => 'surovina_zlucit', 'z_id' => $preklepId, 'do_id' => $paradajkyId]);
+$hlaska = hlaska_spravy($o->telo);
+over(str_contains($hlaska, 'zlúčená do „Paradajky“') && str_contains($hlaska, 'je dvakrát'),
+    'Zlúčenie do Paradajky upozorní na recept, ktorý mal obe suroviny', $hlaska);
+$o = $p->get('index.php');
+$nazvy = array_column(recepty_zo_stranky($o->telo)[$preklepRecept]['suroviny'] ?? [], 'nazov');
+over($nazvy === ['Paradajky', 'Paradajky'], 'Recept má po zlúčení len Paradajky', json_encode($nazvy, JSON_UNESCAPED_UNICODE));
+$o = $p->get('admin/suroviny.php?hladaj=' . rawurlencode("opravené $znacka"));
+over(suroviny_zo_spravy($o->telo) === [], 'Zlúčená surovina zmizla z číselníka');
+$o = akcia($p, $csrf, 'shopping_get');
+$polozky = array_values(array_filter($o->json()['items'] ?? [], fn($i) => str_starts_with((string) $i['nazov'], 'Paradajky')));
+if ($plny) {
+    over(count($polozky) === 2 && $polozky[0]['kategoria'] === 'Zelenina',
+        'V nákupe sú obe položky pod Paradajkami v kategórii Zelenina (g a ks ostávajú zvlášť)', json_encode($polozky, JSON_UNESCAPED_UNICODE));
+}
+$o = akcia($p, $csrf, 'get_logs', ['recipe_id' => $preklepRecept]);
+$poznamky = array_column($o->json()['logs'] ?? [], 'note');
+over((bool) array_filter($poznamky, fn($n) => str_contains((string) $n, 'zlúčená do „Paradajky“')), 'Zlúčenie je v histórii receptu');
+
+$o = $suroviny(['action' => 'surovina_zmazat', 'surovina_id' => $nepouzitaId]);
+over(str_contains(hlaska_spravy($o->telo), 'zmazaná'), 'Nepoužívaná surovina sa zmaže', hlaska_spravy($o->telo));
+$o = $suroviny(['action' => 'surovina_zlucit', 'z_id' => $paradajkyId, 'do_id' => $paradajkyId]);
+over(str_contains(hlaska_spravy($o->telo), 'samú so sebou'), 'Surovinu nejde zlúčiť samú so sebou', hlaska_spravy($o->telo));
+$o = $p->post('admin/suroviny.php', ['action' => 'surovina_zmazat', 'surovina_id' => $paradajkyId, 'csrf_token' => 'zly']);
+over(str_contains(hlaska_spravy($o->telo), 'Vypršala platnosť formulára'), 'Úprava surovín s neplatným tokenom sa odmietne');
+akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);
+akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $preklepRecept]);
+$o = (new Prehliadac($adresa))->get('admin/suroviny.php');
+over(in_array($o->kod, [301, 302, 303], true), 'Správa surovín bez prihlásenia presmeruje na prihlásenie', $o->popis());
+
+/* ---------------------------------------------------------------------- */
+/* 9. Ďalšie stránky                                                       */
 /* ---------------------------------------------------------------------- */
 echo "\nĎalšie stránky\n";
 $o = $p->get("index.php?recept=$receptId");
@@ -521,7 +616,7 @@ $o = $p->get('cron.php?key=' . urlencode($cronKey));
 over($o->kod === 200 && bez_chyby($o), 'cron.php so správnym kľúčom prebehne', $o->popis());
 
 /* ---------------------------------------------------------------------- */
-/* 9. Zostať prihlásený a odhlásenie                                       */
+/* 10. Zostať prihlásený a odhlásenie                                      */
 /* ---------------------------------------------------------------------- */
 echo "\nZostať prihlásený a odhlásenie\n";
 $zapamatane = new Prehliadac($adresa);
