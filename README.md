@@ -572,9 +572,7 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 
 ## B13. Známe obmedzenia
 
-- Bez internetu sa recepty dajú len pozerať, a to v stave z posledného načítania. Pridávať, upravovať, hodnotiť ani používať nákupný zoznam sa nedá. Offline sú len fotky, ktoré sa v zariadení predtým zobrazili.
-- Nákupný zoznam sa medzi zariadeniami obnovuje s oneskorením do 5 sekúnd, nie okamžite. Odznak s počtom pri tlačidle Nákup sa obnoví až po otvorení zoznamu alebo po návrate do appky.
-- Pri prepočte porcií sa neprevádza medzi skupinami jednotiek (napr. lyžice na gramy), len v rámci jednej skupiny.
+- Bez internetu sa recepty dajú len pozerať, meniť nie (pozri [Offline režim](#offline-režim)).
 - Suroviny sa v appke nedajú premenovať, zlúčiť ani im doplniť kategória. Dá sa to len priamo v databáze.
 - Rozhranie je len po slovensky.
 
