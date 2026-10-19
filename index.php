@@ -986,7 +986,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
 </script>
 <script src="suroviny.js?v=21"></script>
-<script src="script.js?v=23"></script>
+<script src="script.js?v=24"></script>
 </body>
 </html>
 <?php

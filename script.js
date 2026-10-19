@@ -510,10 +510,59 @@ const shopping = (function initShopping() {
     const fabEl = document.getElementById('shoppingFab');
     let items = [];
 
+    // Obnovovanie zoznamu, aby bolo vidno aj zmeny z iných zariadení (napr. dvaja
+    // nakupujú naraz). Kým je okno Nákup otvorené a appka na obrazovke, zoznam sa
+    // stiahne každých OBNOVA_MS. Pri návrate do appky alebo internetu hneď.
+    // Na pozadí sa nerobí nič, nemíňa to batériu ani dáta.
+    const OBNOVA_MS = 5000;
+    let casovac = null;
+    let poradie = 0;        // poradové číslo každej požiadavky
+    let aplikovane = 0;     // poradie poslednej odpovede, ktorá sa ukázala
+    let generacia = 0;      // zvýši sa pri každej zmene od používateľa (odškrtnutie, pridanie…)
+    let akcieBezia = 0;     // zmeny, na ktorých odpoveď sa ešte čaká
+    let prihlasenieVyprsalo = false;
+    // Stav okna podľa udalostí Bootstrapu — trieda 'show' pribudne až po animácii,
+    // čiže často neskôr, než príde prvá odpoveď zo servera.
+    let otvorene = false;
+
+    const oknoOtvorene = () => otvorene;
+    const mozeObnovovat = () => !prihlasenieVyprsalo && document.visibilityState === 'visible'
+        && navigator.onLine !== false && !OfflineRezim.jeAktivny();
+
+    function naplanujObnovu() {
+        clearTimeout(casovac);
+        casovac = null;
+        if (oknoOtvorene() && mozeObnovovat()) {
+            casovac = setTimeout(async () => {
+                await obnov();
+                naplanujObnovu();
+            }, OBNOVA_MS);
+        }
+    }
+
+    /** Tiché načítanie zoznamu zo servera (bez hlásenia chýb pripojenia). */
+    function obnov() {
+        if (!mozeObnovovat()) return Promise.resolve();
+        return call('shopping_get', null, { ticho: true });
+    }
+
+    // Návrat do appky (prepnutie z inej appky, odomknutie telefónu) alebo návrat internetu:
+    // obnovíme hneď, aj odznak s počtom, keď okno nie je otvorené.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            obnov().then(naplanujObnovu);
+        } else {
+            naplanujObnovu(); // zastaví obnovovanie
+        }
+    });
+    window.addEventListener('online', () => setTimeout(() => obnov().then(naplanujObnovu), 500));
+    modalEl.addEventListener('show.bs.modal', () => { otvorene = true; });
+    modalEl.addEventListener('hidden.bs.modal', () => { otvorene = false; naplanujObnovu(); });
+
     function openModal() {
         const show = () => {
             bootstrap.Modal.getOrCreateInstance(modalEl).show();
-            call('shopping_get');
+            call('shopping_get').then(naplanujObnovu);
         };
         // Ak je otvorené iné okno (napr. náhľad receptu), najprv ho zavrieme —
         // dve okná naraz Bootstrap nezvláda.
@@ -526,24 +575,66 @@ const shopping = (function initShopping() {
         }
     }
 
-    async function call(action, params) {
+    /**
+     * Odoslanie akcie na server. Každá odpoveď obsahuje celý aktuálny zoznam.
+     * Odpoveď sa ukáže, len ak je novšia než posledná ukázaná. Obnova (shopping_get),
+     * počas ktorej používateľ niečo zmenil, sa zahodí — inak by napr. práve
+     * odškrtnutá položka na chvíľu skočila späť.
+     * opts.ticho: pri obnove nehlásime chyby pripojenia (skúsi sa o chvíľu znova).
+     */
+    async function call(action, params, opts = {}) {
+        const jeObnova = action === 'shopping_get';
+        const moje = ++poradie;
+        const gen = jeObnova ? generacia : ++generacia;
+        if (!jeObnova) akcieBezia++;
+
         const formData = new FormData();
         formData.append('action', action);
         formData.append('csrf_token', document.querySelector('input[name="csrf_token"]')?.value || '');
         Object.entries(params || {}).forEach(([key, value]) => formData.append(key, value));
         try {
             const res = await fetch('index.php', { method: 'POST', body: formData });
-            const data = await res.json();
-            if (data.items) {
-                items = data.items;
-                render();
+            // Vypršané prihlásenie: server presmeruje na prihlasovaciu stránku namiesto JSON.
+            const jeJson = (res.headers.get('Content-Type') || '').includes('application/json');
+            if ((res.redirected && /login\.php/.test(res.url)) || !jeJson) {
+                vyprsaloPrihlasenie(opts.ticho);
+                return { success: false };
             }
-            if (!data.success) showToast(data.error || 'Akcia zlyhala.', true);
+            const data = await res.json();
+            if (res.status === 403 && jeObnova) {
+                // Neplatný bezpečnostný token (napr. prihlásenie v inom okne) — stránku treba obnoviť.
+                vyprsaloPrihlasenie(opts.ticho);
+                return data;
+            }
+            const aktualna = moje > aplikovane && (!jeObnova || (gen === generacia && akcieBezia === (jeObnova ? 0 : 1)));
+            if (data.items && aktualna) {
+                aplikovane = moje;
+                nastavPolozky(data.items);
+            }
+            if (!data.success && !(jeObnova && opts.ticho)) showToast(data.error || 'Akcia zlyhala.', true);
             return data;
         } catch (err) {
-            showToast('Chyba pripojenia k serveru.', true);
+            if (!opts.ticho) showToast('Chyba pripojenia k serveru.', true);
             return { success: false };
+        } finally {
+            if (!jeObnova) akcieBezia--;
         }
+    }
+
+    /** Prekreslí zoznam, len ak sa naozaj zmenil (inak by blikal pri každej obnove). */
+    function nastavPolozky(nove) {
+        if (JSON.stringify(nove) === JSON.stringify(items) && listEl.childElementCount) return;
+        items = nove;
+        render();
+    }
+
+    /** Automatická obnova to oznámi len raz, akcia používateľa (ťuknutie) vždy. */
+    function vyprsaloPrihlasenie(ticho) {
+        if (prihlasenieVyprsalo && ticho) return;
+        prihlasenieVyprsalo = true;
+        naplanujObnovu();
+        showToast('Prihlásenie vypršalo. Obnov stránku, aby sa nákupný zoznam znova aktualizoval.', true,
+            { label: 'Obnoviť stránku', onClick: () => location.reload() });
     }
 
     /** „1,5 kg Múka hladká" — gramy a mililitre od 1000 vyššie ukážeme v kg a l. */
@@ -561,6 +652,7 @@ const shopping = (function initShopping() {
     function itemRow(item) {
         const row = document.createElement('div');
         row.className = 'shopping-item' + (item.kupene ? ' is-bought' : '');
+        row.dataset.itemId = item.id;
 
         const label = document.createElement('label');
         label.className = 'shopping-item-label';
@@ -624,6 +716,23 @@ const shopping = (function initShopping() {
             fabEl.querySelector('.shopping-fab-count').textContent = open.length;
         }
 
+        // Pri prekreslení (aj pri obnove z iného zariadenia) zachováme posun okna
+        // a fokus na políčku tej istej položky.
+        // Posúva sa celé okno (.modal), na menších dialógoch môže aj jeho telo.
+        const posuvne = [modalEl, listEl.closest('.modal-body')].filter(Boolean);
+        const posuny = posuvne.map((el) => el.scrollTop);
+        const fokusId = listEl.contains(document.activeElement)
+            ? document.activeElement.closest('[data-item-id]')?.dataset.itemId : null;
+        const fokusTrieda = fokusId && document.activeElement.classList.contains('shopping-check') ? '.shopping-check' : 'button';
+        try {
+            vykresliZoznam(open, bought);
+        } finally {
+            posuvne.forEach((el, i) => { el.scrollTop = posuny[i]; });
+            if (fokusId) listEl.querySelector('[data-item-id="' + fokusId + '"] ' + fokusTrieda)?.focus({ preventScroll: true });
+        }
+    }
+
+    function vykresliZoznam(open, bought) {
         listEl.replaceChildren();
         if (!items.length) {
             const empty = document.createElement('p');

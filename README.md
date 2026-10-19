@@ -13,7 +13,7 @@ Tento dokument má dve časti:
 - **Galéria fotiek.** Ku každému vareniu sa dá pridať nová fotka a staršie ostávajú, každá so svojím dátumom. V náhľade receptu sa medzi nimi listuje.
 - **Suroviny z číselníka.** Vyberajú sa vo vyhľadávacom poli, ktoré ignoruje veľké písmená a diakritiku, takže „Múka hladká" a „muka hladka" je vždy tá istá surovina. V základe je 418 surovín v 14 kategóriách a ďalšie sa pridávajú priamo pri písaní receptu.
 - **Prepočet porcií.** V náhľade receptu sa tlačidlami − a + mení počet porcií a množstvá sa prepočítajú.
-- **Nákupný zoznam** spoločný pre všetkých. Suroviny z viacerých receptov sa zlúčia a sčítajú, zoznam sa dá odškrtávať a odoslať do Google Keep alebo inej appky.
+- **Nákupný zoznam** spoločný pre všetkých. Suroviny z viacerých receptov sa zlúčia a sčítajú, zoznam sa dá odškrtávať a odoslať do Google Keep alebo inej appky. Zmeny od ostatných sa v otvorenom zozname objavia do pár sekúnd.
 - **Prehľad, čo sa kedy varilo.** Tlačidlom Uvarené sa zapíše deň varenia (aj spätne) a k nemu nepovinná fotka. Pri recepte je vidno, pred koľkými dňami sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodilo ho zopakovať.
 - **Hodnotenie hviezdičkami** a **história** každého receptu (kto ho pridal, upravil, uvaril, ohodnotil).
 - **Upozornenia do telefónu** na nový recept, na hodnotenie tvojho receptu a pripomienky dlho nevarených receptov.
@@ -438,7 +438,14 @@ Zoznam je jeden pre všetkých používateľov. Otvára sa košíkom v hornej li
 
 **Odoslanie do inej appky.** Tlačidlo „Odoslať" otvorí systémové zdieľanie s nekúpenými položkami, každá na vlastnom riadku. Názov poznámky tvoria názvy receptov. Google Keep nemá pre bežné účty rozhranie, cez ktoré by appka mohla zoznam zapísať priamo, preto to ide cez zdieľanie. Zoznam v Keepe a v appke sa potom už nesynchronizujú.
 
-Zmeny od ostatných používateľov sa načítajú pri otvorení zoznamu, nie naživo. Zoznam vyžaduje pripojenie na internet.
+**Zmeny od ostatných.** Kým je zoznam otvorený a appka je na obrazovke, každých 5 sekúnd sa načíta zo servera. Keď dvaja nakupujú naraz, odškrtnutie jedného uvidí druhý do pár sekúnd. Zoznam aj odznak s počtom pri tlačidle Nákup sa obnovia aj hneď po návrate do appky (prepnutie z inej appky, odomknutie telefónu) a po návrate internetu. Na pozadí sa nič nenačítava.
+
+- Zoznam sa prekreslí, len keď sa zmenil, a ostane na tom mieste, kde bol posunutý.
+- Odpoveď zo servera, ktorá prišla počas odškrtávania alebo pridávania, sa zahodí. Políčko tak neskočí späť.
+- Kým je zoznam otvorený, obnovovanie udržiava prihlásenie aktívne. Keď prihlásenie predsa vyprší, appka to raz oznámi a ponúkne obnovenie stránky.
+- Interval je v `script.js` ako `OBNOVA_MS`.
+
+Zoznam vyžaduje pripojenie na internet.
 
 ## B8. Upozornenia
 
@@ -540,7 +547,7 @@ Všetko ostatné sa dá znova stiahnuť z projektu.
 ## B13. Známe obmedzenia
 
 - Bez internetu sa recepty dajú len pozerať, a to v stave z posledného načítania. Pridávať, upravovať, hodnotiť ani používať nákupný zoznam sa nedá. Offline sú len fotky, ktoré sa v zariadení predtým zobrazili.
-- Nákupný zoznam sa medzi zariadeniami neobnovuje naživo.
+- Nákupný zoznam sa medzi zariadeniami obnovuje s oneskorením do 5 sekúnd, nie okamžite. Odznak s počtom pri tlačidle Nákup sa obnoví až po otvorení zoznamu alebo po návrate do appky.
 - Jednotky sa pri prepočte porcií neprevádzajú.
 - Kategórie receptov sa nedajú meniť v appke, len v kóde.
 - Suroviny sa v appke nedajú premenovať, zlúčiť ani im doplniť kategória. Dá sa to len priamo v databáze.
@@ -585,6 +592,14 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.4**
+
+- Nákupný zoznam sa obnovuje sám. Kým je otvorený, každých 5 sekúnd sa načítajú zmeny od ostatných, takže keď nakupujú dvaja naraz, vidia odškrtnutia toho druhého.
+- Zoznam aj odznak s počtom sa obnovia aj po návrate do appky a po návrate internetu. Na pozadí appka nič nenačítava.
+- Zoznam sa pri obnove neprekresľuje zbytočne a ostane posunutý tam, kde bol. Práve odškrtnutá položka neskočí späť.
+- Pri vypršanom prihlásení appka namiesto opakovanej chyby pripojenia raz ponúkne obnovenie stránky.
+- Databáza sa nemení, migrácia netreba.
 
 **1.3**
 

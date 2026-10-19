@@ -15,7 +15,7 @@
 // obsahuje CSRF token a dáta viazané na session. Ostatné PHP stránky (login,
 // admin, webauthn) idú vždy len na sieť. Bump CACHE_NAME pri každej zmene
 // statických súborov.
-const CACHE_NAME = 'recepty-static-v23';
+const CACHE_NAME = 'recepty-static-v24';
 const STRANKA_CACHE = 'recepty-stranka';   // posledná kópia index.php (prežije aktualizáciu appky)
 const FOTKY_CACHE = 'recepty-fotky';       // fotky receptov (prežijú aktualizáciu appky)
 const MAX_FOTIEK = 250;                    // ~200 kB na fotku → najviac okolo 50 MB
