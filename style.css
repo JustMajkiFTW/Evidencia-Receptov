@@ -1618,7 +1618,8 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     /* ── Rozloženie ── */
     .app-rozlozenie { display: flex; align-items: flex-start; min-height: 100vh; }
     .app-obsah { flex: 1 1 auto; min-width: 0; padding: 2rem 2.5rem 3rem; }
-    .app-obsah > .container-fluid { max-width: 1400px !important; margin: 0; padding: 0; }
+    /* Obsah na celú šírku vedľa ponuky — na veľkej obrazovke pribudnú stĺpce kariet (2.0.1) */
+    .app-obsah > .container-fluid { max-width: none !important; margin: 0; padding: 0; }
     .app-obsah > .container-fluid.mt-3 { margin-top: 0 !important; }
 
     /* ── Bočná ponuka ── */
@@ -1774,7 +1775,7 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     .app-bocna-odhlasit:hover, .app-bocna-odhlasit:focus-visible { background: rgba(220, 53, 69, .12); border-color: rgba(220, 53, 69, .5); color: var(--bs-danger-text-emphasis); }
 
     /* ── Hlavička obsahu: pozdrav, nadpis, zoradenie ── */
-    .app-hlavicka { flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; max-width: 1400px; margin-bottom: 1.25rem; }
+    .app-hlavicka { flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
     .app-pozdrav { font-size: 1.05rem; color: var(--app-muted-text); }
     .app-nadpis { margin: .1rem 0 0; font-size: 2.3rem; font-weight: 700; line-height: 1.1; }
     .app-zoradenie { display: flex; align-items: center; gap: .65rem; margin: 0; font-size: 1rem; color: var(--app-muted-text); }
@@ -1819,7 +1820,7 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     .recepty-pocet { margin-top: 1rem; font-size: 1rem; color: var(--app-muted-text); }
 
     /* ── Karty receptov ── */
-    .recipes-container { max-width: 1400px !important; }
+    .recipes-container { max-width: none !important; }
     #recipesTable.app-card {
         margin: 1rem 0 0 !important;
         padding: 0;

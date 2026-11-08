@@ -438,6 +438,7 @@ Od šírky 768 bodov (tablet, PC). Štýly sú na konci `style.css` v bloku „V
 
 - **Bočná ponuka** vľavo ostáva na mieste aj pri posúvaní: logo, veľké tlačidlo **Pridať recept**, **Recepty** (vyroluje zoznam hore), **Nákupný zoznam** s odznakom počtu, **Správa** (len admin). Dole **Nastavenia**: Tmavý motív (prepínač), Upozornenia, Prihlásenie odtlačkom a meno používateľa s tlačidlom Odhlásiť.
 - **Hlavička** s pozdravom, nadpisom Recepty a zoradením, pod ňou hľadanie na celú šírku a **kategórie ako tlačidlá** (tie isté ako na telefóne, nastavujú skrytý výber kategórie). Pod nimi počet receptov, po hľadaní „Nájdené: 2 z 6 receptov".
+- Obsah vedľa ponuky zaberá celú šírku obrazovky, na veľkej obrazovke je v rade viac kariet (každá široká aspoň 280 bodov).
 - **Karty receptov** v mriežke (počet stĺpcov podľa šírky): fotka, názov, odznak naposledy vareného v jemných farbách, kategória a čas, hviezdičky (dá sa hodnotiť priamo na karte) a tlačidlá **Uvarené** a **Do nákupu** s popisom. História, úprava a zmazanie sú v náhľade (na karte zostávajú skryté, mazanie z náhľadu používa to isté tlačidlo).
 - **Náhľad receptu**: hore **Späť na recepty** a **Upraviť**, **História**, **Zdieľať**, **Zmazať** (admin). Vľavo fotky s miniatúrami (ostávajú na mieste pri posúvaní receptu), vpravo názov, odznaky, hodnotenie, veľké tlačidlá **Uvarené** a **Do nákupu**, suroviny s prepočtom porcií, postup a odkaz na web. Recept bez fotky má užšie okno v jednom stĺpci, na tablete do 991 bodov sú fotky nad receptom.
 - Formulár receptu, nákupný zoznam a ostatné okná ostávajú ako doteraz.
@@ -697,6 +698,11 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**2.0.1**
+
+- Na veľkej obrazovke sa obsah vedľa bočnej ponuky roztiahne na celú šírku (predtým mal najviac 1400 bodov a vpravo ostával prázdny pás). Pribudnú stĺpce kariet, hľadanie a hlavička sú tiež na celú šírku.
+- Mení sa len `style.css`, telefón ani databáza nie, migrácia netreba.
 
 **2.0**
 

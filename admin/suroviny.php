@@ -82,7 +82,7 @@ $adresa = 'suroviny.php' . ($hladaj !== '' ? '?hladaj=' . rawurlencode($hladaj) 
     <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=30">
+    <link rel="stylesheet" href="../style.css?v=31">
 </head>
 <body class="p-3 p-md-4">
 <div class="container" style="max-width:900px;">
@@ -221,7 +221,7 @@ $adresa = 'suroviny.php' . ($hladaj !== '' ? '?hladaj=' . rawurlencode($hladaj) 
 <script>
     window.APP_SUROVINY = <?= json_encode($vsetkySuroviny, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 </script>
-<script src="../suroviny.js?v=30"></script>
+<script src="../suroviny.js?v=31"></script>
 <script>
 // Zlúčenie: cieľová surovina sa vyberá rovnakým vyhľadávaním ako v recepte (len existujúce).
 document.querySelectorAll('.surovina-zlucit-form').forEach((form) => {
