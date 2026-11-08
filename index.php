@@ -304,7 +304,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=29">
+    <link rel="stylesheet" href="style.css?v=30">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -318,9 +318,64 @@ header('X-Recepty-Offline: 1');
     </div>
 </div>
 
+<!-- Rozloženie (verzia 2.0): na PC a tablete bočná ponuka vľavo a obsah vpravo,
+     na telefóne je ponuka skrytá (d-none d-md-flex) a akcie sú v spodnej lište a v okne Viac. -->
+<div class="app-rozlozenie">
+<nav class="app-bocna d-none d-md-flex" aria-label="Hlavná ponuka">
+    <div class="app-bocna-logo">
+        <span class="app-bocna-logo-ikona" aria-hidden="true"><i class="bi bi-egg-fried"></i></span>
+        <span class="app-bocna-logo-text">Evidencia<br>receptov</span>
+    </div>
+    <button type="button" class="btn app-bocna-pridat app-nav-add" onclick="openRecipeModal()" data-vyzaduje-siet>
+        <i class="bi bi-plus-lg" aria-hidden="true"></i>Pridať recept
+    </button>
+    <button type="button" class="app-bocna-polozka is-active" aria-current="page"
+            onclick="window.scrollTo({ top: 0, behavior: 'smooth' })">
+        <i class="bi bi-journal-text" aria-hidden="true"></i><span class="app-bocna-text">Recepty</span>
+    </button>
+    <?php if ($shoppingEnabled): ?>
+    <button type="button" class="app-bocna-polozka" onclick="openShoppingModal()" data-vyzaduje-siet>
+        <i class="bi bi-cart3" aria-hidden="true"></i><span class="app-bocna-text">Nákupný zoznam</span>
+        <span class="app-bocna-pocet<?= $shoppingCount ? '' : ' d-none' ?>" id="shoppingCount"
+              aria-label="Položiek na kúpenie: <?= $shoppingCount ?>"><?= $shoppingCount ?></span>
+    </button>
+    <?php endif; ?>
+    <?php if (is_admin()): ?>
+    <a href="admin/index.php" class="app-bocna-polozka" data-vyzaduje-siet>
+        <i class="bi bi-gear" aria-hidden="true"></i><span class="app-bocna-text">Správa<small>Používatelia, kategórie, suroviny</small></span>
+    </a>
+    <?php endif; ?>
+
+    <div class="app-bocna-spodok">
+        <div class="app-bocna-nadpis">Nastavenia</div>
+        <!-- Prepínač motívu: theme.js (id themeToggle), stav prepínača ukazuje CSS podľa data-bs-theme -->
+        <button type="button" id="themeToggle" class="app-bocna-polozka app-bocna-nastavenie" aria-pressed="true">
+            <i class="bi bi-moon-stars" aria-hidden="true"></i><span class="app-bocna-text">Tmavý motív</span>
+            <span class="app-bocna-prepinac" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="app-bocna-polozka app-bocna-nastavenie" onclick="enablePushNotifications()" data-vyzaduje-siet>
+            <i class="bi bi-bell" aria-hidden="true"></i><span class="app-bocna-text">Upozornenia</span>
+        </button>
+        <button type="button" class="app-bocna-polozka app-bocna-nastavenie" onclick="setupPasskeyFromApp()" data-vyzaduje-siet>
+            <i class="bi bi-fingerprint" aria-hidden="true"></i><span class="app-bocna-text">Prihlásenie odtlačkom</span>
+        </button>
+        <div class="app-bocna-pouzivatel">
+            <span class="app-bocna-inicialy" aria-hidden="true"><?= htmlspecialchars($menoInicialy) ?></span>
+            <span class="app-bocna-meno">
+                <span><?= htmlspecialchars($user['full_name'] ?: $user['username']) ?></span>
+                <small><?= $user['role'] === 'admin' ? 'Admin' : 'Používateľ' ?></small>
+            </span>
+            <a href="logout.php" class="app-bocna-odhlasit" aria-label="Odhlásiť" title="Odhlásiť" data-vyzaduje-siet>
+                <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+            </a>
+        </div>
+    </div>
+</nav>
+
+<main class="app-obsah">
 <!-- Pásik offline režimu: zobrazí ho style.css/script.js, keď je <html data-offline="…">
      (uložená kópia stránky zo sw.js alebo stratené pripojenie počas používania). -->
-<div id="offlinePasik" class="offline-pasik mx-3 mt-3" role="status" aria-live="polite">
+<div id="offlinePasik" class="offline-pasik mx-3 mt-3 mx-md-0 mt-md-0 mb-md-3" role="status" aria-live="polite">
     <i class="bi bi-wifi-off offline-pasik-ikona" aria-hidden="true"></i>
     <div class="offline-pasik-text">
         <strong id="offlinePasikNadpis">Bez pripojenia</strong>
@@ -331,48 +386,21 @@ header('X-Recepty-Offline: 1');
     </button>
 </div>
 
-<header class="app-navbar mx-3 mt-3 px-3 px-md-4 py-3">
-    <div class="app-navbar-brand d-flex align-items-center gap-2">
-        <i class="bi bi-egg-fried fs-4 text-warning"></i>
-        <div class="min-w-0">
-            <div class="fw-bold text-truncate">Evidencia receptov</div>
-            <div class="text-secondary small text-truncate">
-                <?= htmlspecialchars($user['full_name']) ?>
-                <span class="badge <?= $user['role'] === 'admin' ? 'text-bg-warning' : 'text-bg-primary' ?> ms-1"><?= htmlspecialchars($user['role']) ?></span>
-            </div>
-        </div>
+<!-- Hlavička na PC: pozdrav, nadpis a zoradenie -->
+<div class="app-hlavicka d-none d-md-flex">
+    <div class="min-w-0">
+        <div class="app-pozdrav text-truncate">Ahoj, <?= htmlspecialchars($menoOslovenie) ?></div>
+        <h1 class="app-nadpis">Recepty</h1>
     </div>
-    <div class="app-navbar-actions">
-        <button type="button" class="btn btn-primary btn-sm fw-semibold app-nav-add" onclick="openRecipeModal()" data-vyzaduje-siet>
-            <i class="bi bi-plus-lg"></i><span class="btn-label btn-label-long">Pridať recept</span><span class="btn-label btn-label-short">Pridať</span>
-        </button>
-        <?php if ($shoppingEnabled): ?>
-        <button type="button" class="btn btn-outline-primary btn-sm position-relative" onclick="openShoppingModal()" data-vyzaduje-siet
-                title="Nákupný zoznam" aria-label="Nákupný zoznam">
-            <i class="bi bi-cart3"></i><span class="btn-label">Nákup</span>
-            <span class="badge rounded-pill text-bg-danger shopping-count<?= $shoppingCount ? '' : ' d-none' ?>"
-                  id="shoppingCount"><?= $shoppingCount ?></span>
-        </button>
-        <?php endif; ?>
-        <button id="themeToggle" type="button" class="btn btn-outline-secondary btn-sm" title="Zmeniť motív" aria-label="Zmeniť motív">
-            <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
-        </button>
-        <?php if (is_admin()): ?>
-        <a href="admin/index.php" class="btn btn-outline-secondary btn-sm" title="Správa: používatelia, kategórie receptov a suroviny" aria-label="Správa: používatelia, kategórie receptov a suroviny" data-vyzaduje-siet>
-            <i class="bi bi-gear-fill"></i><span class="btn-label">Správa</span>
-        </a>
-        <?php endif; ?>
-        <button type="button" class="btn btn-outline-primary btn-sm" onclick="setupPasskeyFromApp()" title="Zapnúť biometriu" aria-label="Zapnúť biometriu" data-vyzaduje-siet>
-            <i class="bi bi-fingerprint"></i><span class="btn-label">Biometria</span>
-        </button>
-        <button type="button" class="btn btn-outline-primary btn-sm" onclick="enablePushNotifications()" title="Povoliť notifikácie" aria-label="Povoliť notifikácie" data-vyzaduje-siet>
-            <i class="bi bi-bell-fill"></i><span class="btn-label">Notifikácie</span>
-        </button>
-        <a href="logout.php" class="btn btn-outline-danger btn-sm" title="Odhlásiť" aria-label="Odhlásiť" data-vyzaduje-siet>
-            <i class="bi bi-box-arrow-right"></i><span class="btn-label">Odhlásiť</span>
-        </a>
-    </div>
-</header>
+    <label class="app-zoradenie" for="recipeSortSelect">Zoradiť
+        <select id="recipeSortSelect" class="form-select">
+            <option value="default">Naposledy varené — najnovšie</option>
+            <option value="last_made_asc">Naposledy varené — najstaršie</option>
+            <option value="added_desc">Najnovšie pridané prvé</option>
+            <option value="prep_time_asc">Čas prípravy (najkratšie prvé)</option>
+        </select>
+    </label>
+</div>
 
 <!-- Hlavička na telefóne (verzia 1.7). Horná lišta s tlačidlami je len na PC a tablete,
      na telefóne sú tie isté akcie v spodnej lište a v okne Viac. -->
@@ -390,9 +418,6 @@ header('X-Recepty-Offline: 1');
 </div>
 
 <div class="container-fluid mt-3" style="max-width:1100px;">
-    <div class="mx-3 mx-md-0 mb-2 text-secondary small d-none d-md-block">
-        <i class="bi bi-info-circle me-1"></i>Kliknutím kdekoľvek na kartu receptu zobrazíš jeho náhľad.
-    </div>
     <div class="mx-3 mx-md-0 d-flex flex-wrap gap-2 align-items-center recepty-filtre">
         <div class="input-group shadow-sm recepty-hladanie" style="flex: 1 1 240px; max-width: 500px;">
             <span class="input-group-text bg-body-tertiary border-secondary-subtle rounded-start-pill ps-3">
@@ -402,27 +427,25 @@ header('X-Recepty-Offline: 1');
                    placeholder="Hľadaj podľa názvu alebo surovín..." aria-label="Hľadať recept" enterkeyhint="search">
         </div>
 
-        <select id="recipeCategoryFilter" class="form-select form-select-sm shadow-sm d-none d-md-block"
-                style="width:auto; min-width:170px;" aria-label="Kategória receptov">
+        <!-- Kategória: výber je skrytý, nastavujú ho tlačidlá kategórií nižšie (script.js) -->
+        <select id="recipeCategoryFilter" class="form-select form-select-sm d-none" aria-label="Kategória receptov">
             <option value="">Všetky kategórie</option>
             <?php foreach ($recipeCategories as $kategoria): ?>
                 <option value="<?= htmlspecialchars($kategoria['kluc']) ?>"><?= htmlspecialchars($kategoria['nazov']) ?></option>
             <?php endforeach; ?>
         </select>
-
-        <select id="recipeSortSelect" class="form-select form-select-sm shadow-sm d-none d-md-block" style="width:auto; min-width:220px;" aria-label="Zoradenie receptov">
-            <option value="default">Naposledy varené — najnovšie</option>
-            <option value="last_made_asc">Naposledy varené — najstaršie</option>
-            <option value="added_desc">Najnovšie pridané prvé</option>
-            <option value="prep_time_asc">Čas prípravy (najkratšie prvé)</option>
-        </select>
     </div>
-    <!-- Kategórie ako veľké tlačidlá (len telefón) — nastavujú ten istý filter ako výber kategórie vyššie. -->
-    <div class="kategoria-cipy d-md-none" role="group" aria-label="Kategória receptov">
+    <!-- Kategórie ako veľké tlačidlá — nastavujú ten istý filter ako skrytý výber kategórie vyššie. -->
+    <div class="kategoria-cipy" role="group" aria-label="Kategória receptov">
         <button type="button" class="kategoria-cip is-active" data-kategoria="" aria-pressed="true">Všetko</button>
         <?php foreach ($recipeCategories as $kategoria): ?>
             <button type="button" class="kategoria-cip" data-kategoria="<?= htmlspecialchars($kategoria['kluc']) ?>" aria-pressed="false"><?= htmlspecialchars($kategoria['nazov']) ?></button>
         <?php endforeach; ?>
+    </div>
+    <!-- PC: počet receptov (po hľadaní a filtri ho prepíše script.js) -->
+    <div class="recepty-pocet d-none d-md-block" id="receptyPocet" aria-live="polite">
+        <?php $pocetReceptov = count($recipes); ?>
+        <?= $pocetReceptov ?> <?= $pocetReceptov === 1 ? 'recept' : ($pocetReceptov >= 2 && $pocetReceptov <= 4 ? 'recepty' : 'receptov') ?> · klikni na recept pre postup, suroviny a fotky
     </div>
 </div>
 
@@ -563,20 +586,21 @@ header('X-Recepty-Offline: 1');
                         <button class="btn btn-outline-success btn-sm btn-mark-made" data-id="<?= $r['id'] ?>" data-vyzaduje-siet
                                 data-name="<?= htmlspecialchars($r['name'], ENT_QUOTES) ?>"
                                 title="Uvarené — zapísať dátum a pridať fotku" aria-label="Uvarené">
-                            <i class="bi bi-check2-circle"></i>
+                            <i class="bi bi-check2-circle"></i><span class="recipe-card-akcia-text">Uvarené</span>
                         </button>
                         <?php if ($shoppingEnabled && $suroviny): ?>
                         <button type="button" class="btn btn-outline-secondary btn-sm btn-add-shopping" data-id="<?= $r['id'] ?>" data-vyzaduje-siet
                                 title="Pridať suroviny do nákupu" aria-label="Pridať suroviny do nákupu">
-                            <i class="bi bi-cart-plus"></i>
+                            <i class="bi bi-cart-plus"></i><span class="recipe-card-akcia-text">Do nákupu</span>
                         </button>
                         <?php endif; ?>
-                        <button type="button" class="btn btn-outline-info btn-sm" data-vyzaduje-siet
+                        <!-- História, úprava a zmazanie sú od verzie 2.0 v náhľade receptu (na karte sú skryté) -->
+                        <button type="button" class="btn btn-outline-info btn-sm btn-historia" data-vyzaduje-siet
                                 onclick="openHistoryModal(<?= $r['id'] ?>, '<?= htmlspecialchars($r['name'], ENT_QUOTES) ?>')"
                                 title="História receptu">
                             <i class="bi bi-clock-history"></i>
                         </button>
-                        <button type="button" class="btn btn-outline-primary btn-sm" data-vyzaduje-siet
+                        <button type="button" class="btn btn-outline-primary btn-sm btn-upravit" data-vyzaduje-siet
                                 onclick='openRecipeModal(<?= $editPayload ?>)' title="Upraviť recept">
                             <i class="bi bi-pencil"></i>
                         </button>
@@ -592,6 +616,8 @@ header('X-Recepty-Offline: 1');
             <?php endforeach; ?>
         </div>
     </div>
+</div>
+</main>
 </div>
 
 <!-- ================= MODAL: Pridať / upraviť recept =================
@@ -905,13 +931,35 @@ header('X-Recepty-Offline: 1');
 </div>
 <?php endif; ?>
 
-<!-- ================= MODAL: Náhľad receptu ================= -->
-<div class="modal fade" id="recipeViewModal" tabindex="-1" aria-hidden="true">
+<!-- ================= MODAL: Náhľad receptu =================
+     Telefón (1.7): späť a ikony hore, názov pod fotkou, Uvarené dole.
+     PC (2.0): hore Späť na recepty a akcie s popisom, fotky vľavo a recept vpravo. -->
+<div class="modal fade" id="recipeViewModal" tabindex="-1" aria-hidden="true" aria-labelledby="viewRecipeNameMobil">
     <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down recipe-view-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title d-none d-md-block" id="viewRecipeName"></h5>
-                <button type="button" class="btn-close d-none d-md-inline-block" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+                <!-- PC: späť vľavo, menej časté akcie vpravo s popisom (verzia 2.0) -->
+                <div class="view-pc-lista d-none d-md-flex">
+                    <button type="button" class="btn view-pc-tlacidlo" data-bs-dismiss="modal">
+                        <i class="bi bi-arrow-left" aria-hidden="true"></i>Späť na recepty
+                    </button>
+                    <div class="view-pc-akcie-hore">
+                        <button type="button" class="btn view-pc-tlacidlo" id="viewPcUpravit" data-vyzaduje-siet>
+                            <i class="bi bi-pencil" aria-hidden="true"></i>Upraviť
+                        </button>
+                        <button type="button" class="btn view-pc-tlacidlo" id="viewPcHistoria" data-vyzaduje-siet>
+                            <i class="bi bi-clock-history" aria-hidden="true"></i>História
+                        </button>
+                        <button type="button" class="btn view-pc-tlacidlo" id="viewPcZdielat">
+                            <i class="bi bi-share" aria-hidden="true"></i>Zdieľať
+                        </button>
+                        <?php if (is_admin()): ?>
+                        <button type="button" class="btn view-pc-tlacidlo view-pc-zmazat" id="viewPcZmazat" data-vyzaduje-siet>
+                            <i class="bi bi-trash" aria-hidden="true"></i>Zmazať
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                </div>
                 <!-- Telefón: späť vľavo, menej časté akcie vpravo ako ikony (verzia 1.7) -->
                 <div class="view-mobil-lista d-md-none">
                     <button type="button" class="btn view-mobil-tlacidlo" data-bs-dismiss="modal" aria-label="Späť na recepty">
@@ -958,7 +1006,7 @@ header('X-Recepty-Offline: 1');
                     <div class="recipe-gallery-thumbs" id="viewRecipeThumbs" role="group" aria-label="Fotky receptu"></div>
                 </div>
 
-                <h2 class="view-mobil-nazov d-md-none" id="viewRecipeNameMobil"></h2>
+                <h2 class="view-mobil-nazov" id="viewRecipeNameMobil"></h2>
 
                 <div class="d-flex flex-wrap gap-2 mb-3">
                     <span id="viewRecipeCategory"
@@ -970,8 +1018,8 @@ header('X-Recepty-Offline: 1');
                     <span id="viewRecipeLastMade" class="badge"></span>
                 </div>
 
-                <!-- Hodnotenie v náhľade (telefón): na karte receptu sa na telefóne hviezdičky neukazujú. -->
-                <div class="recipe-rating view-mobil-hodnotenie d-md-none d-none" id="viewRecipeRating" data-recipe-id="" data-user-rating="0">
+                <!-- Hodnotenie v náhľade (telefón aj PC), stav sa prenáša z karty receptu. -->
+                <div class="recipe-rating view-mobil-hodnotenie d-none" id="viewRecipeRating" data-recipe-id="" data-user-rating="0">
                     <span class="rating-stars" data-vyzaduje-siet role="group" aria-label="Tvoje hodnotenie">
                         <?php for ($i = 1; $i <= 5; $i++): ?>
                             <i class="bi bi-star rating-star" data-value="<?= $i ?>" role="button" tabindex="0"
@@ -981,7 +1029,19 @@ header('X-Recepty-Offline: 1');
                     <span class="rating-summary"></span>
                 </div>
 
-                <div class="mb-3">
+                <!-- PC: hlavné akcie veľkými tlačidlami pod hodnotením (na telefóne sú v pätičke) -->
+                <div class="view-pc-akcie d-none d-md-grid">
+                    <button type="button" class="btn btn-primary" id="viewPcUvarene" data-vyzaduje-siet>
+                        <i class="bi bi-check2-circle" aria-hidden="true"></i>Uvarené
+                    </button>
+                    <?php if ($shoppingEnabled): ?>
+                    <button type="button" class="btn btn-outline-primary d-none" id="viewPcNakup" data-vyzaduje-siet>
+                        <i class="bi bi-cart-plus" aria-hidden="true"></i>Do nákupu
+                    </button>
+                    <?php endif; ?>
+                </div>
+
+                <div class="mb-3 view-odkaz">
                     <a id="viewRecipeUrl" href="#" target="_blank" class="btn btn-outline-primary btn-sm d-none">
                         <i class="bi bi-box-arrow-up-right me-1"></i>Otvoriť pôvodný recept
                     </a>
@@ -1009,20 +1069,13 @@ header('X-Recepty-Offline: 1');
 
                 <div class="text-secondary small" id="viewRecipeCreatedBy"></div>
             </div>
+            <!-- Pätička len na telefóne (na PC sú akcie v hlavičke a pod hodnotením) -->
             <div class="modal-footer view-paticka">
-                <button type="button" class="btn btn-outline-secondary btn-sm d-none d-md-inline-block" data-bs-dismiss="modal">Zavrieť</button>
                 <?php if ($shoppingEnabled): ?>
                 <button type="button" class="btn btn-outline-primary btn-sm fw-semibold d-none" id="viewRecipeShoppingBtn" data-vyzaduje-siet>
                     <i class="bi bi-cart-plus me-1"></i>Do nákupu
                 </button>
                 <?php endif; ?>
-                <button type="button" class="btn btn-sm fw-semibold text-white d-none d-md-inline-block" id="viewRecipeShareBtn"
-                        style="background-color:#0d6efd; border-color:#0d6efd;">
-                    <i class="bi bi-share-fill me-1"></i>Zdieľať
-                </button>
-                <button type="button" class="btn btn-primary btn-sm fw-semibold d-none d-md-inline-block" id="viewRecipeEditBtn" data-vyzaduje-siet>
-                    <i class="bi bi-pencil me-1"></i>Upraviť recept
-                </button>
                 <!-- Telefón: hlavná akcia veľkým tlačidlom dole -->
                 <button type="button" class="btn btn-success fw-bold d-md-none view-mobil-uvarene" id="viewMobilUvarene" data-vyzaduje-siet>
                     <i class="bi bi-check2-circle me-1"></i>Uvarené
@@ -1032,12 +1085,6 @@ header('X-Recepty-Offline: 1');
     </div>
 </div>
 <?php if ($shoppingEnabled): ?>
-<!-- Plávajúce tlačidlo košíka — nákupný zoznam je po ruke aj po odscrollovaní dole -->
-<button type="button" class="shopping-fab<?= $shoppingCount ? '' : ' d-none' ?>" id="shoppingFab" data-vyzaduje-siet
-        onclick="openShoppingModal()" aria-label="Otvoriť nákupný zoznam" title="Nákupný zoznam">
-    <i class="bi bi-cart3"></i>
-    <span class="badge rounded-pill text-bg-danger shopping-fab-count"><?= $shoppingCount ?></span>
-</button>
 <!-- ================= MODAL: Nákupný zoznam ================= -->
 <div class="modal fade modal-s-listou" id="shoppingModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-fullscreen-md-down">
@@ -1324,8 +1371,8 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
     window.APP_AI = <?= $aiEnabled ? 'true' : 'false' ?>; // recept z fotky (includes/ai.php)
 </script>
-<script src="suroviny.js?v=29"></script>
-<script src="script.js?v=29"></script>
+<script src="suroviny.js?v=30"></script>
+<script src="script.js?v=30"></script>
 </body>
 </html>
 <?php

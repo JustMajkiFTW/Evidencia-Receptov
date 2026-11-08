@@ -37,7 +37,7 @@ body {
 }
 
 /* ── Glass/card panel, spoločné pre login aj dashboard ── */
-.app-card, .app-navbar {
+.app-card {
     background: var(--app-surface);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -269,64 +269,7 @@ body {
     color: #f8f9fa !important;            /* Svetlý, dobre čitateľný text */
 }
 
-/* ── Horná lišta (index.php) — responzívna ─────────────────────────
-   PC/tablet: logo vľavo, tlačidlá vpravo v jednom riadku s popismi.
-   Telefón: logo hore, tlačidlá pod ním, len ikony (popisy skryté),
-   rovnomerne rozložené na celú šírku — nič nevyčnieva z lišty. ── */
-.app-navbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: .75rem;
-}
-.app-navbar-brand { min-width: 0; }
 .min-w-0 { min-width: 0; }
-.app-navbar-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: .4rem;
-}
-.app-navbar-actions .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    white-space: nowrap;
-}
-.app-navbar-actions .btn .btn-label { margin-left: .35rem; }
-.app-navbar-actions .btn .btn-label-short { display: none; }
-
-/* Stredná šírka (menší tablet): popisy len pri "Pridať recept" */
-@media (max-width: 991px) {
-    .app-navbar-actions .btn:not(.app-nav-add) .btn-label { display: none; }
-}
-
-/* Telefón: lišta na dva riadky, tlačidlá na celú šírku */
-@media (max-width: 575px) {
-    .app-navbar { flex-direction: column; align-items: stretch; }
-    .app-navbar-actions {
-        justify-content: stretch;
-        flex-wrap: nowrap;
-        width: 100%;
-        gap: .3rem;
-    }
-    .app-navbar-actions .btn {
-        flex: 1 1 0;
-        min-width: 0;
-        padding: .4rem .25rem;
-    }
-    .app-navbar-actions .btn i { font-size: 1rem; }
-    .app-navbar-actions .app-nav-add { flex: 2.1 1 0; }
-    .app-navbar-actions .app-nav-add .btn-label-long { display: none; }
-    .app-navbar-actions .app-nav-add .btn-label-short { display: inline; font-size: .8rem; margin-left: .2rem; }
-}
-/* Veľmi úzke telefóny: aj "Pridať recept" len ikona */
-@media (max-width: 345px) {
-    .app-navbar-actions .app-nav-add { flex: 1 1 0; }
-    .app-navbar-actions .app-nav-add .btn-label-short { display: none; }
-}
 
 /* ── Plávajúci prepínač témy (login.php, admin) ── */
 .theme-toggle-floating {
@@ -542,34 +485,6 @@ body {
 
 /* Tlačidlo v oznámení (napr. „Zobraziť zoznam") */
 .toast-action { display: block; margin-top: .5rem; }
-
-/* Plávajúce tlačidlo košíka vpravo dole */
-.shopping-fab {
-    position: fixed;
-    right: 1rem;
-    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
-    z-index: 1030;
-    width: 3.5rem;
-    height: 3.5rem;
-    border: 0;
-    border-radius: 50%;
-    background: var(--app-accent);
-    color: #1c1917;
-    font-size: 1.4rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-    transition: transform var(--app-transition);
-}
-.shopping-fab:hover, .shopping-fab:focus-visible { transform: scale(1.06); }
-.shopping-fab-count {
-    position: absolute;
-    top: -.2rem;
-    right: -.2rem;
-    font-size: .7rem;
-    min-width: 1.3rem;
-}
 
 /* ── Tlačidlá pod receptom a hviezdičky hodnotenia: veľké, s medzerami, aby sa
    dali pohodlne trafiť prstom aj myšou — na telefóne, tablete aj PC.
@@ -992,8 +907,7 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     }
     .container-fluid { padding-left: 1rem; padding-right: 1rem; }
 
-    /* ── Hlavička: horná lišta s tlačidlami sa skryje, akcie sú v spodnej lište a vo Viac ── */
-    .app-navbar { display: none !important; }
+    /* ── Hlavička (bočná ponuka PC je skrytá, akcie sú v spodnej lište a vo Viac) ── */
     .mobil-hlavicka {
         display: flex;
         align-items: flex-end;
@@ -1088,9 +1002,6 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     .recipe-card-autor,
     .recipe-card .recipe-rating,
     .recipe-card-actions { display: none !important; }
-
-    /* Košík vpravo dole nahrádza spodná lišta */
-    .shopping-fab { display: none !important; }
 
     /* ── Spodná lišta ── */
     .spodna-lista {
@@ -1678,4 +1589,381 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
 @media (max-width: 374.98px) {
     #recipeModal .modal-footer > .btn { font-size: 1rem; padding: 0 .75rem; }
     #recipeForm:not([data-krok="3"]) #recipeFormSubmit .bi { display: none; }
+}
+
+/* ============================================================
+   Verzia 2.0 — rozloženie na PC a tablete (od 768 px)
+   Bočná ponuka vľavo, vpravo pozdrav, hľadanie, kategórie ako tlačidlá
+   a karty s tlačidlami Uvarené a Do nákupu. Náhľad receptu: fotky vľavo,
+   recept vpravo, akcie s popisom hore. Telefón (pod 768 px) sa nemení.
+   ============================================================ */
+[data-bs-theme="dark"] {
+    --app-jemna: #23272e;               /* výplň aktívnej položky a tlačidiel */
+    --app-prepinac-vyp: #3a3f47;
+    --app-odznak-sivy-bg: #23272e;    --app-odznak-sivy: #cbd5e1;
+    --app-odznak-zlty-bg: #33270f;    --app-odznak-zlty: #fbbf24;
+    --app-odznak-cerveny-bg: #3a1518; --app-odznak-cerveny: #fca5a5;
+    --app-odznak-zeleny-bg: #14301f;  --app-odznak-zeleny: #86efac;
+}
+[data-bs-theme="light"] {
+    --app-jemna: #f1f0ec;
+    --app-prepinac-vyp: #d6d3d1;
+    --app-odznak-sivy-bg: #eceae6;    --app-odznak-sivy: #44403c;
+    --app-odznak-zlty-bg: #fef3c7;    --app-odznak-zlty: #92400e;
+    --app-odznak-cerveny-bg: #fee2e2; --app-odznak-cerveny: #991b1b;
+    --app-odznak-zeleny-bg: #dcfce7;  --app-odznak-zeleny: #166534;
+}
+
+@media (min-width: 768px) {
+    /* ── Rozloženie ── */
+    .app-rozlozenie { display: flex; align-items: flex-start; min-height: 100vh; }
+    .app-obsah { flex: 1 1 auto; min-width: 0; padding: 2rem 2.5rem 3rem; }
+    .app-obsah > .container-fluid { max-width: 1400px !important; margin: 0; padding: 0; }
+    .app-obsah > .container-fluid.mt-3 { margin-top: 0 !important; }
+
+    /* ── Bočná ponuka ── */
+    .app-bocna {
+        position: sticky;
+        top: 0;
+        flex: none;
+        flex-direction: column;
+        gap: .2rem;
+        width: 280px;
+        height: 100vh;
+        box-sizing: border-box;
+        padding: 1.5rem 1rem 1.25rem;
+        overflow-y: auto;
+        background: var(--app-lista-bg);
+        border-right: 1px solid var(--app-border);
+    }
+    .app-bocna-logo { display: flex; align-items: center; gap: .75rem; padding: 0 .5rem 1.25rem; }
+    .app-bocna-logo-ikona {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: var(--app-accent-soft);
+        color: var(--app-accent);
+        font-size: 1.45rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .app-bocna-logo-text { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+    .app-bocna-pridat {
+        min-height: 56px;
+        margin-bottom: .75rem;
+        border: 0;
+        border-radius: 16px;
+        background: var(--app-accent);
+        color: #1c1917;
+        font-size: 1.1rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: .5rem;
+    }
+    .app-bocna-pridat:hover, .app-bocna-pridat:focus-visible { background: #d97f06; color: #1c1917; }
+    .app-bocna-polozka {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        width: 100%;
+        min-height: 52px;
+        padding: .45rem .85rem;
+        border: 0;
+        border-radius: 14px;
+        background: transparent;
+        color: var(--app-text);
+        font-size: 1.08rem;
+        text-align: left;
+        text-decoration: none;
+    }
+    .app-bocna-polozka > .bi { flex: none; width: 1.5rem; font-size: 1.3rem; text-align: center; color: var(--app-muted-text); }
+    .app-bocna-polozka:hover, .app-bocna-polozka:focus-visible { background: var(--app-jemna); color: var(--app-text); }
+    .app-bocna-polozka.is-active { background: var(--app-jemna); font-weight: 600; }
+    .app-bocna-polozka.is-active > .bi { color: var(--app-accent); }
+    .app-bocna-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+    .app-bocna-text small { font-size: .82rem; font-weight: 400; color: var(--app-muted-text); }
+    .app-bocna-pocet {
+        flex: none;
+        min-width: 26px;
+        height: 26px;
+        padding: 0 7px;
+        border-radius: 13px;
+        background: #dc2626;
+        color: #fff;
+        font-size: .85rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .app-bocna-spodok { margin-top: auto; padding-top: 1.5rem; display: flex; flex-direction: column; gap: .15rem; }
+    .app-bocna-nadpis {
+        padding: 0 .85rem .35rem;
+        font-size: .8rem;
+        font-weight: 600;
+        letter-spacing: .05em;
+        text-transform: uppercase;
+        color: var(--app-muted-text);
+    }
+    .app-bocna-nastavenie { min-height: 48px; font-size: 1rem; }
+    .app-bocna-nastavenie > .bi { font-size: 1.15rem; }
+    /* Prepínač motívu: zapnutý = tmavý motív (stav podľa data-bs-theme, theme.js) */
+    .app-bocna-prepinac {
+        position: relative;
+        flex: none;
+        width: 44px;
+        height: 26px;
+        border-radius: 13px;
+        background: var(--app-prepinac-vyp);
+        transition: background-color var(--app-transition);
+    }
+    .app-bocna-prepinac::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform var(--app-transition);
+    }
+    [data-bs-theme="dark"] .app-bocna-prepinac { background: var(--app-accent); }
+    [data-bs-theme="dark"] .app-bocna-prepinac::after { transform: translateX(18px); background: #1c1917; }
+    .app-bocna-pouzivatel {
+        display: flex;
+        align-items: center;
+        gap: .7rem;
+        margin-top: .75rem;
+        padding: .65rem;
+        border-radius: 16px;
+        background: var(--app-plocha);
+        border: 1px solid var(--app-border);
+    }
+    .app-bocna-inicialy {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--app-jemna);
+        color: var(--app-accent);
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .app-bocna-meno { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; font-weight: 600; overflow-wrap: anywhere; }
+    .app-bocna-meno small { font-size: .85rem; font-weight: 400; color: var(--app-muted-text); }
+    .app-bocna-odhlasit {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid var(--app-border);
+        color: var(--bs-danger-text-emphasis);
+        font-size: 1.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+    }
+    .app-bocna-odhlasit:hover, .app-bocna-odhlasit:focus-visible { background: rgba(220, 53, 69, .12); border-color: rgba(220, 53, 69, .5); color: var(--bs-danger-text-emphasis); }
+
+    /* ── Hlavička obsahu: pozdrav, nadpis, zoradenie ── */
+    .app-hlavicka { flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; max-width: 1400px; margin-bottom: 1.25rem; }
+    .app-pozdrav { font-size: 1.05rem; color: var(--app-muted-text); }
+    .app-nadpis { margin: .1rem 0 0; font-size: 2.3rem; font-weight: 700; line-height: 1.1; }
+    .app-zoradenie { display: flex; align-items: center; gap: .65rem; margin: 0; font-size: 1rem; color: var(--app-muted-text); }
+    .app-zoradenie .form-select { width: auto; min-height: 48px; border-radius: 14px; font-size: 1rem; }
+
+    /* ── Hľadanie na celú šírku, kategórie ako tlačidlá, počet receptov ── */
+    .recepty-filtre { margin: 0 !important; }
+    .recepty-hladanie { flex: 1 1 100% !important; max-width: none !important; box-shadow: none !important; }
+    .recepty-hladanie .input-group-text {
+        min-height: 60px;
+        padding-left: 1.25rem !important;
+        border-radius: 18px 0 0 18px !important;
+        border-color: var(--app-border) !important;
+        border-right: 0;
+        background: var(--app-plocha) !important;
+        color: var(--app-muted-text);
+        font-size: 1.2rem;
+    }
+    .recepty-hladanie .form-control {
+        min-height: 60px;
+        border-radius: 0 18px 18px 0 !important;
+        border-color: var(--app-border) !important;
+        border-left: 0;
+        background: var(--app-plocha);
+        font-size: 1.15rem;
+    }
+    .recepty-hladanie:focus-within .input-group-text,
+    .recepty-hladanie:focus-within .form-control { border-color: var(--app-accent) !important; }
+    .recepty-hladanie .form-control:focus { box-shadow: none; }
+    .kategoria-cipy { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+    .kategoria-cip {
+        min-height: 44px;
+        padding: 0 1.1rem;
+        border-radius: 22px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        font-size: 1rem;
+    }
+    .kategoria-cip:hover { border-color: var(--app-accent); }
+    .kategoria-cip.is-active { background: var(--app-accent); border-color: var(--app-accent); color: #1c1917; font-weight: 600; }
+    .recepty-pocet { margin-top: 1rem; font-size: 1rem; color: var(--app-muted-text); }
+
+    /* ── Karty receptov ── */
+    .recipes-container { max-width: 1400px !important; }
+    #recipesTable.app-card {
+        margin: 1rem 0 0 !important;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    .recipes-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; padding: 0; }
+    .recipe-card { border-radius: 18px; background: var(--app-plocha); }
+    .recipe-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0, 0, 0, .18); background-color: var(--app-plocha); border-color: rgba(245, 158, 11, .55); }
+    .recipe-card-media { aspect-ratio: 16 / 10; }
+    .recipe-card-body { display: flex; flex-direction: column; gap: .45rem; padding: 1rem 1rem .5rem; }
+    .recipe-card-title-row { margin-bottom: 0; }
+    .recipe-card-title { font-size: 1.2rem; }
+    .recipe-card-body .mb-2 { margin-bottom: 0 !important; }
+    .recipe-card-body .badge { padding: .35em .65em; border-radius: 8px; font-size: .88rem; font-weight: 600; line-height: 1.25; white-space: normal; text-align: left; }
+    /* Odznak „naposledy varené" v jemných farbách (karta aj náhľad receptu) */
+    .recipe-card-body .badge.text-bg-secondary, #viewRecipeLastMade.text-bg-secondary { background: var(--app-odznak-sivy-bg) !important; color: var(--app-odznak-sivy) !important; }
+    .recipe-card-body .badge.text-bg-warning, #viewRecipeLastMade.text-bg-warning { background: var(--app-odznak-zlty-bg) !important; color: var(--app-odznak-zlty) !important; }
+    .recipe-card-body .badge.text-bg-danger, #viewRecipeLastMade.text-bg-danger { background: var(--app-odznak-cerveny-bg) !important; color: var(--app-odznak-cerveny) !important; }
+    .recipe-card-body .badge.text-bg-success, #viewRecipeLastMade.text-bg-success { background: var(--app-odznak-zeleny-bg) !important; color: var(--app-odznak-zeleny) !important; }
+    /* Kategória a čas ako text „Hlavné jedlá · 45 min" */
+    .recipe-card-meta { gap: 0 !important; margin: 0 !important; }
+    .recipe-card-meta .badge {
+        padding: 0 !important;
+        border: 0 !important;
+        background: none !important;
+        color: var(--app-muted-text) !important;
+        font-size: 1rem;
+        font-weight: 400;
+    }
+    .recipe-card-meta .badge .bi { display: none; }
+    .recipe-card-meta .badge + .badge::before { content: "·"; margin: 0 .4rem; }
+    .recipe-card-autor { display: none; }
+    .recipe-card .recipe-rating { margin: 0 !important; }
+    .recipe-card .rating-stars .rating-star { font-size: 1.4rem; padding: .25rem .15rem; }
+    .recipe-card .recipe-rating .rating-summary { font-size: .95rem; color: var(--app-muted-text) !important; }
+    .recipe-card-actions { gap: .5rem; margin-top: auto; padding: .35rem 1rem 1rem; border-top: 0; }
+    .recipe-card-actions .btn-historia,
+    .recipe-card-actions .btn-upravit,
+    .recipe-card-actions .btn-delete-recipe { display: none; }
+    .recipe-card-actions .btn {
+        min-height: 46px;
+        gap: .45rem;
+        border-radius: 12px;
+        border: 1px solid var(--app-border);
+        background: transparent;
+        color: var(--app-text);
+        font-size: 1rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .recipe-card-actions .btn i { font-size: 1.15rem; }
+    .recipe-card-actions .btn-mark-made i { color: var(--bs-success-text-emphasis); }
+    .recipe-card-actions .btn-add-shopping i { color: var(--app-accent); }
+    .recipe-card-actions .btn:hover,
+    .recipe-card-actions .btn:focus-visible { border-color: var(--app-accent); background: var(--app-jemna); color: var(--app-text); }
+
+    /* ── Náhľad receptu ── */
+    #recipeViewModal .recipe-view-dialog { max-width: 720px; }
+    #recipeViewModal .modal-content { border-radius: 24px; overflow: hidden; }
+    #recipeViewModal .modal-header { padding: .85rem 1.25rem; }
+    .view-pc-lista { width: 100%; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
+    .view-pc-akcie-hore { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .view-pc-tlacidlo {
+        min-height: 48px;
+        padding: 0 1rem;
+        border-radius: 14px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        font-size: 1rem;
+        display: inline-flex;
+        align-items: center;
+        gap: .5rem;
+    }
+    .view-pc-tlacidlo .bi { font-size: 1.1rem; }
+    .view-pc-tlacidlo:hover, .view-pc-tlacidlo:focus-visible { border-color: var(--app-accent); background: var(--app-jemna); color: var(--app-text); }
+    .view-pc-zmazat, .view-pc-zmazat:hover, .view-pc-zmazat:focus-visible { color: var(--bs-danger-text-emphasis); }
+    .view-pc-zmazat { border-color: rgba(220, 53, 69, .45); }
+    .view-pc-zmazat:hover, .view-pc-zmazat:focus-visible { border-color: var(--bs-danger); background: rgba(220, 53, 69, .12); }
+    #recipeViewModal .view-paticka { display: none; }
+    #recipeViewModal .modal-body { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; padding: 1.5rem; }
+    #recipeViewModal .modal-body > #viewRecipeGallery { order: -1; }
+    #recipeViewModal .modal-body > .view-odkaz { order: 3; }
+    #recipeViewModal .modal-body > #viewRecipeCreatedBy { order: 4; }
+    .view-mobil-nazov { margin: 0 0 .6rem; font-size: 2rem; font-weight: 700; line-height: 1.15; }
+    #recipeViewModal .modal-body .badge { padding: .4em .7em; font-size: .9rem; }
+    #viewRecipeRating { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; margin: -.25rem 0 1rem; }
+    #viewRecipeRating .rating-stars { display: inline-flex; margin-left: -.3rem; }
+    #viewRecipeRating .rating-star { margin: 0; padding: .3rem .2rem; font-size: 1.9rem; line-height: 1; }
+    #viewRecipeRating .rating-summary { font-size: .95rem; color: var(--app-muted-text); }
+    .view-pc-akcie { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: .65rem; margin-bottom: 1.25rem; }
+    .view-pc-akcie .btn {
+        min-height: 58px;
+        border-radius: 16px;
+        font-size: 1.12rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: .5rem;
+    }
+    .view-pc-akcie .btn-primary, .view-pc-akcie .btn-primary:hover { color: #1c1917; }
+    .view-pc-akcie .btn .bi { font-size: 1.25rem; }
+    #viewRecipeSurovinyWrap { padding: 1rem 1.15rem .4rem; border-radius: 18px; background: var(--app-plocha); border: 1px solid var(--app-border); }
+    #recipeViewModal .suroviny-view-head .form-label,
+    #viewRecipeIngredientsLabel { font-size: 1.2rem !important; font-weight: 700; color: var(--app-text) !important; }
+    #recipeViewModal .servings-stepper .btn { width: 44px; height: 44px; font-size: 1.15rem; }
+    #recipeViewModal .servings-value { font-size: 1.05rem; }
+    #recipeViewModal .suroviny-view-list { columns: 1; }
+    #recipeViewModal .suroviny-view-list li { padding: .5rem 0 .5rem 1.1rem; font-size: 1.05rem; border-bottom: 1px solid var(--app-border); }
+    #recipeViewModal .suroviny-view-list li:last-child { border-bottom: 0; }
+    #recipeViewModal .suroviny-view-list li::before { top: 1em; }
+    #viewRecipeIngredients { font-size: 1.05rem !important; line-height: 1.55; }
+    #viewRecipeUrl { min-height: 44px; display: inline-flex; align-items: center; font-size: 1rem; }
+    #viewRecipeUrl.d-none { display: none !important; }
+}
+
+/* Užší tablet: užšia ponuka a menšie okraje */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .app-bocna { width: 232px; padding-left: .75rem; padding-right: .75rem; }
+    .app-obsah { padding: 1.5rem 1.5rem 2.5rem; }
+    .recipes-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 1rem; }
+    .app-bocna-polozka { font-size: 1rem; }
+    .recipe-card-actions { gap: .4rem; padding-left: .75rem; padding-right: .75rem; }
+    .recipe-card-actions .btn { gap: .3rem; padding: 0 .35rem; font-size: .92rem; }
+    .recipe-card-actions .btn i { font-size: 1rem; }
+}
+
+/* PC: náhľad receptu v dvoch stĺpcoch — fotky vľavo (ostávajú na mieste pri posúvaní), recept vpravo */
+@media (min-width: 992px) {
+    #recipeViewModal .recipe-view-dialog { max-width: min(1140px, calc(100vw - 4rem)); }
+    #recipeViewModal .recipe-view-dialog.bez-fotky { max-width: 760px; }
+    #recipeViewModal .recipe-view-dialog:not(.bez-fotky) .modal-body { grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); column-gap: 2rem; }
+    #recipeViewModal .recipe-view-dialog:not(.bez-fotky) .modal-body > * { grid-column: 2; }
+    #recipeViewModal .recipe-view-dialog:not(.bez-fotky) .modal-body > #viewRecipeGallery {
+        grid-column: 1;
+        grid-row: 1 / span 12;
+        align-self: start;
+        position: sticky;
+        top: 0;
+        margin-bottom: 0 !important;
+    }
 }

@@ -473,6 +473,30 @@ over($kroky[1] === ['1', '2', '3'], 'Sprievodca má tri kroky: ' . implode(' →
 over(str_contains($formular, 'id="recipeKrokDalej"') && str_contains($formular, 'class="formular-cip"'),
     'Sprievodca má tlačidlo Ďalej a kategórie ako tlačidlá');
 
+/* 5d. Rozloženie na PC (verzia 2.0): bočná ponuka so všetkými akciami, náhľad receptu s akciami. */
+echo "\nRozloženie na PC\n";
+$ponuka = '';
+if (preg_match('~<nav class="app-bocna.*?</nav>~s', $stranka, $m)) {
+    $ponuka = $m[0];
+}
+$chybajuce = [];
+foreach (['openRecipeModal()', 'id="themeToggle"', 'enablePushNotifications()', 'setupPasskeyFromApp()', 'href="logout.php"', 'href="admin/index.php"'] as $akcia) {
+    if (!str_contains($ponuka, $akcia)) {
+        $chybajuce[] = $akcia;
+    }
+}
+if ($plny && !str_contains($ponuka, 'openShoppingModal()')) {
+    $chybajuce[] = 'openShoppingModal()';
+}
+over($ponuka !== '' && !$chybajuce, 'Bočná ponuka má všetky akcie (pridať, nákup, motív, upozornenia, odtlačok, správa, odhlásiť)', implode(', ', $chybajuce));
+$chybajuce = [];
+foreach (['id="viewPcUpravit"', 'id="viewPcHistoria"', 'id="viewPcZdielat"', 'id="viewPcZmazat"', 'id="viewPcUvarene"', 'id="recipeSortSelect"', 'id="receptyPocet"'] as $prvok) {
+    if (!str_contains($stranka, $prvok)) {
+        $chybajuce[] = $prvok;
+    }
+}
+over(!$chybajuce, 'Náhľad receptu má akcie s popisom, zoradenie a počet receptov', implode(', ', $chybajuce));
+
 /* ---------------------------------------------------------------------- */
 /* 6. Mazanie receptu                                                      */
 /* ---------------------------------------------------------------------- */

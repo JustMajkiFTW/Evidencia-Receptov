@@ -21,7 +21,8 @@ Tento dokument má dve časti:
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty aj bez internetu.** Posledné načítané recepty sa uložia v zariadení a bez pripojenia sa dajú pozerať (meniť nie).
 - **Recept z fotky.** Odfotíš hotové jedlo, stranu z kuchárky alebo ručne písaný recept a AI (Gemini, Claude alebo OpenAI) navrhne názov, kategóriu, porcie, čas, suroviny s množstvami aj postup. Návrh si skontroluješ a upravíš, uloží sa až potom. Fotka jedla sa pridá do galérie receptu. Funkcia je nepovinná, zapne sa kľúčom v `.env`.
-- **Rozloženie pre telefón.** Na telefóne je dole lišta so štyrmi veľkými tlačidlami (Recepty, Pridať, Nákup, Viac), recept, nákupný zoznam aj formulár sú na celú obrazovku a hlavné akcie majú veľké tlačidlá. Recept sa pridáva v troch krokoch (Základ, Suroviny, Postup a fotka). Na PC a tablete ostáva klasické rozloženie.
+- **Rozloženie pre telefón.** Na telefóne je dole lišta so štyrmi veľkými tlačidlami (Recepty, Pridať, Nákup, Viac), recept, nákupný zoznam aj formulár sú na celú obrazovku a hlavné akcie majú veľké tlačidlá. Recept sa pridáva v troch krokoch (Základ, Suroviny, Postup a fotka).
+- **Rozloženie na PC.** Vľavo je bočná ponuka (Pridať recept, Recepty, Nákupný zoznam, Správa, nastavenia a odhlásenie), vpravo veľké hľadanie, kategórie ako tlačidlá a karty receptov s tlačidlami Uvarené a Do nákupu. Náhľad receptu má fotky vľavo a suroviny s postupom vpravo.
 - **Svetlý a tmavý vzhľad**, veľké ovládacie prvky vhodné aj pre starších používateľov.
 
 ---
@@ -96,11 +97,11 @@ https://tvoja-domena/cron.php?key=HODNOTA_CRON_KEY
 
 ### Krok 8: Pridaj ďalších používateľov
 
-Verejná registrácia neexistuje. Účty vytvára administrátor: tlačidlo **Správa** v hornej lište. Každý používateľ si potom v appke môže:
+Verejná registrácia neexistuje. Účty vytvára administrátor: **Správa** v bočnej ponuke na PC (na telefóne v okne Viac). Každý používateľ si potom v appke môže:
 
 - pridať appku na plochu (v prehliadači telefónu „Pridať na plochu" alebo „Inštalovať"),
-- povoliť upozornenia tlačidlom so zvončekom,
-- zapnúť biometriu tlačidlom s odtlačkom.
+- povoliť upozornenia (**Upozornenia** v bočnej ponuke alebo v okne Viac),
+- zapnúť biometriu (**Prihlásenie odtlačkom** v bočnej ponuke alebo v okne Viac).
 
 Na iPhone fungujú upozornenia len v appke pridanej na plochu (iOS 16.4 a novší).
 
@@ -417,19 +418,29 @@ Ak má recept kategóriu, ktorá v zozname nie je (napr. z ručnej úpravy datab
 
 **Práva.** Pridávať a upravovať recepty a pridávať fotky môže každý prihlásený. Mazať recepty, mazať fotky z galérie a spravovať používateľov, kategórie a suroviny môže len admin.
 
-**Tlačidlá na karte receptu:** uvarené (okno s dátumom a fotkou), do nákupu, história, upraviť, zmazať (len admin). Kliknutím kamkoľvek inam na kartu sa otvorí náhľad. Na telefóne sú tieto akcie v náhľade receptu (pozri nižšie).
+**Tlačidlá na karte receptu (PC):** **Uvarené** (okno s dátumom a fotkou) a **Do nákupu**. Kliknutím kamkoľvek inam na kartu sa otvorí náhľad, v ňom sú aj Upraviť, História, Zdieľať a Zmazať (len admin). Na telefóne sú všetky akcie v náhľade receptu (pozri nižšie).
 
 ### Rozloženie na telefóne
 
-Pod šírkou 768 bodov (telefón na výšku, menší telefón aj na šírku) má appka vlastné rozloženie. Od 768 bodov (tablet, PC) sa nič nemení. Je to tá istá stránka `index.php` s rovnakými akciami a databázou, iné je len rozmiestnenie: telefónne prvky majú v `index.php` triedu `d-md-none`, PC prvky `d-none d-md-block`, štýly sú na konci `style.css` v `@media (max-width: 767.98px)` a správanie na konci `script.js` (`initMobilneRozlozenie`, `mobilneNahlad`).
+Pod šírkou 768 bodov (telefón na výšku, menší telefón aj na šírku) má appka vlastné rozloženie, od 768 bodov (tablet, PC) [rozloženie na PC](#rozloženie-na-pc). Je to tá istá stránka `index.php` s rovnakými akciami a databázou, iné je len rozmiestnenie: telefónne prvky majú v `index.php` triedu `d-md-none`, PC prvky `d-none d-md-flex` (alebo `d-md-block`, `d-md-grid`), štýly pre telefón sú v `style.css` v `@media (max-width: 767.98px)` a správanie na konci `script.js` (`initMobilneRozlozenie`, `mobilneNahlad`).
 
-- **Spodná lišta** so štyrmi tlačidlami nahrádza hornú lištu. **Recepty** zavrie otvorené okno alebo vyroluje zoznam hore, **Pridať** otvorí formulár receptu, **Nákup** nákupný zoznam s odznakom počtu, **Viac** okno s motívom, prihlásením odtlačkom, upozorneniami, Správou (admin) a odhlásením. Nákup a Viac sa prepínajú ako záložky a lišta pod nimi ostáva, ostatné okná ju zakryjú.
+- **Spodná lišta** so štyrmi tlačidlami nahrádza bočnú ponuku z PC. **Recepty** zavrie otvorené okno alebo vyroluje zoznam hore, **Pridať** otvorí formulár receptu, **Nákup** nákupný zoznam s odznakom počtu, **Viac** okno s motívom, prihlásením odtlačkom, upozorneniami, Správou (admin) a odhlásením. Nákup a Viac sa prepínajú ako záložky a lišta pod nimi ostáva, ostatné okná ju zakryjú.
 - **Hlavička** s pozdravom a zoradením, pod ňou hľadanie na celú šírku a **kategórie ako veľké tlačidlá**. Nastavujú ten istý filter a zoradenie ako výbery na PC.
 - **Karta receptu** má fotku vľavo a vpravo názov, odznak naposledy vareného, kategóriu a čas. Hviezdičky, autor a päť malých tlačidiel na nej nie sú.
 - **Náhľad receptu** je na celú obrazovku. Hore je šípka späť a ikony Zdieľať, Upraviť a „…" (História, Zmazať pre admina), pod fotkou názov a hodnotenie hviezdičkami, dole veľké tlačidlá **Do nákupu** a **Uvarené**.
 - **Nákupný zoznam, formulár receptu a história** sú na celú obrazovku s väčším písmom, políčkami a tlačidlami. Plávajúci košík vpravo dole na telefóne nie je, nahrádza ho Nákup v lište.
 - **Formulár receptu** je sprievodca v troch krokoch (pozri nižšie).
 - Lišta si cez `env(safe-area-inset-bottom)` nechá miesto nad pásikom na spodku iPhonu (v `index.php` je preto vo `viewport` aj `viewport-fit=cover`).
+
+### Rozloženie na PC
+
+Od šírky 768 bodov (tablet, PC). Štýly sú na konci `style.css` v bloku „Verzia 2.0" (`@media (min-width: 768px)`, užší tablet do 991 bodov a dvojstĺpcový náhľad od 992 bodov).
+
+- **Bočná ponuka** vľavo ostáva na mieste aj pri posúvaní: logo, veľké tlačidlo **Pridať recept**, **Recepty** (vyroluje zoznam hore), **Nákupný zoznam** s odznakom počtu, **Správa** (len admin). Dole **Nastavenia**: Tmavý motív (prepínač), Upozornenia, Prihlásenie odtlačkom a meno používateľa s tlačidlom Odhlásiť.
+- **Hlavička** s pozdravom, nadpisom Recepty a zoradením, pod ňou hľadanie na celú šírku a **kategórie ako tlačidlá** (tie isté ako na telefóne, nastavujú skrytý výber kategórie). Pod nimi počet receptov, po hľadaní „Nájdené: 2 z 6 receptov".
+- **Karty receptov** v mriežke (počet stĺpcov podľa šírky): fotka, názov, odznak naposledy vareného v jemných farbách, kategória a čas, hviezdičky (dá sa hodnotiť priamo na karte) a tlačidlá **Uvarené** a **Do nákupu** s popisom. História, úprava a zmazanie sú v náhľade (na karte zostávajú skryté, mazanie z náhľadu používa to isté tlačidlo).
+- **Náhľad receptu**: hore **Späť na recepty** a **Upraviť**, **História**, **Zdieľať**, **Zmazať** (admin). Vľavo fotky s miniatúrami (ostávajú na mieste pri posúvaní receptu), vpravo názov, odznaky, hodnotenie, veľké tlačidlá **Uvarené** a **Do nákupu**, suroviny s prepočtom porcií, postup a odkaz na web. Recept bez fotky má užšie okno v jednom stĺpci, na tablete do 991 bodov sú fotky nad receptom.
+- Formulár receptu, nákupný zoznam a ostatné okná ostávajú ako doteraz.
 
 ### Formulár receptu na telefóne
 
@@ -520,9 +531,9 @@ Recept má nepovinný počet porcií. Ak je vyplnený a aspoň jedna surovina m�
 
 ## B7. Nákupný zoznam
 
-Zoznam je jeden pre všetkých používateľov. Na PC sa otvára košíkom v hornej lište alebo plávajúcim tlačidlom vpravo dole, ktoré je vidno, kým je čo kúpiť. Na telefóne tlačidlom Nákup v spodnej lište.
+Zoznam je jeden pre všetkých používateľov. Na PC sa otvára položkou **Nákupný zoznam** v bočnej ponuke (s odznakom počtu vecí na kúpenie), na telefóne tlačidlom Nákup v spodnej lište.
 
-**Pridanie receptu.** Tlačidlo s košíkom na karte pridá suroviny pre pôvodný počet porcií, tlačidlo „Do nákupu" v náhľade pre práve nastavený počet.
+**Pridanie receptu.** Tlačidlo „Do nákupu" na karte (PC) pridá suroviny pre pôvodný počet porcií, tlačidlo „Do nákupu" v náhľade pre práve nastavený počet.
 
 **Zlučovanie:**
 
@@ -658,7 +669,7 @@ Testy sú v priečinku `testy/`. GitHub ich spúšťa pri každom nahratí do `m
 5. **databázu z predchádzajúcej verzie bez migrácie:** nová appka na nej musí bežať,
 6. **migrácie** na tej istej databáze (každú dvakrát po sebe), znova priechod appkou a porovnanie štruktúry s novou inštaláciou.
 
-Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, skontroluje formulár receptu (všetky polia a tri kroky sprievodcu), zmaže recept, v správe pridá, premenuje, posunie a zmaže kategóriu receptov (a overí, že používanú zmazať nejde), v správe surovín zaradí, premenuje a zlúči surovinu s preklepom, otvorí biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
+Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, skontroluje formulár receptu (všetky polia a tri kroky sprievodcu) a rozloženie na PC (bočná ponuka so všetkými akciami, akcie v náhľade), zmaže recept, v správe pridá, premenuje, posunie a zmaže kategóriu receptov (a overí, že používanú zmazať nejde), v správe surovín zaradí, premenuje a zlúči surovinu s preklepom, otvorí biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
 
 Po nahratí na server skript `testy/kontrola-po-nahrati.sh` overí ostrú appku a `testy/kontrola-ftp.sh` pred nahratím skontroluje FTP a cieľový priečinok.
 
@@ -686,6 +697,14 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**2.0**
+
+- Nové rozloženie na PC a tablete: vľavo bočná ponuka s tlačidlom Pridať recept, Receptami, Nákupným zoznamom (s počtom), Správou a dole nastaveniami (tmavý motív, upozornenia, prihlásenie odtlačkom) a odhlásením. Nahrádza hornú lištu so siedmimi tlačidlami a plávajúci košík vpravo dole.
+- Vpravo pozdrav, zoradenie, veľké hľadanie, kategórie ako tlačidlá a počet receptov („Nájdené: 2 z 6" po hľadaní).
+- Karty receptov s tlačidlami Uvarené a Do nákupu s popisom namiesto piatich malých ikon. Upraviť, História, Zdieľať a Zmazať sú v náhľade receptu.
+- Náhľad receptu na PC: fotky vľavo, recept vpravo, veľké tlačidlá Uvarené a Do nákupu, hodnotenie hviezdičkami, hore akcie s popisom.
+- Telefón sa nemení. Databáza sa nemení, migrácia netreba.
 
 **1.9**
 

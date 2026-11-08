@@ -606,7 +606,6 @@ const shopping = (function initShopping() {
     const listEl = document.getElementById('shoppingList');
     const countEl = document.getElementById('shoppingCount');
     const input = document.getElementById('shoppingAddInput');
-    const fabEl = document.getElementById('shoppingFab');
     let items = [];
 
     // Obnovovanie zoznamu, aby bolo vidno aj zmeny z iných zariadení (napr. dvaja
@@ -802,14 +801,11 @@ const shopping = (function initShopping() {
         const open = items.filter((item) => !item.kupene);
         const bought = items.filter((item) => item.kupene);
 
+        // Odznak pri Nákupnom zozname v bočnej ponuke (PC).
         if (countEl) {
             countEl.textContent = open.length;
+            countEl.setAttribute('aria-label', 'Položiek na kúpenie: ' + open.length);
             countEl.classList.toggle('d-none', open.length === 0);
-        }
-        // Plávajúce tlačidlo košíka je vidno len vtedy, keď je čo kúpiť.
-        if (fabEl) {
-            fabEl.classList.toggle('d-none', open.length === 0);
-            fabEl.querySelector('.shopping-fab-count').textContent = open.length;
         }
         // Odznak pri Nákupe v spodnej lište (telefón).
         const listaPocetEl = document.getElementById('spodnaListaPocet');
@@ -1293,12 +1289,15 @@ function openRecipeModal(data = null) {
    Z náhľadu sa dá jedným klikom prejsť rovno do editácie.
    ======================================================================== */
 function openRecipeViewModal(data) {
-    document.getElementById('viewRecipeName').textContent = data.name || '';
-    // Na telefóne je názov pod fotkou (v hlavičke sú tlačidlá), pozri mobilneNahlad nižšie.
+    // Názov je pod fotkou (telefón) alebo vpravo vedľa fotiek (PC), v hlavičke sú tlačidlá.
     const nazovMobil = document.getElementById('viewRecipeNameMobil');
     if (nazovMobil) nazovMobil.textContent = data.name || '';
 
     if (recipeGallery) recipeGallery.show(data);
+    // PC: recept bez fotky má užšie okno v jednom stĺpci (verzia 2.0).
+    const galeria = document.getElementById('viewRecipeGallery');
+    document.querySelector('#recipeViewModal .recipe-view-dialog')
+        ?.classList.toggle('bez-fotky', !galeria || galeria.classList.contains('d-none'));
 
     const categoryBadge = document.getElementById('viewRecipeCategory');
     if (data.category) {
@@ -1362,24 +1361,16 @@ function openRecipeViewModal(data) {
 
     document.getElementById('viewRecipeCreatedBy').textContent = data.createdBy ? `Pridal(a): ${data.createdBy}` : '';
 
-    const editBtn = document.getElementById('viewRecipeEditBtn');
-    editBtn.onclick = () => {
-        bootstrap.Modal.getInstance(document.getElementById('recipeViewModal'))?.hide();
-        openRecipeModal(data);
-    };
-
-    const shareBtn = document.getElementById('viewRecipeShareBtn');
-    shareBtn.onclick = () => shareRecipe(data);
-
     mobilneNahlad(data);
 
     bootstrap.Modal.getOrCreateInstance(document.getElementById('recipeViewModal')).show();
 }
 
 /**
- * Tlačidlá náhľadu receptu, ktoré sú len na telefóne (verzia 1.7): Uvarené dole,
- * Zdieľať / Upraviť / … hore a hodnotenie hviezdičkami pod názvom. Na PC sú tieto
- * akcie na karte receptu, preto sa tam neukazujú (d-md-none).
+ * Tlačidlá náhľadu receptu a hodnotenie hviezdičkami pod názvom.
+ * Telefón (verzia 1.7): Uvarené dole, Zdieľať / Upraviť / … hore.
+ * PC (verzia 2.0): Upraviť, História, Zdieľať, Zmazať hore a Uvarené pod hodnotením.
+ * Obe sady volajú to isté, v stránke je vždy viditeľná len jedna.
  */
 function mobilneNahlad(data) {
     const modalEl = document.getElementById('recipeViewModal');
@@ -1393,14 +1384,24 @@ function mobilneNahlad(data) {
         if (el) el.onclick = onclick;
     };
 
-    nastav('viewMobilZdielat', () => shareRecipe(data));
-    nastav('viewMobilUpravit', poZavreti(() => openRecipeModal(data)));
-    nastav('viewMobilUvarene', poZavreti(() => madeDialog && madeDialog.open(data.id, data.name)));
-    nastav('viewMobilHistoria', poZavreti(() => openHistoryModal(data.id, data.name)));
+    const zdielat = () => shareRecipe(data);
+    const upravit = poZavreti(() => openRecipeModal(data));
+    const uvarene = poZavreti(() => madeDialog && madeDialog.open(data.id, data.name));
+    const historia = poZavreti(() => openHistoryModal(data.id, data.name));
     // Zmazanie použije tlačidlo na karte receptu (rovnaké potvrdenie aj odstránenie karty).
-    nastav('viewMobilZmazat', poZavreti(() => {
+    const zmazat = poZavreti(() => {
         document.querySelector('.recipe-row[data-recipe-id="' + data.id + '"] .btn-delete-recipe')?.click();
-    }));
+    });
+    nastav('viewMobilZdielat', zdielat);
+    nastav('viewMobilUpravit', upravit);
+    nastav('viewMobilUvarene', uvarene);
+    nastav('viewMobilHistoria', historia);
+    nastav('viewMobilZmazat', zmazat);
+    nastav('viewPcZdielat', zdielat);
+    nastav('viewPcUpravit', upravit);
+    nastav('viewPcUvarene', uvarene);
+    nastav('viewPcHistoria', historia);
+    nastav('viewPcZmazat', zmazat);
 
     const hodnotenie = document.getElementById('viewRecipeRating');
     if (hodnotenie && typeof hodnotenieReceptov !== 'undefined') {
@@ -1463,12 +1464,13 @@ function renderViewSuroviny(data, targetServings) {
         return li;
     }));
 
-    // „Do nákupu" pridá suroviny pre práve zobrazený počet porcií.
-    const shoppingBtn = document.getElementById('viewRecipeShoppingBtn');
-    if (shoppingBtn) {
+    // „Do nákupu" pridá suroviny pre práve zobrazený počet porcií (pätička na telefóne, tlačidlo pod hodnotením na PC).
+    ['viewRecipeShoppingBtn', 'viewPcNakup'].forEach((id) => {
+        const shoppingBtn = document.getElementById(id);
+        if (!shoppingBtn) return;
         shoppingBtn.classList.toggle('d-none', suroviny.length === 0);
         shoppingBtn.onclick = () => shopping && shopping.addRecipe(data.id, canScale ? target : null, shoppingBtn);
-    }
+    });
 
     const stepper = document.getElementById('viewServings');
     const note = document.getElementById('viewServingsNote');
@@ -2104,6 +2106,24 @@ const hodnotenieReceptov = (function initRecipeRatings() {
 
             row.classList.toggle('d-none', !(matchesSearch && matchesCategory));
         });
+        ukazPocet();
+    }
+
+    // PC (verzia 2.0): „6 receptov · klikni na recept…", po hľadaní „Nájdené: 2 z 6 receptov".
+    function ukazPocet() {
+        const pocetEl = document.getElementById('receptyPocet');
+        if (!pocetEl) return;
+        const rows = getRows();
+        const vidno = rows.filter((row) => !row.classList.contains('d-none')).length;
+        const slovo = (n) => (n === 1 ? 'recept' : (n >= 2 && n <= 4 ? 'recepty' : 'receptov'));
+        if (!rows.length) {
+            pocetEl.textContent = 'Zatiaľ žiadne recepty';
+        } else if (vidno === rows.length) {
+            pocetEl.textContent = rows.length + ' ' + slovo(rows.length) + ' · klikni na recept pre postup, suroviny a fotky';
+        } else {
+            pocetEl.textContent = 'Nájdené: ' + vidno + ' z ' + rows.length + ' ' + slovo(rows.length)
+                + (vidno ? '' : ' — skús iné slovo alebo kategóriu Všetko');
+        }
     }
 
     function applySort() {
@@ -2157,6 +2177,8 @@ const hodnotenieReceptov = (function initRecipeRatings() {
     searchInput?.addEventListener('input', applyFilters);
     categorySelect?.addEventListener('change', applyFilters);
     sortSelect?.addEventListener('change', applySort);
+    // Zmazaný recept zmizne zo zoznamu — počet receptov sa prepočíta.
+    new MutationObserver(ukazPocet).observe(tbody, { childList: true });
 })();
 /* ========================================================================
    Modal "História receptu" — načítanie logov cez AJAX
@@ -2507,9 +2529,9 @@ window.aiRecept = (function initAiRecept() {
 })();
 
 /* ========================================================================
-   Rozloženie pre telefón (verzia 1.7): spodná lišta, okno Viac, kategórie
-   ako tlačidlá a zoradenie v hlavičke. Na PC sú tieto prvky skryté
-   (d-md-none) a nič z toho sa nepoužije.
+   Rozloženie pre telefón (verzia 1.7): spodná lišta, okno Viac a zoradenie
+   v hlavičke (na PC skryté, d-md-none). Kategórie ako tlačidlá a stav
+   prepínača motívu sú od verzie 2.0 spoločné pre telefón aj PC.
    ======================================================================== */
 (function initMobilneRozlozenie() {
     const lista = document.getElementById('spodnaLista');
@@ -2578,11 +2600,17 @@ window.aiRecept = (function initAiRecept() {
         }
     });
 
-    // ── Okno Viac: prepínač motívu ovláda to isté tlačidlo ako horná lišta (theme.js) ──
+    // ── Okno Viac: prepínač motívu ovláda to isté tlačidlo ako bočná ponuka na PC (theme.js) ──
     const temaPrepinac = document.getElementById('viacTemaPrepinac');
+    const temaTlacidlo = document.getElementById('themeToggle');
     const nastavPrepinac = () => {
-        if (temaPrepinac) temaPrepinac.checked = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+        const tmavy = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+        if (temaPrepinac) temaPrepinac.checked = tmavy;
+        temaTlacidlo?.setAttribute('aria-pressed', tmavy ? 'true' : 'false');
     };
+    nastavPrepinac();
+    // theme.js prepne motív vo vlastnom poslucháčovi, stav prepínača sa nastaví až po ňom.
+    temaTlacidlo?.addEventListener('click', () => setTimeout(nastavPrepinac));
     viacEl?.addEventListener('show.bs.modal', nastavPrepinac);
     temaPrepinac?.addEventListener('change', () => {
         document.getElementById('themeToggle')?.click();
