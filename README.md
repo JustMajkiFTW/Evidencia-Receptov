@@ -180,7 +180,7 @@ Súbor `includes/.env` obsahuje heslá a kľúče. Nepatrí na GitHub (je v `.gi
 | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | nie | Kľúče k AI službám pre recept z fotky ([Recept z fotky](#recept-z-fotky-ai)). Stačí jeden. Prázdne = funkcia vypnutá. |
 | `AI_PORADIE` | nie | V akom poradí služby skúšať, napr. `claude,gemini`. Predvolene `gemini,claude,openai`. Služby bez kľúča sa preskočia. |
 | `AI_DENNY_LIMIT` | nie | Koľko fotiek môže jeden používateľ poslať za deň. Predvolene `20`, `0` = bez limitu. |
-| `AI_MODEL_GEMINI`, `AI_MODEL_CLAUDE`, `AI_MODEL_OPENAI` | nie | Iný model než predvolený (`gemini-3.8-flash`, `claude-haiku-5-5`, `gpt-6-luna`). |
+| `AI_MODEL_GEMINI`, `AI_MODEL_CLAUDE`, `AI_MODEL_OPENAI` | nie | Iné modely než predvolené, viac oddelených čiarkou (skúšajú sa v tomto poradí). Predvolene Gemini `gemini-3.8-flash,gemini-flash-lite-latest`, Claude `claude-haiku-5-5`, OpenAI `gpt-6-luna`. |
 | `AI_ADRESA_GEMINI`, `AI_ADRESA_CLAUDE`, `AI_ADRESA_OPENAI` | nie | Iná adresa API. Len na testovanie, v prevádzke nevypĺňaj. |
 
 ## A6. nginx a iné servery bez `.htaccess`
@@ -449,8 +449,8 @@ Recept sa dá vyplniť z fotky hotového jedla, strany z kuchárky, ručne písa
 
 - Prehliadač fotku zmenší, server ju ešte zmenší na najviac 1568 bodov a pošle AI ako JPEG. Na serveri sa neukladá.
 - Spolu s fotkou ide zoznam surovín z číselníka, jednotky appky a kategórie receptov, aby AI použila rovnaké názvy. Odpoveď má pevnú schému JSON (štruktúrovaný výstup služby). Keď ho model nepodporuje, appka to skúsi bez schémy a JSON vyberie z textu.
-- Model dostane pokyn krátko premýšľať (rozpoznanie fotky hlboké premýšľanie nepotrebuje a s ním by odpoveď trvala desiatky sekúnd). Na jednu službu sa čaká najviac 45 sekúnd.
-- Služby sa skúšajú v poradí `AI_PORADIE`. Keď jedna zlyhá (neplatný kľúč, minutý limit alebo kredit, výpadok, nečitateľná odpoveď), skúsi sa ďalšia. Admin pri chybe vidí, ktorá služba prečo zlyhala, chyby sú aj v zázname chýb.
+- Model dostane pokyn krátko premýšľať (rozpoznanie fotky hlboké premýšľanie nepotrebuje a s ním by odpoveď trvala desiatky sekúnd).
+- Služby sa skúšajú v poradí `AI_PORADIE`, v rámci služby jej modely v poradí `AI_MODEL_…`. Gemini má predvolene dva: keď je `gemini-3.8-flash` preťažený (Google vracia 503 „high demand"), neodpovedá do 25 sekúnd alebo ho kľúč nemá, skúsi sa `gemini-flash-lite-latest`. Keď zlyhá aj ten (neplatný kľúč, minutý limit alebo kredit, výpadok, nečitateľná odpoveď), skúsi sa ďalšia služba. Pri neplatnom kľúči sa ďalšie modely tej istej služby preskočia. Na posledný pokus sa čaká 45 sekúnd. Admin pri chybe vidí, ktorá služba prečo zlyhala, chyby sú aj v zázname chýb.
 - Server výsledok skontroluje (jednotky len z `SUROVINA_JEDNOTKY`, kategória len zo zoznamu, rozumné čísla) a suroviny napáruje na číselník podľa kľúča bez diakritiky. Pri nezhode hľadá preklep (o 1 až 2 písmená) alebo názov z číselníka ako celé slovo („Opekaná slanina" → „Slanina").
 - **Denný limit** `AI_DENNY_LIMIT` na používateľa. Počítajú sa len úspešné rozpoznania. Bez migrácie 1.8 sa počíta len v rámci prihlásenia (session).
 - Bez internetu je tlačidlo vyblednuté ako ostatné, ktoré potrebujú server.
@@ -674,6 +674,13 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.8.2**
+
+- Keď je model Gemini preťažený (Google vracia 503 „high demand") alebo neodpovedá do 25 sekúnd, appka skúsi záložný ľahší model `gemini-flash-lite-latest`. Predtým sa čakalo, kým to celé nevypršalo.
+- `AI_MODEL_GEMINI` (aj Claude a OpenAI) môže obsahovať viac modelov oddelených čiarkou, skúšajú sa v tomto poradí.
+- Pri chybe admin vidí aj názov modelu, ktorý zlyhal.
+- Mení sa len `includes/ai.php`, databáza ani vzhľad nie, migrácia netreba.
 
 **1.8.1**
 

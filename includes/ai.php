@@ -31,10 +31,12 @@ const AI_KLUCE_ENV = [
 ];
 
 // Lacné a rýchle modely, ktoré vedia čítať fotky a vracať JSON podľa schémy (november 2026).
+// Pri Gemini sú dva: keď je prvý preťažený (Google vracia 503 „high demand"), neodpovedá
+// včas alebo ho kľúč nemá, skúsi sa ľahší Flash-Lite, ktorý býva voľný.
 const AI_PREDVOLENE_MODELY = [
-    'gemini' => 'gemini-3.8-flash',
-    'claude' => 'claude-haiku-5-5',
-    'openai' => 'gpt-6-luna',
+    'gemini' => ['gemini-3.8-flash', 'gemini-flash-lite-latest'],
+    'claude' => ['claude-haiku-5-5'],
+    'openai' => ['gpt-6-luna'],
 ];
 
 const AI_PREDVOLENE_ADRESY = [
@@ -44,7 +46,8 @@ const AI_PREDVOLENE_ADRESY = [
 ];
 
 const AI_DENNY_LIMIT_PREDVOLENY = 20;
-const AI_TIMEOUT_SEKUND = 45;          // na jednu požiadavku
+const AI_TIMEOUT_SEKUND = 45;          // na poslednú skúšanú požiadavku
+const AI_TIMEOUT_PRED_ZALOHOU = 25;    // keď po nej ešte príde na rad ďalší model alebo služba
 const AI_FOTKA_MAX_STRANA = 1568;      // väčšie fotky AI aj tak zmenšuje, len by to stálo viac
 const AI_MAX_SUROVIN = 40;
 
@@ -81,9 +84,17 @@ function ai_denny_limit(): int
     return ctype_digit($hodnota) ? (int) $hodnota : AI_DENNY_LIMIT_PREDVOLENY;
 }
 
+/** Modely služby v poradí skúšania: AI_MODEL_GEMINI=model1,model2 alebo predvolené. */
+function ai_modely(string $sluzba): array
+{
+    $nastavene = ai_env('AI_MODEL_' . strtoupper($sluzba));
+    $modely = $nastavene !== '' ? (preg_split('/[\s,;]+/', $nastavene, -1, PREG_SPLIT_NO_EMPTY) ?: []) : [];
+    return $modely ?: AI_PREDVOLENE_MODELY[$sluzba];
+}
+
 function ai_model(string $sluzba): string
 {
-    return ai_env('AI_MODEL_' . strtoupper($sluzba)) ?: AI_PREDVOLENE_MODELY[$sluzba];
+    return ai_modely($sluzba)[0];
 }
 
 function ai_adresa(string $sluzba): string
@@ -278,7 +289,7 @@ TXT;
    ---------------------------------------------------------------------- */
 
 /** POST s JSON telom. Vráti [stavový kód, telo odpovede, chyba cURL]. */
-function ai_http_post(string $url, array $hlavicky, array $telo): array
+function ai_http_post(string $url, array $hlavicky, array $telo, int $timeout = AI_TIMEOUT_SEKUND): array
 {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -287,7 +298,7 @@ function ai_http_post(string $url, array $hlavicky, array $telo): array
         CURLOPT_HTTPHEADER     => array_merge(['Content-Type: application/json'], $hlavicky),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_TIMEOUT        => AI_TIMEOUT_SEKUND,
+        CURLOPT_TIMEOUT        => $timeout,
     ]);
     $odpoved = curl_exec($ch);
     $kod = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
@@ -328,6 +339,7 @@ function ai_popis_chyby(int $kod, string $telo, string $chybaCurl): string
     return match (true) {
         $kod === 401, $kod === 403 => 'neplatný kľúč alebo chýbajú práva (' . $kod . ')' . $sprava,
         $kod === 429 => 'minutý limit alebo kredit (429)' . $sprava,
+        $kod === 503 => 'model je preťažený (503)' . $sprava,
         $kod >= 500 => 'služba má výpadok (' . $kod . ')' . $sprava,
         default => 'chyba ' . $kod . $sprava,
     };
@@ -341,10 +353,9 @@ function ai_popis_chyby(int $kod, string $telo, string $chybaCurl): string
  * potom vyberie z textu).
  * Návrat: ['ok' => true, 'data' => array] alebo ['ok' => false, 'chyba' => string].
  */
-function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema): array
+function ai_zavolaj(string $sluzba, string $model, string $pokyny, array $fotka, array $schema, int $timeout = AI_TIMEOUT_SEKUND): array
 {
     $kluc = ai_env(AI_KLUCE_ENV[$sluzba]);
-    $model = ai_model($sluzba);
     $adresa = ai_adresa($sluzba);
     $uloha = 'Rozpoznaj túto fotku podľa pokynov a vráť JSON.';
 
@@ -375,7 +386,8 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
                             ],
                         ]],
                         'generationConfig' => $config,
-                    ]
+                    ],
+                    $timeout
                 );
                 break;
 
@@ -401,7 +413,8 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
                 [$kod, $telo, $chybaCurl] = ai_http_post(
                     $adresa . '/messages',
                     ['x-api-key: ' . $kluc, 'anthropic-version: 2023-06-01'],
-                    $telo
+                    $telo,
+                    $timeout
                 );
                 break;
 
@@ -427,7 +440,8 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
                 [$kod, $telo, $chybaCurl] = ai_http_post(
                     $adresa . '/responses',
                     ['Authorization: Bearer ' . $kluc],
-                    $telo
+                    $telo,
+                    $timeout
                 );
                 break;
         }
@@ -438,23 +452,24 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
             continue;
         }
         if ($kod !== 200) {
-            $chyba = ai_popis_chyby($kod, $telo, $chybaCurl);
+            $chyba = $model . ' — ' . ai_popis_chyby($kod, $telo, $chybaCurl);
             if ($chybaCurl !== '' && str_contains(strtolower($chybaCurl), 'timed out')) {
-                $chyba = 'neodpovedala do ' . AI_TIMEOUT_SEKUND . ' sekúnd (model ' . $model . ')';
+                $chyba = $model . ' — neodpovedal do ' . $timeout . ' sekúnd';
             }
-            return ['ok' => false, 'chyba' => $chyba];
+            // Neplatný kľúč platí pre všetky modely služby, ďalšie netreba skúšať.
+            return ['ok' => false, 'chyba' => $chyba, 'zly_kluc' => in_array($kod, [401, 403], true)];
         }
 
         $text = ai_text_odpovede($sluzba, json_decode($telo, true));
         $data = $text !== null ? ai_json_z_textu($text) : null;
         if ($data === null) {
-            return ['ok' => false, 'chyba' => 'nečitateľná odpoveď'];
+            return ['ok' => false, 'chyba' => $model . ' — nečitateľná odpoveď'];
         }
         // Čas odpovede v zázname chýb pomôže, keď bude rozpoznanie pomalé.
         debug_log('AI ' . $sluzba . ' (' . $model . '): rozpoznané za ' . $trvanie);
         return ['ok' => true, 'data' => $data];
     }
-    return ['ok' => false, 'chyba' => 'požiadavku odmietla aj v najjednoduchšej podobe'];
+    return ['ok' => false, 'chyba' => $model . ' — požiadavku odmietol aj v najjednoduchšej podobe'];
 }
 
 /** Text odpovede z JSON-u danej služby (bez „premýšľania" modelu). */
@@ -623,15 +638,30 @@ function ai_rozpoznaj(PDO $pdo, int $userId, $file, bool $podrobnosti = false): 
         return ['success' => false, 'error' => $fotka['error']];
     }
 
-    @set_time_limit(AI_TIMEOUT_SEKUND * count(ai_poradie()) + 30);
+    // Všetky pokusy (služba + model) v poradí. Pred záložným pokusom sa čaká kratšie,
+    // aby sa naň ušiel čas a človek s telefónom nečakal zbytočne dlho.
+    $pokusy = [];
+    foreach (ai_poradie() as $sluzba) {
+        foreach (ai_modely($sluzba) as $model) {
+            $pokusy[] = [$sluzba, $model];
+        }
+    }
+    @set_time_limit(AI_TIMEOUT_PRED_ZALOHOU * count($pokusy) + AI_TIMEOUT_SEKUND + 30);
+
     $suroviny = get_all_suroviny($pdo);
     $kategorie = array_values(array_filter(get_recipe_categories($pdo), static fn($k) => empty($k['mimo_zoznamu'])));
     $pokyny = ai_pokyny($suroviny, $kategorie);
     $schema = ai_schema($kategorie);
 
     $chyby = [];
-    foreach (ai_poradie() as $sluzba) {
-        $vysledok = ai_zavolaj($sluzba, $pokyny, $fotka, $schema);
+    $zlyKluc = [];
+    foreach ($pokusy as $i => [$sluzba, $model]) {
+        if (isset($zlyKluc[$sluzba])) {
+            continue;
+        }
+        $poslednyPokus = $i === count($pokusy) - 1;
+        $vysledok = ai_zavolaj($sluzba, $model, $pokyny, $fotka, $schema,
+            $poslednyPokus ? AI_TIMEOUT_SEKUND : AI_TIMEOUT_PRED_ZALOHOU);
         if ($vysledok['ok']) {
             ai_zapis_pouzitie($pdo, $userId, $sluzba, true, $chyby ? implode('; ', $chyby) : null);
             return [
@@ -640,6 +670,9 @@ function ai_rozpoznaj(PDO $pdo, int $userId, $file, bool $podrobnosti = false): 
                 'poskytovatel' => AI_NAZVY[$sluzba],
                 'zostava'     => ai_zostava($pdo, $userId),
             ];
+        }
+        if (!empty($vysledok['zly_kluc'])) {
+            $zlyKluc[$sluzba] = true;
         }
         $chyby[] = AI_NAZVY[$sluzba] . ': ' . $vysledok['chyba'];
         debug_log('AI ' . $sluzba . ' zlyhalo: ' . $vysledok['chyba']);
