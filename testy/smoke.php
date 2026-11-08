@@ -432,6 +432,19 @@ if ($plny) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* 5b. Recept z fotky (AI, verzia 1.8) — test nemá kľúč k AI, funkcia musí  */
+/*     byť vypnutá, nič neukázať a pri pokuse nespadnúť.                     */
+/* ---------------------------------------------------------------------- */
+echo "\nRecept z fotky (AI)\n";
+$stranka = $p->get('index.php')->telo;
+over(!str_contains($stranka, 'id="aiModal"') && !str_contains($stranka, 'id="aiVyplnitWrap"'),
+    'Bez kľúča k AI nie je sprievodca ani tlačidlo Vyplniť z fotky');
+over(str_contains($stranka, 'window.APP_AI = false'), 'Stránka vie, že AI je vypnutá');
+$o = akcia($p, $csrf, 'ai_rozpoznaj', ['fotka' => testovacia_fotka('#c08040')]);
+over(nespadla($o) && ($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['error'] ?? ''), 'kľúč'),
+    'Rozpoznanie bez kľúča sa odmietne a nespadne', $o->popis());
+
+/* ---------------------------------------------------------------------- */
 /* 6. Mazanie receptu                                                      */
 /* ---------------------------------------------------------------------- */
 echo "\nMazanie\n";

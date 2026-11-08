@@ -1180,6 +1180,9 @@ function openRecipeModal(data = null) {
         recipeIdField.value = '';
     }
 
+    // Recept z fotky (verzia 1.8): tlačidlo „Vyplniť z fotky" len pri novom recepte, banner preč.
+    if (window.aiRecept) window.aiRecept.pripravFormular(!data);
+
     bootstrap.Modal.getOrCreateInstance(document.getElementById('recipeModal')).show();
 }
 
@@ -1536,6 +1539,9 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
                 // Zmenšenie zlyhalo (napr. veľmi starý prehliadač) — pošleme originál,
                 // server má vlastnú kontrolu veľkosti a formátu.
             }
+        } else if (window.aiRecept && window.aiRecept.fotkaNaUlozenie()) {
+            // Fotka, z ktorej sa recept vyplnil (políčko „Pridať fotku k receptu"). Je už zmenšená.
+            formData.set('recipe_image', window.aiRecept.fotkaNaUlozenie());
         }
 
         try {
@@ -1946,6 +1952,369 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 /* ========================================================================
+   Recept z fotky cez AI (verzia 1.8). Server (akcia ai_rozpoznaj, includes/ai.php)
+   pošle fotku AI a vráti návrh receptu. Na telefóne ho vedie sprievodca v okne
+   #aiModal (fotka → rozpoznanie → kontrola surovín → formulár), na PC tlačidlo
+   „Vyplniť z fotky" priamo vo formulári. Uloží sa až tlačidlom Uložiť recept.
+   ======================================================================== */
+window.aiRecept = (function initAiRecept() {
+    if (!window.APP_AI || !window.Suroviny) return null;
+
+    const S = window.Suroviny;
+    const jednotky = window.APP_JEDNOTKY || [];
+    const modalEl = document.getElementById('aiModal');
+    const $ = (id) => document.getElementById(id);
+
+    let fotkaFormulara = null;  // fotka, z ktorej sa vyplnil formulár (môže ísť do galérie)
+    let vysledok = null;        // posledný návrh od AI
+    let fotka = null;           // zmenšená fotka práve rozpoznávaná v sprievodcovi
+    let riadky = [];            // suroviny na kontrolu v sprievodcovi
+    let ziadost = null;         // AbortController bežiaceho rozpoznania
+    const url = { sprievodca: null, banner: null };
+
+    function nastavUrl(kluc, subor) {
+        if (url[kluc]) URL.revokeObjectURL(url[kluc]);
+        url[kluc] = subor ? URL.createObjectURL(subor) : null;
+        return url[kluc] || '';
+    }
+
+    const sklonuj = (n, jedna, dve, pat) => n === 1 ? jedna : (n >= 2 && n <= 4 ? dve : pat);
+
+    /** Pošle fotku na server. Vráti odpoveď so .vysledok, inak vyhodí chybu so zrozumiteľným textom. */
+    async function rozpoznaj(subor, signal) {
+        let mala = subor;
+        try {
+            mala = await downscaleImageFile(subor, 1600, 0.85);
+        } catch (err) {
+            // starý prehliadač — server si fotku zmenší sám
+        }
+        const formData = new FormData();
+        formData.append('action', 'ai_rozpoznaj');
+        formData.append('csrf_token', csrfToken());
+        formData.append('fotka', mala);
+
+        const res = await fetch('index.php', { method: 'POST', body: formData, signal });
+        if (!(res.headers.get('Content-Type') || '').includes('application/json')) {
+            throw new Error(res.redirected && /login\.php/.test(res.url)
+                ? 'Prihlásenie vypršalo. Obnov stránku a skús to znova.'
+                : 'Server odpovedal neočakávane (stav ' + res.status + '). Skús to znova.');
+        }
+        const data = await res.json();
+        if (data.zostava !== undefined) ukazZostava(data.zostava);
+        if (!data.success) {
+            const chyba = new Error(data.error || 'Fotku sa nepodarilo rozpoznať.');
+            chyba.detail = data.detail || '';
+            throw chyba;
+        }
+        if (data.vysledok.typ === 'ine') {
+            throw new Error('Na fotke som nenašiel jedlo ani recept. Skús inú fotku, alebo vyplň recept ručne.');
+        }
+        data.fotka = mala;
+        return data;
+    }
+
+    function ukazZostava(zostava) {
+        const el = $('aiZostava');
+        if (!el) return;
+        if (zostava === null || zostava === '' || zostava === undefined) {
+            el.textContent = '';
+        } else if (Number(zostava) <= 0) {
+            el.textContent = 'Dnešný počet fotiek je minutý, zajtra to pôjde znova. Recept zatiaľ vyplň ručne.';
+        } else if (Number(zostava) <= 5) {
+            const n = Number(zostava);
+            el.textContent = 'Dnes môžeš poslať ešte ' + n + ' ' + sklonuj(n, 'fotku', 'fotky', 'fotiek') + '.';
+        } else {
+            el.textContent = '';
+        }
+    }
+
+    /* ---------- Formulár receptu ---------- */
+
+    /** Vyplní formulár návrhom od AI. opts.dopln = nechať, čo už je vyplnené (PC, formulár je otvorený). */
+    function vyplnFormular(navrh, subor, opts = {}) {
+        const form = $('recipeForm');
+        const nastav = (meno, hodnota) => {
+            const el = form.querySelector('[name="' + meno + '"]');
+            if (!el || hodnota === null || hodnota === undefined || hodnota === '') return;
+            if (opts.dopln && el.value.trim()) return;
+            el.value = hodnota;
+        };
+        nastav('name', navrh.nazov);
+        nastav('category', navrh.kategoria);
+        nastav('prep_time', navrh.cas_pripravy);
+        nastav('servings', navrh.porcie);
+
+        const suroviny = (navrh.suroviny || []).map((r) => ({
+            id: r.id || null, nazov: r.nazov, mnozstvo: r.mnozstvo, jednotka: r.jednotka || '', poznamka: r.poznamka || '',
+        }));
+        if (surovinyPicker) {
+            surovinyPicker.setRows(opts.dopln ? surovinyPicker.getRows().concat(suroviny) : suroviny);
+            nastav('ingredients', navrh.postup);
+        } else {
+            // Stará databáza bez číselníka surovín: suroviny idú do textu spolu s postupom.
+            const text = suroviny.map((r) => [S.formatDavka(r), r.nazov].filter(Boolean).join(' ')).join('\n');
+            nastav('ingredients', [text, navrh.postup].filter(Boolean).join('\n\n'));
+        }
+
+        fotkaFormulara = subor || null;
+        const jeRecept = navrh.typ === 'recept';
+        $('aiBannerFoto').src = nastavUrl('banner', fotkaFormulara);
+        $('aiBannerNadpis').textContent = jeRecept ? 'Vyplnené z fotky receptu' : 'Vyplnené z fotky jedla';
+        $('aiBannerPopis').textContent = jeRecept
+            ? 'Skontroluj, či sa všetko prepísalo správne.'
+            : 'Suroviny a množstvá sú odhad, skontroluj ich a uprav.';
+        // Fotka jedla patrí do galérie, strana z kuchárky predvolene nie.
+        $('aiBannerUlozitFotku').checked = !jeRecept;
+        $('aiBanner').classList.toggle('d-none', !fotkaFormulara);
+        $('aiVyplnitWrap')?.classList.toggle('d-none', !!fotkaFormulara);
+    }
+
+    // PC (aj telefón vo formulári): „Vyplniť z fotky".
+    const vstupFormular = $('aiFotkaFormular');
+    vstupFormular?.addEventListener('change', async () => {
+        const subor = vstupFormular.files && vstupFormular.files[0];
+        vstupFormular.value = '';
+        if (!subor) return;
+        const errorBox = $('recipeFormError');
+        errorBox.classList.add('d-none');
+        $('aiVyplnitWrap').classList.add('d-none');
+        $('aiStavFormular').classList.remove('d-none');
+        try {
+            const data = await rozpoznaj(subor);
+            // Preklep v názve suroviny opravíme rovno (na PC nie je krok s kontrolou surovín).
+            data.vysledok.suroviny.forEach((r) => {
+                if (r.navrh && r.navrh.druh === 'preklep') Object.assign(r, { id: r.navrh.id, nazov: r.navrh.nazov });
+            });
+            vyplnFormular(data.vysledok, data.fotka, { dopln: true });
+        } catch (err) {
+            errorBox.textContent = err.message + (err.detail ? ' (' + err.detail + ')' : '');
+            errorBox.classList.remove('d-none');
+            $('aiVyplnitWrap').classList.remove('d-none');
+        } finally {
+            $('aiStavFormular').classList.add('d-none');
+        }
+    });
+
+    /* ---------- Sprievodca na telefóne ---------- */
+
+    function krok(nazov) {
+        modalEl.querySelectorAll('.ai-krok').forEach((el) => el.classList.toggle('d-none', el.dataset.krok !== nazov));
+        modalEl.querySelector('.ai-krok[data-krok="' + nazov + '"] .modal-body')?.scrollTo(0, 0);
+    }
+
+    async function spustiRozpoznanie(subor) {
+        $('aiNahlad').src = nastavUrl('sprievodca', subor);
+        krok('rozpoznavam');
+        ziadost = new AbortController();
+        try {
+            const data = await rozpoznaj(subor, ziadost.signal);
+            fotka = data.fotka;
+            vysledok = data.vysledok;
+            ukazKontrolu();
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                krok('vyber');
+                return;
+            }
+            $('aiChybaText').textContent = err.message;
+            $('aiChybaDetail').textContent = err.detail || '';
+            $('aiChybaDetail').classList.toggle('d-none', !err.detail);
+            krok('chyba');
+        } finally {
+            ziadost = null;
+        }
+    }
+
+    function ukazKontrolu() {
+        $('aiNahladMaly').src = url.sprievodca || '';
+        $('aiVysledokNazov').textContent = vysledok.nazov || 'Nový recept';
+        $('aiOdhad').classList.toggle('d-none', vysledok.typ !== 'jedlo');
+        riadky = vysledok.suroviny.map((r) => Object.assign({}, r));
+        $('aiPridatWrap').classList.add('d-none');
+        vykresliRiadky();
+        krok('kontrola');
+    }
+
+    function vykresliRiadky() {
+        const zoznam = $('aiSurovinyZoznam');
+        zoznam.replaceChildren(...riadky.map(riadokSuroviny));
+        if (!riadky.length) {
+            const prazdne = document.createElement('p');
+            prazdne.className = 'ai-prazdne';
+            prazdne.textContent = 'AI nenašla žiadne suroviny. Pridaj ich tlačidlom Surovina.';
+            zoznam.appendChild(prazdne);
+        }
+        const n = riadky.length;
+        $('aiVysledokPocet').textContent = 'Navrhnuté: ' + n + ' ' + sklonuj(n, 'surovina', 'suroviny', 'surovín');
+    }
+
+    function tlacidloIkona(ikona, popis, trieda = '') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ai-tlacidlo-ikona ' + trieda;
+        btn.setAttribute('aria-label', popis);
+        btn.innerHTML = '<i class="bi ' + ikona + '" aria-hidden="true"></i>';
+        return btn;
+    }
+
+    function riadokSuroviny(r) {
+        const el = document.createElement('div');
+        el.className = 'ai-surovina' + (!r.id ? ' je-nova' : '');
+
+        const hlava = document.createElement('div');
+        hlava.className = 'ai-surovina-hlava';
+        const text = document.createElement('div');
+        text.className = 'ai-surovina-text';
+
+        const nazov = document.createElement('div');
+        nazov.className = 'ai-surovina-nazov';
+        nazov.append(r.nazov);
+        if (!r.id) {
+            const odznak = document.createElement('span');
+            odznak.className = 'ai-odznak-nova';
+            odznak.textContent = 'nová';
+            nazov.appendChild(odznak);
+        }
+        const davka = document.createElement('div');
+        davka.className = 'ai-surovina-davka';
+        davka.textContent = [S.formatDavka(r), r.poznamka].filter(Boolean).join(' · ') || 'bez množstva';
+        text.append(nazov, davka);
+
+        if (r.navrh) {
+            const navrh = document.createElement('button');
+            navrh.type = 'button';
+            navrh.className = 'ai-surovina-navrh';
+            navrh.textContent = 'Nemysleli ste ' + r.navrh.nazov + '?';
+            navrh.addEventListener('click', () => {
+                Object.assign(r, { id: r.navrh.id, nazov: r.navrh.nazov, navrh: null });
+                // Ak už rovnaká surovina v zozname je, druhú netreba.
+                const kluc = S.normKey(r.nazov);
+                riadky = riadky.filter((x) => x === r || S.normKey(x.nazov) !== kluc);
+                vykresliRiadky();
+            });
+            text.appendChild(navrh);
+        }
+
+        const upravit = tlacidloIkona('bi-pencil', 'Upraviť množstvo: ' + r.nazov);
+        const odstranit = tlacidloIkona('bi-x-lg', 'Odstrániť: ' + r.nazov, 'odstranit');
+        hlava.append(text, upravit, odstranit);
+        el.appendChild(hlava);
+
+        odstranit.addEventListener('click', () => {
+            riadky = riadky.filter((x) => x !== r);
+            vykresliRiadky();
+        });
+        upravit.addEventListener('click', () => {
+            const otvorena = el.querySelector('.ai-surovina-uprava');
+            if (otvorena) {
+                ulozUpravu(r, otvorena);
+                vykresliRiadky();
+                return;
+            }
+            const uprava = document.createElement('div');
+            uprava.className = 'ai-surovina-uprava';
+            const hotovo = document.createElement('button');
+            hotovo.type = 'button';
+            hotovo.className = 'btn btn-primary fw-semibold';
+            hotovo.textContent = 'Hotovo';
+            hotovo.addEventListener('click', () => {
+                ulozUpravu(r, uprava);
+                vykresliRiadky();
+            });
+            uprava.append(S.createDetailFields(r, jednotky, r.nazov), hotovo);
+            el.appendChild(uprava);
+            uprava.querySelector('.sur-mnozstvo').focus();
+        });
+        return el;
+    }
+
+    function ulozUpravu(r, uprava) {
+        const polia = S.readDetailFields(uprava);
+        const cislo = Number(String(polia.mnozstvo).replace(',', '.'));
+        r.mnozstvo = polia.mnozstvo !== '' && isFinite(cislo) && cislo > 0 ? cislo : null;
+        r.jednotka = polia.jednotka || null;
+        r.poznamka = polia.poznamka || null;
+    }
+
+    function dalej() {
+        // Rozpísané úpravy, ktoré sa nepotvrdili tlačidlom Hotovo, sa uložia tiež.
+        modalEl.querySelectorAll('.ai-surovina-uprava').forEach((uprava) => {
+            const el = uprava.closest('.ai-surovina');
+            const index = Array.from($('aiSurovinyZoznam').children).indexOf(el);
+            if (riadky[index]) ulozUpravu(riadky[index], uprava);
+        });
+        const navrh = Object.assign({}, vysledok, { suroviny: riadky });
+        const subor = fotka;
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            openRecipeModal();
+            vyplnFormular(navrh, subor);
+        }, { once: true });
+        bootstrap.Modal.getInstance(modalEl)?.hide();
+    }
+
+    if (modalEl) {
+        ['aiFotkaKamera', 'aiFotkaGaleria'].forEach((id) => {
+            const vstup = $(id);
+            vstup?.addEventListener('change', () => {
+                const subor = vstup.files && vstup.files[0];
+                vstup.value = '';
+                if (subor) spustiRozpoznanie(subor);
+            });
+        });
+        const rucne = () => {
+            modalEl.addEventListener('hidden.bs.modal', () => openRecipeModal(), { once: true });
+            bootstrap.Modal.getInstance(modalEl)?.hide();
+        };
+        $('aiRucne').addEventListener('click', rucne);
+        $('aiChybaRucne').addEventListener('click', rucne);
+        $('aiChybaZnova').addEventListener('click', () => krok('vyber'));
+        $('aiZnova').addEventListener('click', () => krok('vyber'));
+        $('aiZrusit').addEventListener('click', () => {
+            if (ziadost) ziadost.abort();
+            krok('vyber');
+        });
+        $('aiDalej').addEventListener('click', dalej);
+        $('aiPridatSurovinu').addEventListener('click', () => {
+            $('aiPridatWrap').classList.remove('d-none');
+            $('aiPridatInput').focus();
+            $('aiPridatInput').scrollIntoView({ block: 'center', behavior: 'smooth' });
+        });
+        S.attachCombobox($('aiPridatInput'), {
+            items: window.APP_SUROVINY || [],
+            isTaken: (item) => riadky.some((r) => S.normKey(r.nazov) === item.key),
+            onPick: (item) => {
+                riadky.push({ id: item.id || null, nazov: item.nazov, mnozstvo: null, jednotka: null, poznamka: null, navrh: null });
+                $('aiPridatInput').value = '';
+                vykresliRiadky();
+                $('aiPridatInput').focus();
+            },
+        });
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            if (ziadost) ziadost.abort();
+        });
+        ukazZostava($('aiZostava')?.dataset.zostava);
+    }
+
+    return {
+        /** Pridať v spodnej lište: sprievodca od výberu fotky. */
+        otvor() {
+            krok('vyber');
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        },
+        /** Pri každom otvorení formulára receptu (openRecipeModal). */
+        pripravFormular(jeNovy) {
+            fotkaFormulara = null;
+            $('aiBanner').classList.add('d-none');
+            $('aiBannerFoto').src = nastavUrl('banner', null);
+            $('aiVyplnitWrap')?.classList.toggle('d-none', !jeNovy);
+            $('aiStavFormular')?.classList.add('d-none');
+        },
+        /** Fotka, ktorá sa má pri uložení pridať do galérie receptu (alebo null). */
+        fotkaNaUlozenie: () => (fotkaFormulara && $('aiBannerUlozitFotku').checked ? fotkaFormulara : null),
+    };
+})();
+
+/* ========================================================================
    Rozloženie pre telefón (verzia 1.7): spodná lišta, okno Viac, kategórie
    ako tlačidlá a zoradenie v hlavičke. Na PC sú tieto prvky skryté
    (d-md-none) a nič z toho sa nepoužije.
@@ -2004,7 +2373,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 else window.scrollTo({ top: 0, behavior: 'smooth' });
                 break;
             case 'pridat':
-                poZatvoreniOkien(() => openRecipeModal());
+                poZatvoreniOkien(() => (window.aiRecept ? window.aiRecept.otvor() : openRecipeModal()));
                 break;
             case 'nakup':
                 if (!shoppingEl?.classList.contains('show')) openShoppingModal(); // sám zavrie iné okno

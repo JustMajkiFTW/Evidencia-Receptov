@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/ai.php';
 // ?recept=ID (odkaz z upozornenia) otvorí náhľad daného receptu. Ak treba najprv
 // prihlásenie, číslo receptu sa prenesie cez login.php a vráti späť sem.
 $openRecipeId = (isset($_GET['recept']) && ctype_digit((string) $_GET['recept'])) ? (int) $_GET['recept'] : 0;
@@ -29,7 +30,8 @@ $action = $_POST['action'] ?? $_GET['action'] ?? null;
 /* AJAX akcie nad receptami — všetky vyžadujú platný CSRF token         */
 /* ------------------------------------------------------------------ */
 if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recipe', 'delete_photo', 'get_logs', 'rate_recipe', 'save_push_subscription',
-        'shopping_get', 'shopping_add_recipe', 'shopping_add_item', 'shopping_toggle', 'shopping_delete', 'shopping_clear'], true)
+        'shopping_get', 'shopping_add_recipe', 'shopping_add_item', 'shopping_toggle', 'shopping_delete', 'shopping_clear',
+        'ai_rozpoznaj'], true)
         && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -169,6 +171,11 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
             $result = delete_recipe($pdo, (int)($_POST['recipe_id'] ?? 0), $userId, $user['role']);
             break;
 
+        /* ---------------- Recept z fotky cez AI (includes/ai.php) ---------------- */
+        case 'ai_rozpoznaj':
+            $result = ai_rozpoznaj($pdo, $userId, $_FILES['fotka'] ?? null, is_admin());
+            break;
+
         /* ---------------- Nákupný zoznam ---------------- */
         case 'shopping_get':
         case 'shopping_add_recipe':
@@ -252,6 +259,9 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
 $photosEnabled = recipes_have_photos($pdo);
 $recipePhotos = get_recipe_photos($pdo);
 $recipeCategories = get_recipe_categories($pdo); // z tabuľky kategorie_receptov, bez migrácie základný zoznam
+// Recept z fotky: zapnuté, keď je v .env kľúč aspoň k jednej AI službe (includes/ai.php).
+$aiEnabled = ai_dostupne() && $currentUserId !== null;
+$aiZostava = $aiEnabled ? ai_zostava($pdo, $currentUserId) : null;
 // Oslovenie v mobilnej hlavičke: krstné meno (prvé slovo celého mena), inak prihlasovacie meno.
 $menoOslovenie = trim((string) ($user['full_name'] ?? ''));
 $menoOslovenie = $menoOslovenie !== '' ? explode(' ', $menoOslovenie)[0] : (string) ($user['username'] ?? '');
@@ -294,7 +304,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=27">
+    <link rel="stylesheet" href="style.css?v=28">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -598,6 +608,33 @@ header('X-Recepty-Offline: 1');
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                     <input type="hidden" name="recipe_id" value="">
 
+                    <?php if ($aiEnabled): ?>
+                    <!-- Recept z fotky (verzia 1.8) — len pri novom recepte, skryje ho script.js pri úprave. -->
+                    <div class="ai-vyplnit mb-3" id="aiVyplnitWrap">
+                        <label class="btn btn-outline-primary fw-semibold ai-vyplnit-tlacidlo" for="aiFotkaFormular" data-vyzaduje-siet>
+                            <i class="bi bi-camera me-2" aria-hidden="true"></i>Vyplniť z fotky
+                        </label>
+                        <input type="file" id="aiFotkaFormular" class="visually-hidden" accept="image/jpeg,image/png,image/webp">
+                        <div class="form-text">Fotka jedla alebo receptu z kuchárky — AI navrhne názov a suroviny. Nič sa neuloží, kým nestlačíš Uložiť.</div>
+                    </div>
+                    <div class="ai-stav mb-3 d-none" id="aiStavFormular" role="status" aria-live="polite">
+                        <span class="spinner-border spinner-border-sm text-warning" aria-hidden="true"></span>
+                        <span>Pozerám sa na fotku… zvyčajne to trvá 5 až 20 sekúnd.</span>
+                    </div>
+                    <?php endif; ?>
+                    <!-- Vyplnené z fotky: náhľad a voľba, či fotku uložiť do galérie receptu -->
+                    <div class="ai-banner mb-3 d-none" id="aiBanner">
+                        <img id="aiBannerFoto" src="" alt="Fotka, z ktorej sa recept vyplnil">
+                        <div class="min-w-0">
+                            <div class="fw-semibold" id="aiBannerNadpis">Vyplnené z fotky</div>
+                            <div class="small" id="aiBannerPopis"></div>
+                            <div class="form-check mt-2 mb-0">
+                                <input class="form-check-input" type="checkbox" id="aiBannerUlozitFotku">
+                                <label class="form-check-label" for="aiBannerUlozitFotku">Pridať fotku k receptu</label>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <label class="form-label small text-secondary">Názov receptu *</label>
                         <input type="text" name="name" class="form-control" maxlength="150" required>
@@ -707,6 +744,107 @@ header('X-Recepty-Offline: 1');
         </div>
     </div>
 </div>
+
+<?php if ($aiEnabled): ?>
+<!-- ================= MODAL: Nový recept z fotky (verzia 1.8) =================
+     Sprievodca na telefóne: výber fotky → rozpoznanie → kontrola surovín → formulár
+     receptu (ten istý ako pri ručnom pridaní). Otvára ho Pridať v spodnej lište. -->
+<div class="modal fade" id="aiModal" tabindex="-1" aria-hidden="true" aria-labelledby="aiModalTitle">
+    <div class="modal-dialog modal-fullscreen-md-down">
+        <div class="modal-content">
+            <section class="ai-krok" data-krok="vyber">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title ai-nadpis" id="aiModalTitle">Nový recept</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="ai-podnadpis">Odfoť a suroviny ti navrhneme</p>
+                    <label class="ai-odfotit" for="aiFotkaKamera">
+                        <span class="ai-odfotit-ikona" aria-hidden="true"><i class="bi bi-camera"></i></span>
+                        <span class="ai-odfotit-nadpis">Odfotiť</span>
+                        <span class="ai-odfotit-popis">jedlo, stranu z kuchárky<br>alebo lístok s receptom</span>
+                    </label>
+                    <input type="file" id="aiFotkaKamera" class="visually-hidden" accept="image/*" capture="environment">
+                    <label class="btn ai-galeria" for="aiFotkaGaleria">
+                        <i class="bi bi-image me-2" aria-hidden="true"></i>Vybrať fotku z telefónu
+                    </label>
+                    <input type="file" id="aiFotkaGaleria" class="visually-hidden" accept="image/jpeg,image/png,image/webp">
+                    <button type="button" class="btn ai-rucne" id="aiRucne">
+                        <i class="bi bi-pencil me-2" aria-hidden="true"></i>Vyplniť ručne, bez fotky
+                    </button>
+                    <div class="ai-info">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                        <span>Fotka jedla sa pridá aj do galérie receptu. Nič sa nezapíše, kým to neskontroluješ.</span>
+                    </div>
+                    <div class="ai-zostava" id="aiZostava" data-zostava="<?= $aiZostava === null ? '' : (int) $aiZostava ?>"></div>
+                </div>
+            </section>
+
+            <section class="ai-krok d-none" data-krok="rozpoznavam">
+                <div class="modal-header border-0">
+                    <button type="button" class="btn ai-spat" id="aiZrusit"><i class="bi bi-x-lg me-1" aria-hidden="true"></i>Zrušiť</button>
+                    <span class="ai-krok-cislo">Krok 1 z 3</span>
+                </div>
+                <div class="modal-body">
+                    <img class="ai-nahlad" id="aiNahlad" src="" alt="Fotka na rozpoznanie">
+                    <div class="ai-cakanie" role="status" aria-live="polite">
+                        <span class="spinner-border ai-cakanie-kruh" aria-hidden="true"></span>
+                        <div>
+                            <div class="ai-cakanie-nadpis">Pozerám sa na fotku…</div>
+                            <div class="ai-cakanie-popis">Zvyčajne to trvá 5 až 20 sekúnd</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="ai-krok d-none" data-krok="kontrola">
+                <div class="modal-header border-0 pb-0">
+                    <button type="button" class="btn ai-spat" id="aiZnova"><i class="bi bi-camera me-1" aria-hidden="true"></i>Odfotiť znova</button>
+                    <span class="ai-krok-cislo">Krok 2 z 3</span>
+                </div>
+                <div class="modal-body">
+                    <div class="ai-vysledok-hlava">
+                        <img class="ai-nahlad-maly" id="aiNahladMaly" src="" alt="">
+                        <div class="min-w-0">
+                            <h2 class="ai-vysledok-nazov" id="aiVysledokNazov"></h2>
+                            <div class="ai-vysledok-pocet" id="aiVysledokPocet"></div>
+                        </div>
+                    </div>
+                    <div class="ai-upozornenie d-none" id="aiOdhad">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        <span>Odhad z fotky jedla. Skontroluj, či suroviny sedia, a uprav množstvá.</span>
+                    </div>
+                    <div class="ai-suroviny" id="aiSurovinyZoznam"></div>
+                    <div class="surovina-combo ai-pridat-combo d-none" id="aiPridatWrap">
+                        <input type="text" id="aiPridatInput" class="form-control" autocomplete="off" maxlength="100"
+                               placeholder="Začni písať, napr. múka…" aria-label="Pridať surovinu">
+                    </div>
+                </div>
+                <div class="modal-footer ai-paticka">
+                    <button type="button" class="btn btn-outline-secondary" id="aiPridatSurovinu"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Surovina</button>
+                    <button type="button" class="btn btn-primary fw-bold" id="aiDalej">Ďalej<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></button>
+                </div>
+            </section>
+
+            <section class="ai-krok d-none" data-krok="chyba">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title ai-nadpis">Nový recept</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="ai-chyba" role="alert">
+                        <i class="bi bi-emoji-frown" aria-hidden="true"></i>
+                        <p class="ai-chyba-text" id="aiChybaText"></p>
+                        <p class="ai-chyba-detail d-none" id="aiChybaDetail"></p>
+                    </div>
+                    <button type="button" class="btn btn-primary ai-chyba-tlacidlo" id="aiChybaZnova"><i class="bi bi-camera me-2" aria-hidden="true"></i>Skúsiť inú fotku</button>
+                    <button type="button" class="btn btn-outline-secondary ai-chyba-tlacidlo" id="aiChybaRucne"><i class="bi bi-pencil me-2" aria-hidden="true"></i>Vyplniť ručne</button>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- ================= MODAL: Náhľad receptu ================= -->
 <div class="modal fade" id="recipeViewModal" tabindex="-1" aria-hidden="true">
@@ -882,7 +1020,7 @@ header('X-Recepty-Offline: 1');
         <i class="bi bi-journal-text" aria-hidden="true"></i><span>Recepty</span>
     </button>
     <button type="button" class="spodna-lista-polozka" data-lista="pridat" data-vyzaduje-siet>
-        <span class="spodna-lista-pridat" aria-hidden="true"><i class="bi bi-plus-lg"></i></span><span>Pridať</span>
+        <span class="spodna-lista-pridat" aria-hidden="true"><i class="bi <?= $aiEnabled ? 'bi-camera' : 'bi-plus-lg' ?>"></i></span><span>Pridať</span>
     </button>
     <?php if ($shoppingEnabled): ?>
     <button type="button" class="spodna-lista-polozka" data-lista="nakup" data-vyzaduje-siet>
@@ -1125,9 +1263,10 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_SUROVINY = <?= json_encode($allSuroviny, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
     window.APP_JEDNOTKY = <?= json_encode(SUROVINA_JEDNOTKY, JSON_UNESCAPED_UNICODE) ?>;
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
+    window.APP_AI = <?= $aiEnabled ? 'true' : 'false' ?>; // recept z fotky (includes/ai.php)
 </script>
-<script src="suroviny.js?v=27"></script>
-<script src="script.js?v=27"></script>
+<script src="suroviny.js?v=28"></script>
+<script src="script.js?v=28"></script>
 </body>
 </html>
 <?php

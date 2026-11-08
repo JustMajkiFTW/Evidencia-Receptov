@@ -94,6 +94,13 @@ if (!$envOk) {
         '# Tajný kľúč pre cron.php (pripomienky „dlho ste nevarili“)',
         'CRON_KEY=' . bin2hex(random_bytes(16)),
         '',
+        '# Recept z fotky cez AI (nepovinné): kľúč aspoň k jednej službe, poradie a denný limit na používateľa',
+        'GEMINI_API_KEY=',
+        'ANTHROPIC_API_KEY=',
+        'OPENAI_API_KEY=',
+        'AI_PORADIE=gemini,claude,openai',
+        'AI_DENNY_LIMIT=20',
+        '',
         '# 1 = chyby sa zobrazia priamo na obrazovke (len pri hľadaní problému)',
         'APP_DEBUG=0',
     ]) . "\n";

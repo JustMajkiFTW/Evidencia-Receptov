@@ -226,6 +226,22 @@ CREATE TABLE IF NOT EXISTS `nakupny_zoznam` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------------------------------------------------
+-- Rozpoznanie receptu z fotky (AI)
+-- ----------------------------------------------------------------------
+
+-- Rozpoznania receptu z fotky: jeden riadok = jedna poslaná fotka (denný limit AI_DENNY_LIMIT).
+CREATE TABLE IF NOT EXISTS `ai_rozpoznania` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,                   -- users.id, kto fotku poslal
+  `poskytovatel` varchar(20) DEFAULT NULL,      -- gemini | claude | openai, NULL = žiadna služba neuspela
+  `uspech` tinyint(1) NOT NULL DEFAULT 0,       -- do denného limitu sa počítajú len úspešné
+  `chyba` varchar(255) DEFAULT NULL,            -- prečo zlyhali služby skúšané predtým
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_user_den` (`user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ----------------------------------------------------------------------
 -- Základný zoznam surovín (418 položiek v 14 kategóriách)
 -- ----------------------------------------------------------------------
 

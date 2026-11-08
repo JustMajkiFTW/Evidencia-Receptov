@@ -20,6 +20,7 @@ Tento dokument má dve časti:
 - **Upozornenia do telefónu** na nový recept, na hodnotenie tvojho receptu a pripomienky dlho nevarených receptov.
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty aj bez internetu.** Posledné načítané recepty sa uložia v zariadení a bez pripojenia sa dajú pozerať (meniť nie).
+- **Recept z fotky.** Odfotíš hotové jedlo, stranu z kuchárky alebo ručne písaný recept a AI (Gemini, Claude alebo OpenAI) navrhne názov, kategóriu, porcie, čas, suroviny s množstvami aj postup. Návrh si skontroluješ a upravíš, uloží sa až potom. Fotka jedla sa pridá do galérie receptu. Funkcia je nepovinná, zapne sa kľúčom v `.env`.
 - **Rozloženie pre telefón.** Na telefóne je dole lišta so štyrmi veľkými tlačidlami (Recepty, Pridať, Nákup, Viac), recept, nákupný zoznam aj formulár sú na celú obrazovku a hlavné akcie majú veľké tlačidlá. Na PC a tablete ostáva klasické rozloženie.
 - **Svetlý a tmavý vzhľad**, veľké ovládacie prvky vhodné aj pre starších používateľov.
 
@@ -176,6 +177,11 @@ Súbor `includes/.env` obsahuje heslá a kľúče. Nepatrí na GitHub (je v `.gi
 | `VAPID_SUBJECT` | áno | Kontakt na správcu v tvare `mailto:meno@domena.sk`. Vyžadujú ho služby, ktoré upozornenia doručujú. |
 | `CRON_KEY` | nie | Tajný kľúč pre `cron.php`, aspoň 16 znakov. Prázdny = cron vypnutý. |
 | `APP_DEBUG` | nie | `1` zobrazí presnú chybu na obrazovke. V prevádzke nechaj `0`. |
+| `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | nie | Kľúče k AI službám pre recept z fotky ([Recept z fotky](#recept-z-fotky-ai)). Stačí jeden. Prázdne = funkcia vypnutá. |
+| `AI_PORADIE` | nie | V akom poradí služby skúšať, napr. `claude,gemini`. Predvolene `gemini,claude,openai`. Služby bez kľúča sa preskočia. |
+| `AI_DENNY_LIMIT` | nie | Koľko fotiek môže jeden používateľ poslať za deň. Predvolene `20`, `0` = bez limitu. |
+| `AI_MODEL_GEMINI`, `AI_MODEL_CLAUDE`, `AI_MODEL_OPENAI` | nie | Iný model než predvolený (`gemini-3.8-flash`, `claude-haiku-5-5`, `gpt-6-luna`). |
+| `AI_ADRESA_GEMINI`, `AI_ADRESA_CLAUDE`, `AI_ADRESA_OPENAI` | nie | Iná adresa API. Len na testovanie, v prevádzke nevypĺňaj. |
 
 ## A6. nginx a iné servery bez `.htaccess`
 
@@ -331,12 +337,14 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `includes/auth.php` | Prihlásenie, trvalé prihlásenie, brzda proti hádaniu hesla. |
 | `includes/functions.php` | Recepty, suroviny, porcie, nákupný zoznam, fotky, hodnotenia, upozornenia, pripomienky. |
 | `includes/webpush.php` | Odosielanie upozornení (šifrovanie a podpis). |
+| `includes/ai.php` | Recept z fotky: zmenšenie fotky, volanie AI služieb so zálohou, kontrola odpovede, párovanie surovín, denný limit. |
 | `includes/.env` | Heslá a kľúče. Nie je súčasťou projektu, vytvára sa pri inštalácii. |
 | `includes/debug-log.txt` | Zápis chýb. Vzniká sám. |
 | `webauthn/` | Serverová časť biometrie: príprava a overenie registrácie a prihlásenia. |
 | `sql/instalacia.sql` | Kompletná databáza pre novú inštaláciu. |
 | `sql/migracia-1.1.sql` | Aktualizácia databázy z verzie 1.0 na 1.1 (galéria fotiek). Pri novej inštalácii netreba. |
 | `sql/migracia-1.5.sql` | Aktualizácia databázy na verziu 1.5 (kategórie receptov v databáze). Pri novej inštalácii netreba. |
+| `sql/migracia-1.8.sql` | Aktualizácia databázy na verziu 1.8 (záznam rozpoznaní z fotky pre denný limit). Pri novej inštalácii netreba. |
 | `uploads/recipes/` | Fotky receptov. |
 | `vendor/` | Knižnice stiahnuté Composerom. Nie je súčasťou projektu na GitHube. |
 | `testy/` | Automatické testy a kontroly pred nahratím na server a po ňom (pozri [B14](#b14-automatické-testy-a-pravidlá-pre-novú-verziu)). Na server sa nenahráva. |
@@ -363,6 +371,7 @@ Všetky akcie appky (uloženie receptu, hodnotenie, nákupný zoznam) idú ako p
 | `recept_suroviny` | Suroviny priradené k receptom, s množstvom, jednotkou a poznámkou. |
 | `recept_suroviny_zaloha` | Pôvodný text surovín z prevodu starých receptov. |
 | `nakupny_zoznam` | Spoločný nákupný zoznam. |
+| `ai_rozpoznania` | Fotky poslané na rozpoznanie: kto, kedy, ktorá služba, či uspela a prečo zlyhali predchádzajúce. Slúži na denný limit. |
 
 Dôležité väzby:
 
@@ -420,6 +429,32 @@ Pod šírkou 768 bodov (telefón na výšku, menší telefón aj na šírku) má
 - **Náhľad receptu** je na celú obrazovku. Hore je šípka späť a ikony Zdieľať, Upraviť a „…" (História, Zmazať pre admina), pod fotkou názov a hodnotenie hviezdičkami, dole veľké tlačidlá **Do nákupu** a **Uvarené**.
 - **Nákupný zoznam, formulár receptu a história** sú na celú obrazovku s väčším písmom, políčkami a tlačidlami. Plávajúci košík vpravo dole na telefóne nie je, nahrádza ho Nákup v lište.
 - Lišta si cez `env(safe-area-inset-bottom)` nechá miesto nad pásikom na spodku iPhonu (v `index.php` je preto vo `viewport` aj `viewport-fit=cover`).
+
+### Recept z fotky (AI)
+
+Recept sa dá vyplniť z fotky hotového jedla, strany z kuchárky, ručne písaného lístka alebo snímky obrazovky. Zapne sa, keď je v `includes/.env` kľúč aspoň k jednej službe ([A5](#a5-nastavenie-v-súbore-env)). Bez kľúča appka beží presne ako predtým.
+
+**Na telefóne** otvorí tlačidlo **Pridať** (s ikonou fotoaparátu) sprievodcu:
+
+1. **Odfotiť** (otvorí fotoaparát), **Vybrať fotku z telefónu** alebo **Vyplniť ručne, bez fotky**.
+2. **Rozpoznávanie**, zvyčajne 5 až 20 sekúnd. Dá sa zrušiť.
+3. **Kontrola surovín.** Každá surovina má množstvo, tlačidlo na úpravu (množstvo, jednotka, poznámka) a na odstránenie. Surovina, ktorá nie je v číselníku, má odznak „nová", podobná existujúcej má tlačidlo „Nemysleli ste …?". Ďalšia sa pridá tlačidlom **Surovina**. Pri fotke jedla je hore upozornenie, že ide o odhad.
+4. **Formulár receptu** vyplnený návrhom (názov, kategória, čas, porcie, suroviny, postup). Je to ten istý formulár ako pri ručnom pridaní, uloží sa tlačidlom **Uložiť recept**.
+
+**Na PC** (a vo formulári aj na telefóne) je pri novom recepte tlačidlo **Vyplniť z fotky**. Návrh doplní len prázdne polia, suroviny pridá k už vybraným a preklep v názve suroviny rovno opraví na existujúcu.
+
+**Fotka v galérii.** Vo formulári je náhľad fotky s políčkom **Pridať fotku k receptu**. Pri fotke jedla je zaškrtnuté, pri fotke textu receptu nie (stranu z kuchárky ako titulnú fotku väčšinou netreba). Zaškrtnutá fotka sa pri uložení pridá do galérie ako pri bežnom pridaní fotky.
+
+**Ako to funguje** (`includes/ai.php`, akcia `ai_rozpoznaj` v `index.php`):
+
+- Prehliadač fotku zmenší, server ju ešte zmenší na najviac 1568 bodov a pošle AI ako JPEG. Na serveri sa neukladá.
+- Spolu s fotkou ide zoznam surovín z číselníka, jednotky appky a kategórie receptov, aby AI použila rovnaké názvy. Odpoveď má pevnú schému JSON (štruktúrovaný výstup služby). Keď ho model nepodporuje, appka to skúsi bez schémy a JSON vyberie z textu.
+- Služby sa skúšajú v poradí `AI_PORADIE`. Keď jedna zlyhá (neplatný kľúč, minutý limit alebo kredit, výpadok, nečitateľná odpoveď), skúsi sa ďalšia. Admin pri chybe vidí, ktorá služba prečo zlyhala, chyby sú aj v zázname chýb.
+- Server výsledok skontroluje (jednotky len z `SUROVINA_JEDNOTKY`, kategória len zo zoznamu, rozumné čísla) a suroviny napáruje na číselník podľa kľúča bez diakritiky. Pri nezhode hľadá preklep (o 1 až 2 písmená) alebo názov z číselníka ako celé slovo („Opekaná slanina" → „Slanina").
+- **Denný limit** `AI_DENNY_LIMIT` na používateľa. Počítajú sa len úspešné rozpoznania. Bez migrácie 1.8 sa počíta len v rámci prihlásenia (session).
+- Bez internetu je tlačidlo vyblednuté ako ostatné, ktoré potrebujú server.
+
+**Súkromie a cena.** Fotka odchádza k zvolenej AI službe (Google, Anthropic alebo OpenAI) podľa jej podmienok. Pri bezplatných úrovniach si služby zvyčajne vyhradzujú právo použiť vstupy na zlepšovanie, pri platených API nie. Kľúče sa platia zvlášť, predplatné ChatGPT alebo claude.ai sa na ne nevzťahuje (výnimkou sú mesačné kredity na Claude API v plánoch Max, Ultra a Team). Pri rodinnom používaní ide o centy mesačne.
 
 ## B5. Suroviny
 
@@ -638,6 +673,14 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.8**
+
+- Recept z fotky cez AI. Na telefóne tlačidlo Pridať otvorí sprievodcu: odfotiť jedlo alebo recept, AI navrhne názov, kategóriu, porcie, čas, suroviny s množstvami a postup, potom kontrola surovín (úprava, odstránenie, „Nemysleli ste …?", nová surovina) a vyplnený formulár receptu.
+- Na PC je vo formulári nového receptu tlačidlo Vyplniť z fotky.
+- Fotka jedla sa pri uložení pridá do galérie receptu (dá sa odškrtnúť), fotka strany z kuchárky predvolene nie.
+- Podporované služby Gemini, Claude a OpenAI. Poradie a záloha pri výpadku cez `AI_PORADIE`, denný limit na používateľa cez `AI_DENNY_LIMIT`. Bez kľúča v `.env` je funkcia vypnutá a appka beží ako doteraz.
+- Treba naimportovať `sql/migracia-1.8.sql` (tabuľka `ai_rozpoznania` pre denný limit). Kým nie je naimportovaná, appka beží a limit sa počíta len v rámci prihlásenia.
 
 **1.7**
 
