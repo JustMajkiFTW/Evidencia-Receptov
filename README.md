@@ -449,6 +449,7 @@ Recept sa dá vyplniť z fotky hotového jedla, strany z kuchárky, ručne písa
 
 - Prehliadač fotku zmenší, server ju ešte zmenší na najviac 1568 bodov a pošle AI ako JPEG. Na serveri sa neukladá.
 - Spolu s fotkou ide zoznam surovín z číselníka, jednotky appky a kategórie receptov, aby AI použila rovnaké názvy. Odpoveď má pevnú schému JSON (štruktúrovaný výstup služby). Keď ho model nepodporuje, appka to skúsi bez schémy a JSON vyberie z textu.
+- Model dostane pokyn krátko premýšľať (rozpoznanie fotky hlboké premýšľanie nepotrebuje a s ním by odpoveď trvala desiatky sekúnd). Na jednu službu sa čaká najviac 45 sekúnd.
 - Služby sa skúšajú v poradí `AI_PORADIE`. Keď jedna zlyhá (neplatný kľúč, minutý limit alebo kredit, výpadok, nečitateľná odpoveď), skúsi sa ďalšia. Admin pri chybe vidí, ktorá služba prečo zlyhala, chyby sú aj v zázname chýb.
 - Server výsledok skontroluje (jednotky len z `SUROVINA_JEDNOTKY`, kategória len zo zoznamu, rozumné čísla) a suroviny napáruje na číselník podľa kľúča bez diakritiky. Pri nezhode hľadá preklep (o 1 až 2 písmená) alebo názov z číselníka ako celé slovo („Opekaná slanina" → „Slanina").
 - **Denný limit** `AI_DENNY_LIMIT` na používateľa. Počítajú sa len úspešné rozpoznania. Bez migrácie 1.8 sa počíta len v rámci prihlásenia (session).
@@ -673,6 +674,12 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.8.1**
+
+- Oprava: rozpoznanie z fotky cez Gemini 3.8 Flash nestihlo odpovedať do 40 sekúnd („Operation timed out"), lebo model predvolene dlho premýšľa. Appka teraz žiada krátke premýšľanie (Gemini `thinkingLevel: low`, Claude a OpenAI `effort: low`). Keď to model nepodporuje, skúsi sa požiadavka bez toho.
+- Čas na odpoveď jednej služby je 45 sekúnd. Pri vypršaní admin vidí „neodpovedala do 45 sekúnd" a názov modelu, úspešné rozpoznanie zapíše do záznamu chýb, ako dlho trvalo.
+- Mení sa len `includes/ai.php`, databáza ani vzhľad nie, migrácia netreba.
 
 **1.8**
 

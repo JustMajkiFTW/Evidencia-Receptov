@@ -44,7 +44,7 @@ const AI_PREDVOLENE_ADRESY = [
 ];
 
 const AI_DENNY_LIMIT_PREDVOLENY = 20;
-const AI_TIMEOUT_SEKUND = 40;          // na jednu službu
+const AI_TIMEOUT_SEKUND = 45;          // na jednu požiadavku
 const AI_FOTKA_MAX_STRANA = 1568;      // väčšie fotky AI aj tak zmenšuje, len by to stálo viac
 const AI_MAX_SUROVIN = 40;
 
@@ -334,8 +334,11 @@ function ai_popis_chyby(int $kod, string $telo, string $chybaCurl): string
 }
 
 /**
- * Jedna služba. Keď API odmietne štruktúrovaný výstup (400 — napr. starší model),
- * skúsi sa ešte raz bez neho a JSON sa vyberie z textu.
+ * Jedna služba. Prvý pokus žiada štruktúrovaný výstup a krátke premýšľanie modelu
+ * (rozpoznanie fotky hlboké premýšľanie nepotrebuje a s ním odpoveď trvala aj
+ * viac než 40 sekúnd). Keď API niečo z toho odmietne (400 — iný alebo starší
+ * model), skúsi sa bez nastavenia rýchlosti a nakoniec aj bez schémy (JSON sa
+ * potom vyberie z textu).
  * Návrat: ['ok' => true, 'data' => array] alebo ['ok' => false, 'chyba' => string].
  */
 function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema): array
@@ -345,12 +348,19 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
     $adresa = ai_adresa($sluzba);
     $uloha = 'Rozpoznaj túto fotku podľa pokynov a vráť JSON.';
 
-    foreach ([true, false] as $soSchemou) {
+    // 2 = schéma + krátke premýšľanie, 1 = len schéma, 0 = nič navyše
+    foreach ([2, 1, 0] as $uroven) {
+        $soSchemou = $uroven >= 1;
+        $rychlo = $uroven === 2;
+        $zaciatok = microtime(true);
         switch ($sluzba) {
             case 'gemini':
                 $config = ['responseMimeType' => 'application/json'];
                 if ($soSchemou) {
                     $config['responseJsonSchema'] = $schema;
+                }
+                if ($rychlo) {
+                    $config['thinkingConfig'] = ['thinkingLevel' => 'low'];
                 }
                 [$kod, $telo, $chybaCurl] = ai_http_post(
                     $adresa . '/models/' . rawurlencode($model) . ':generateContent',
@@ -383,7 +393,10 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
                     ]],
                 ];
                 if ($soSchemou) {
-                    $telo['output_config'] = ['effort' => 'low', 'format' => ['type' => 'json_schema', 'schema' => $schema]];
+                    $telo['output_config'] = ['format' => ['type' => 'json_schema', 'schema' => $schema]];
+                    if ($rychlo) {
+                        $telo['output_config']['effort'] = 'low';
+                    }
                 }
                 [$kod, $telo, $chybaCurl] = ai_http_post(
                     $adresa . '/messages',
@@ -408,6 +421,9 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
                 if ($soSchemou) {
                     $telo['text'] = ['format' => ['type' => 'json_schema', 'name' => 'recept', 'schema' => $schema, 'strict' => true]];
                 }
+                if ($rychlo) {
+                    $telo['reasoning'] = ['effort' => 'low'];
+                }
                 [$kod, $telo, $chybaCurl] = ai_http_post(
                     $adresa . '/responses',
                     ['Authorization: Bearer ' . $kluc],
@@ -416,12 +432,17 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
                 break;
         }
 
-        if ($kod === 400 && $soSchemou) {
-            debug_log('AI ' . $sluzba . ': štruktúrovaný výstup odmietnutý, skúšam bez schémy — ' . ai_popis_chyby($kod, $telo, ''));
+        $trvanie = sprintf('%.1f s', microtime(true) - $zaciatok);
+        if ($kod === 400 && $uroven > 0) {
+            debug_log('AI ' . $sluzba . ' (' . $model . '): nastavenie odmietnuté, skúšam jednoduchšiu požiadavku — ' . ai_popis_chyby($kod, $telo, ''));
             continue;
         }
         if ($kod !== 200) {
-            return ['ok' => false, 'chyba' => ai_popis_chyby($kod, $telo, $chybaCurl)];
+            $chyba = ai_popis_chyby($kod, $telo, $chybaCurl);
+            if ($chybaCurl !== '' && str_contains(strtolower($chybaCurl), 'timed out')) {
+                $chyba = 'neodpovedala do ' . AI_TIMEOUT_SEKUND . ' sekúnd (model ' . $model . ')';
+            }
+            return ['ok' => false, 'chyba' => $chyba];
         }
 
         $text = ai_text_odpovede($sluzba, json_decode($telo, true));
@@ -429,9 +450,11 @@ function ai_zavolaj(string $sluzba, string $pokyny, array $fotka, array $schema)
         if ($data === null) {
             return ['ok' => false, 'chyba' => 'nečitateľná odpoveď'];
         }
+        // Čas odpovede v zázname chýb pomôže, keď bude rozpoznanie pomalé.
+        debug_log('AI ' . $sluzba . ' (' . $model . '): rozpoznané za ' . $trvanie);
         return ['ok' => true, 'data' => $data];
     }
-    return ['ok' => false, 'chyba' => 'štruktúrovaný výstup nefunguje ani bez schémy'];
+    return ['ok' => false, 'chyba' => 'požiadavku odmietla aj v najjednoduchšej podobe'];
 }
 
 /** Text odpovede z JSON-u danej služby (bez „premýšľania" modelu). */
