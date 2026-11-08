@@ -14,7 +14,7 @@
 #   APP_URL       adresa appky, napr. https://recepty.example.com
 #
 # Na server sa nikdy nenahrá ani nezmaže: includes/.env, vendor/, uploads/ (fotky),
-# sql/, install.php, testy a súbory pre GitHub. Podrobnosti sú v README (A10 a A11).
+# sql/, install.php, testy a súbory pre GitHub. Podrobnosti sú v README (časť Nová verzia na serveri).
 
 name: Nasadenie na server
 

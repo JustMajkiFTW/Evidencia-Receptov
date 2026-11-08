@@ -100,7 +100,7 @@ else
 fi
 
 if [ "$ZLYHANIA" -gt 0 ]; then
-    chyba "Kontrola po nahratí našla problémy: $ZLYHANIA. Ak appka nefunguje, vráť predchádzajúcu verziu (README, časť A11)."
+    chyba "Kontrola po nahratí našla problémy: $ZLYHANIA. Ak appka nefunguje, vráť predchádzajúcu verziu (README, časť Návrat k staršej verzii)."
     exit 1
 fi
 ok "Appka po nahratí funguje."
