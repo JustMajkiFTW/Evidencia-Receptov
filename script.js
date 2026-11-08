@@ -712,6 +712,12 @@ const shopping = (function initShopping() {
             fabEl.classList.toggle('d-none', open.length === 0);
             fabEl.querySelector('.shopping-fab-count').textContent = open.length;
         }
+        // Odznak pri Nákupe v spodnej lište (telefón).
+        const listaPocetEl = document.getElementById('spodnaListaPocet');
+        if (listaPocetEl) {
+            listaPocetEl.textContent = open.length;
+            listaPocetEl.classList.toggle('d-none', open.length === 0);
+        }
 
         // Pri prekreslení (aj pri obnove z iného zariadenia) zachováme posun okna
         // a fokus na políčku tej istej položky.
@@ -1183,6 +1189,9 @@ function openRecipeModal(data = null) {
    ======================================================================== */
 function openRecipeViewModal(data) {
     document.getElementById('viewRecipeName').textContent = data.name || '';
+    // Na telefóne je názov pod fotkou (v hlavičke sú tlačidlá), pozri mobilneNahlad nižšie.
+    const nazovMobil = document.getElementById('viewRecipeNameMobil');
+    if (nazovMobil) nazovMobil.textContent = data.name || '';
 
     if (recipeGallery) recipeGallery.show(data);
 
@@ -1257,7 +1266,41 @@ function openRecipeViewModal(data) {
     const shareBtn = document.getElementById('viewRecipeShareBtn');
     shareBtn.onclick = () => shareRecipe(data);
 
+    mobilneNahlad(data);
+
     bootstrap.Modal.getOrCreateInstance(document.getElementById('recipeViewModal')).show();
+}
+
+/**
+ * Tlačidlá náhľadu receptu, ktoré sú len na telefóne (verzia 1.7): Uvarené dole,
+ * Zdieľať / Upraviť / … hore a hodnotenie hviezdičkami pod názvom. Na PC sú tieto
+ * akcie na karte receptu, preto sa tam neukazujú (d-md-none).
+ */
+function mobilneNahlad(data) {
+    const modalEl = document.getElementById('recipeViewModal');
+    // Najprv zavrieť náhľad, potom otvoriť ďalšie okno — dve okná naraz Bootstrap nezvláda.
+    const poZavreti = (akcia) => () => {
+        modalEl.addEventListener('hidden.bs.modal', akcia, { once: true });
+        bootstrap.Modal.getInstance(modalEl)?.hide();
+    };
+    const nastav = (id, onclick) => {
+        const el = document.getElementById(id);
+        if (el) el.onclick = onclick;
+    };
+
+    nastav('viewMobilZdielat', () => shareRecipe(data));
+    nastav('viewMobilUpravit', poZavreti(() => openRecipeModal(data)));
+    nastav('viewMobilUvarene', poZavreti(() => madeDialog && madeDialog.open(data.id, data.name)));
+    nastav('viewMobilHistoria', poZavreti(() => openHistoryModal(data.id, data.name)));
+    // Zmazanie použije tlačidlo na karte receptu (rovnaké potvrdenie aj odstránenie karty).
+    nastav('viewMobilZmazat', poZavreti(() => {
+        document.querySelector('.recipe-row[data-recipe-id="' + data.id + '"] .btn-delete-recipe')?.click();
+    }));
+
+    const hodnotenie = document.getElementById('viewRecipeRating');
+    if (hodnotenie && typeof hodnotenieReceptov !== 'undefined') {
+        hodnotenie.classList.toggle('d-none', !hodnotenieReceptov.skopirujStav(data.id, hodnotenie));
+    }
 }
 
 /** „200 g" / „2" / „" — množstvo s jednotkou pre náhľad a zdieľanie. */
@@ -1592,11 +1635,12 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
    Hviezdičkové hodnotenie receptov — každý používateľ má vlastný hlas,
    v tabuľke sa zobrazuje priemer + počet hodnotení.
    ======================================================================== */
-(function initRecipeRatings() {
-    const widgets = document.querySelectorAll('.recipe-rating');
-    if (!widgets.length) return;
-
+/* Hviezdičky sú na karte receptu (PC) aj v náhľade receptu (telefón, verzia 1.7).
+   Po hodnotení sa prekreslia všetky miesta s tým istým receptom, preto stav
+   (data-user-rating) a súhrn nesie každý prvok .recipe-rating sám. */
+const hodnotenieReceptov = (function initRecipeRatings() {
     const csrfToken = document.querySelector('#recipeForm input[name="csrf_token"]')?.value || '';
+    const odosiela = new Set(); // recepty, ktorých hodnotenie sa práve ukladá
 
     async function postRating(recipeId, rating) {
         const formData = new FormData();
@@ -1617,45 +1661,77 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
         });
     }
 
-    widgets.forEach(widget => {
-        const recipeId = widget.dataset.recipeId;
-        const starsEl = widget.querySelector('.rating-stars');
-        const summaryEl = widget.querySelector('.rating-summary');
-        let myRating = parseInt(widget.dataset.userRating, 10) || 0;
-        let submitting = false;
+    const ulozene = (widget) => parseInt(widget.dataset.userRating, 10) || 0;
+    const widgetyReceptu = (recipeId) =>
+        document.querySelectorAll('.recipe-rating[data-recipe-id="' + CSS.escape(String(recipeId)) + '"]');
 
-        starsEl.querySelectorAll('.rating-star').forEach(starEl => {
-            const value = parseInt(starEl.dataset.value, 10);
+    async function ohodnot(recipeId, value) {
+        if (!recipeId || odosiela.has(recipeId)) return;
+        odosiela.add(recipeId);
+        try {
+            const data = await postRating(recipeId, value);
+            if (data.success) {
+                const suhrn = `${data.average.toFixed(1).replace('.', ',')} ★ (${data.count})`;
+                widgetyReceptu(recipeId).forEach(widget => {
+                    widget.dataset.userRating = data.yourRating;
+                    widget.dataset.summary = suhrn;
+                    paintStars(widget.querySelector('.rating-stars'), data.yourRating);
+                    const summaryEl = widget.querySelector('.rating-summary');
+                    if (summaryEl) summaryEl.textContent = suhrn;
+                });
+                showToast('Vďaka za hodnotenie!');
+            } else {
+                showToast(data.error || 'Hodnotenie sa nepodarilo uložiť.', true);
+            }
+        } catch (err) {
+            showToast('Chyba pripojenia k serveru.', true);
+        } finally {
+            odosiela.delete(recipeId);
+        }
+    }
 
-            // Náhľad pri prejdení myšou, po odídení sa vráti na uložené hodnotenie.
-            // Offline sa hodnotiť nedá, preto ani náhľad neukazujeme.
-            starEl.addEventListener('mouseenter', () => {
-                if (!OfflineRezim.jeAktivny()) paintStars(starsEl, value);
-            });
-            starEl.addEventListener('mouseleave', () => paintStars(starsEl, myRating));
-
-            starEl.addEventListener('click', async () => {
-                if (submitting) return;
-                submitting = true;
-
-                try {
-                    const data = await postRating(recipeId, value);
-                    if (data.success) {
-                        myRating = data.yourRating;
-                        paintStars(starsEl, myRating);
-                        summaryEl.textContent = `${data.average.toFixed(1).replace('.', ',')} ★ (${data.count})`;
-                        showToast('Vďaka za hodnotenie!');
-                    } else {
-                        showToast(data.error || 'Hodnotenie sa nepodarilo uložiť.', true);
-                    }
-                } catch (err) {
-                    showToast('Chyba pripojenia k serveru.', true);
-                } finally {
-                    submitting = false;
-                }
-            });
-        });
+    // Offline klik zachytí OfflineRezim ešte predtým (hviezdičky majú data-vyzaduje-siet).
+    document.addEventListener('click', (e) => {
+        const star = e.target.closest('.recipe-rating .rating-star');
+        if (!star) return;
+        ohodnot(star.closest('.recipe-rating').dataset.recipeId, parseInt(star.dataset.value, 10));
     });
+    // Hviezdičky v náhľade sa dajú vybrať aj klávesnicou (Enter / medzerník).
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const star = e.target.closest?.('.recipe-rating .rating-star');
+        if (!star) return;
+        e.preventDefault();
+        star.click();
+    });
+
+    // Náhľad pri prejdení myšou, po odídení sa vráti na uložené hodnotenie.
+    // Offline sa hodnotiť nedá, preto ani náhľad neukazujeme.
+    document.addEventListener('mouseover', (e) => {
+        const star = e.target.closest('.recipe-rating .rating-star');
+        if (!star || OfflineRezim.jeAktivny()) return;
+        paintStars(star.closest('.rating-stars'), parseInt(star.dataset.value, 10));
+    });
+    document.addEventListener('mouseout', (e) => {
+        const star = e.target.closest('.recipe-rating .rating-star');
+        if (!star) return;
+        paintStars(star.closest('.rating-stars'), ulozene(star.closest('.recipe-rating')));
+    });
+
+    return {
+        /** Prenesie hodnotenie z karty receptu do iného prvku (náhľad receptu). */
+        skopirujStav(recipeId, ciel) {
+            const karta = document.querySelector('.recipe-card .recipe-rating[data-recipe-id="' + CSS.escape(String(recipeId)) + '"]');
+            if (!karta || !ciel) return false;
+            ciel.dataset.recipeId = recipeId;
+            ciel.dataset.userRating = ulozene(karta);
+            paintStars(ciel.querySelector('.rating-stars'), ulozene(karta));
+            const suhrn = karta.dataset.summary || karta.querySelector('.rating-summary')?.textContent.trim() || '';
+            const summaryEl = ciel.querySelector('.rating-summary');
+            if (summaryEl) summaryEl.textContent = suhrn;
+            return true;
+        },
+    };
 })();
 
 /* ========================================================================
@@ -1869,3 +1945,115 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+/* ========================================================================
+   Rozloženie pre telefón (verzia 1.7): spodná lišta, okno Viac, kategórie
+   ako tlačidlá a zoradenie v hlavičke. Na PC sú tieto prvky skryté
+   (d-md-none) a nič z toho sa nepoužije.
+   ======================================================================== */
+(function initMobilneRozlozenie() {
+    const lista = document.getElementById('spodnaLista');
+    if (!lista) return;
+
+    const viacEl = document.getElementById('viacModal');
+    const shoppingEl = document.getElementById('shoppingModal');
+
+    /** Zavrie otvorené okno (ak nejaké je) a až potom spustí akciu. */
+    function poZatvoreniOkien(akcia) {
+        const otvorene = Array.from(document.querySelectorAll('.modal.show'));
+        if (!otvorene.length) {
+            akcia();
+            return;
+        }
+        otvorene[0].addEventListener('hidden.bs.modal', () => poZatvoreniOkien(akcia), { once: true });
+        bootstrap.Modal.getInstance(otvorene[0])?.hide();
+    }
+
+    // ── Ktorá položka lišty svieti a kedy sa lišta skryje ──
+    // Nákup a Viac sú „záložky" (lišta ostane), ostatné okná lištu zakryjú.
+    function oznacPolozku(nazov) {
+        lista.querySelectorAll('.spodna-lista-polozka').forEach((btn) => {
+            const aktivna = btn.dataset.lista === nazov;
+            btn.classList.toggle('is-active', aktivna);
+            if (aktivna) btn.setAttribute('aria-current', 'page');
+            else btn.removeAttribute('aria-current');
+        });
+    }
+    function aktualizujListu() {
+        const otvorene = Array.from(document.querySelectorAll('.modal.show, .modal.je-otvarane'));
+        document.body.classList.toggle('lista-skryta', otvorene.some((el) => !el.classList.contains('modal-s-listou')));
+        const zalozka = otvorene.find((el) => el.classList.contains('modal-s-listou'));
+        oznacPolozku(zalozka === shoppingEl ? 'nakup' : zalozka === viacEl ? 'viac' : 'recepty');
+    }
+    document.addEventListener('show.bs.modal', (e) => {
+        e.target.classList.add('je-otvarane');
+        aktualizujListu();
+    });
+    document.addEventListener('shown.bs.modal', (e) => e.target.classList.remove('je-otvarane'));
+    document.addEventListener('hidden.bs.modal', (e) => {
+        e.target.classList.remove('je-otvarane');
+        aktualizujListu();
+    });
+
+    // ── Akcie položiek lišty ──
+    lista.addEventListener('click', (e) => {
+        const btn = e.target.closest('.spodna-lista-polozka');
+        if (!btn) return;
+        switch (btn.dataset.lista) {
+            case 'recepty':
+                if (document.querySelector('.modal.show')) poZatvoreniOkien(() => {});
+                else window.scrollTo({ top: 0, behavior: 'smooth' });
+                break;
+            case 'pridat':
+                poZatvoreniOkien(() => openRecipeModal());
+                break;
+            case 'nakup':
+                if (!shoppingEl?.classList.contains('show')) openShoppingModal(); // sám zavrie iné okno
+                break;
+            case 'viac':
+                if (viacEl && !viacEl.classList.contains('show')) {
+                    poZatvoreniOkien(() => bootstrap.Modal.getOrCreateInstance(viacEl).show());
+                }
+                break;
+        }
+    });
+
+    // ── Okno Viac: prepínač motívu ovláda to isté tlačidlo ako horná lišta (theme.js) ──
+    const temaPrepinac = document.getElementById('viacTemaPrepinac');
+    const nastavPrepinac = () => {
+        if (temaPrepinac) temaPrepinac.checked = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    };
+    viacEl?.addEventListener('show.bs.modal', nastavPrepinac);
+    temaPrepinac?.addEventListener('change', () => {
+        document.getElementById('themeToggle')?.click();
+        nastavPrepinac();
+    });
+
+    // ── Kategórie ako tlačidlá: nastavia výber kategórie a spustia ten istý filter ──
+    const kategoriaSelect = document.getElementById('recipeCategoryFilter');
+    const cipy = Array.from(document.querySelectorAll('.kategoria-cip'));
+    function oznacCip(hodnota) {
+        cipy.forEach((cip) => {
+            const aktivny = cip.dataset.kategoria === hodnota;
+            cip.classList.toggle('is-active', aktivny);
+            cip.setAttribute('aria-pressed', aktivny ? 'true' : 'false');
+        });
+    }
+    cipy.forEach((cip) => cip.addEventListener('click', () => {
+        if (!kategoriaSelect) return;
+        kategoriaSelect.value = cip.dataset.kategoria;
+        kategoriaSelect.dispatchEvent(new Event('change'));
+    }));
+    kategoriaSelect?.addEventListener('change', () => oznacCip(kategoriaSelect.value));
+
+    // ── Zoradenie v hlavičke telefónu = ten istý výber ako na PC ──
+    const zoradenie = document.getElementById('recipeSortSelect');
+    const zoradenieMobil = document.getElementById('recipeSortMobil');
+    if (zoradenie && zoradenieMobil) {
+        zoradenieMobil.value = zoradenie.value;
+        zoradenieMobil.addEventListener('change', () => {
+            zoradenie.value = zoradenieMobil.value;
+            zoradenie.dispatchEvent(new Event('change'));
+        });
+        zoradenie.addEventListener('change', () => { zoradenieMobil.value = zoradenie.value; });
+    }
+})();

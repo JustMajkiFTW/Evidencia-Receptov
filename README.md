@@ -20,6 +20,7 @@ Tento dokument má dve časti:
 - **Upozornenia do telefónu** na nový recept, na hodnotenie tvojho receptu a pripomienky dlho nevarených receptov.
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty aj bez internetu.** Posledné načítané recepty sa uložia v zariadení a bez pripojenia sa dajú pozerať (meniť nie).
+- **Rozloženie pre telefón.** Na telefóne je dole lišta so štyrmi veľkými tlačidlami (Recepty, Pridať, Nákup, Viac), recept, nákupný zoznam aj formulár sú na celú obrazovku a hlavné akcie majú veľké tlačidlá. Na PC a tablete ostáva klasické rozloženie.
 - **Svetlý a tmavý vzhľad**, veľké ovládacie prvky vhodné aj pre starších používateľov.
 
 ---
@@ -407,7 +408,18 @@ Ak má recept kategóriu, ktorá v zozname nie je (napr. z ručnej úpravy datab
 
 **Práva.** Pridávať a upravovať recepty a pridávať fotky môže každý prihlásený. Mazať recepty, mazať fotky z galérie a spravovať používateľov, kategórie a suroviny môže len admin.
 
-**Tlačidlá na karte receptu:** uvarené (okno s dátumom a fotkou), do nákupu, história, upraviť, zmazať (len admin). Kliknutím kamkoľvek inam na kartu sa otvorí náhľad.
+**Tlačidlá na karte receptu:** uvarené (okno s dátumom a fotkou), do nákupu, história, upraviť, zmazať (len admin). Kliknutím kamkoľvek inam na kartu sa otvorí náhľad. Na telefóne sú tieto akcie v náhľade receptu (pozri nižšie).
+
+### Rozloženie na telefóne
+
+Pod šírkou 768 bodov (telefón na výšku, menší telefón aj na šírku) má appka vlastné rozloženie. Od 768 bodov (tablet, PC) sa nič nemení. Je to tá istá stránka `index.php` s rovnakými akciami a databázou, iné je len rozmiestnenie: telefónne prvky majú v `index.php` triedu `d-md-none`, PC prvky `d-none d-md-block`, štýly sú na konci `style.css` v `@media (max-width: 767.98px)` a správanie na konci `script.js` (`initMobilneRozlozenie`, `mobilneNahlad`).
+
+- **Spodná lišta** so štyrmi tlačidlami nahrádza hornú lištu. **Recepty** zavrie otvorené okno alebo vyroluje zoznam hore, **Pridať** otvorí formulár receptu, **Nákup** nákupný zoznam s odznakom počtu, **Viac** okno s motívom, prihlásením odtlačkom, upozorneniami, Správou (admin) a odhlásením. Nákup a Viac sa prepínajú ako záložky a lišta pod nimi ostáva, ostatné okná ju zakryjú.
+- **Hlavička** s pozdravom a zoradením, pod ňou hľadanie na celú šírku a **kategórie ako veľké tlačidlá**. Nastavujú ten istý filter a zoradenie ako výbery na PC.
+- **Karta receptu** má fotku vľavo a vpravo názov, odznak naposledy vareného, kategóriu a čas. Hviezdičky, autor a päť malých tlačidiel na nej nie sú.
+- **Náhľad receptu** je na celú obrazovku. Hore je šípka späť a ikony Zdieľať, Upraviť a „…" (História, Zmazať pre admina), pod fotkou názov a hodnotenie hviezdičkami, dole veľké tlačidlá **Do nákupu** a **Uvarené**.
+- **Nákupný zoznam, formulár receptu a história** sú na celú obrazovku s väčším písmom, políčkami a tlačidlami. Plávajúci košík vpravo dole na telefóne nie je, nahrádza ho Nákup v lište.
+- Lišta si cez `env(safe-area-inset-bottom)` nechá miesto nad pásikom na spodku iPhonu (v `index.php` je preto vo `viewport` aj `viewport-fit=cover`).
 
 ## B5. Suroviny
 
@@ -460,7 +472,7 @@ Recept má nepovinný počet porcií. Ak je vyplnený a aspoň jedna surovina m�
 
 ## B7. Nákupný zoznam
 
-Zoznam je jeden pre všetkých používateľov. Otvára sa košíkom v hornej lište alebo plávajúcim tlačidlom vpravo dole, ktoré je vidno, kým je čo kúpiť.
+Zoznam je jeden pre všetkých používateľov. Na PC sa otvára košíkom v hornej lište alebo plávajúcim tlačidlom vpravo dole, ktoré je vidno, kým je čo kúpiť. Na telefóne tlačidlom Nákup v spodnej lište.
 
 **Pridanie receptu.** Tlačidlo s košíkom na karte pridá suroviny pre pôvodný počet porcií, tlačidlo „Do nákupu" v náhľade pre práve nastavený počet.
 
@@ -626,6 +638,15 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.7**
+
+- Nové rozloženie pre telefón: dole lišta so štyrmi veľkými tlačidlami Recepty, Pridať, Nákup a Viac namiesto siedmich malých tlačidiel v hlavičke. Motív, prihlásenie odtlačkom, upozornenia, Správa a odhlásenie sú v okne Viac.
+- Recepty na telefóne: hlavička s pozdravom a zoradením, kategórie ako veľké tlačidlá, karta s fotkou vľavo a bez malých ikon.
+- Náhľad receptu na telefóne je na celú obrazovku s veľkými tlačidlami Uvarené a Do nákupu, hodnotením hviezdičkami a ponukou „…" s históriou a zmazaním.
+- Nákupný zoznam, formulár receptu a história sú na telefóne na celú obrazovku s väčším písmom a tlačidlami. Nákup a Viac sa prepínajú ako záložky.
+- Na PC a tablete (od 768 bodov) sa vzhľad nemení.
+- Databáza sa nemení, migrácia netreba.
 
 **1.6**
 

@@ -252,6 +252,16 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
 $photosEnabled = recipes_have_photos($pdo);
 $recipePhotos = get_recipe_photos($pdo);
 $recipeCategories = get_recipe_categories($pdo); // z tabuľky kategorie_receptov, bez migrácie základný zoznam
+// Oslovenie v mobilnej hlavičke: krstné meno (prvé slovo celého mena), inak prihlasovacie meno.
+$menoOslovenie = trim((string) ($user['full_name'] ?? ''));
+$menoOslovenie = $menoOslovenie !== '' ? explode(' ', $menoOslovenie)[0] : (string) ($user['username'] ?? '');
+// Iniciály do okna Viac: „Marián Čambálik" → „MČ".
+$menoInicialy = '';
+foreach (preg_split('/\s+/u', trim((string) ($user['full_name'] ?: $user['username']))) as $slovo) {
+    if ($slovo !== '' && mb_strlen($menoInicialy) < 2) {
+        $menoInicialy .= mb_strtoupper(mb_substr($slovo, 0, 1));
+    }
+}
 
 // Značka pre sw.js: túto stránku si môže uložiť a ukázať ju bez internetu (len na čítanie).
 header('X-Recepty-Offline: 1');
@@ -269,7 +279,8 @@ header('X-Recepty-Offline: 1');
             if (e.target && e.target.tagName === 'IMG') window.APP_CHYBNE_FOTKY.push(e.target);
         }, true);
     </script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- viewport-fit=cover: spodná lišta na telefóne si cez env(safe-area-inset-bottom) nechá miesto nad pásikom iPhonu -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Evidencia receptov</title>
 
     <!-- PWA -->
@@ -283,9 +294,9 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=26">
+    <link rel="stylesheet" href="style.css?v=27">
 </head>
-<body>
+<body class="ma-spodnu-listu">
 
 <!-- Toast kontajner pre notifikácie -->
 <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1080;">
@@ -353,33 +364,55 @@ header('X-Recepty-Offline: 1');
     </div>
 </header>
 
+<!-- Hlavička na telefóne (verzia 1.7). Horná lišta s tlačidlami je len na PC a tablete,
+     na telefóne sú tie isté akcie v spodnej lište a v okne Viac. -->
+<div class="mobil-hlavicka d-md-none">
+    <div class="min-w-0">
+        <div class="mobil-pozdrav text-truncate">Ahoj, <?= htmlspecialchars($menoOslovenie) ?></div>
+        <h1 class="mobil-nadpis">Recepty</h1>
+    </div>
+    <select id="recipeSortMobil" class="form-select mobil-zoradenie" aria-label="Zoradiť recepty">
+        <option value="default">Naposledy varené</option>
+        <option value="last_made_asc">Najdlhšie nevarené</option>
+        <option value="added_desc">Najnovšie pridané</option>
+        <option value="prep_time_asc">Najrýchlejšie</option>
+    </select>
+</div>
+
 <div class="container-fluid mt-3" style="max-width:1100px;">
-    <div class="mx-3 mx-md-0 mb-2 text-secondary small">
+    <div class="mx-3 mx-md-0 mb-2 text-secondary small d-none d-md-block">
         <i class="bi bi-info-circle me-1"></i>Kliknutím kdekoľvek na kartu receptu zobrazíš jeho náhľad.
     </div>
-    <div class="mx-3 mx-md-0 d-flex flex-wrap gap-2 align-items-center">
-        <div class="input-group shadow-sm" style="flex: 1 1 240px; max-width: 500px;">
+    <div class="mx-3 mx-md-0 d-flex flex-wrap gap-2 align-items-center recepty-filtre">
+        <div class="input-group shadow-sm recepty-hladanie" style="flex: 1 1 240px; max-width: 500px;">
             <span class="input-group-text bg-body-tertiary border-secondary-subtle rounded-start-pill ps-3">
                 <i class="bi bi-search"></i>
             </span>
             <input type="text" id="recipeSearch" class="form-control border-secondary-subtle py-2 rounded-end-pill pe-3"
-                   placeholder="Hľadaj podľa názvu alebo surovín...">
+                   placeholder="Hľadaj podľa názvu alebo surovín..." aria-label="Hľadať recept" enterkeyhint="search">
         </div>
 
-        <select id="recipeCategoryFilter" class="form-select form-select-sm shadow-sm"
-                style="width:auto; min-width:170px;">
+        <select id="recipeCategoryFilter" class="form-select form-select-sm shadow-sm d-none d-md-block"
+                style="width:auto; min-width:170px;" aria-label="Kategória receptov">
             <option value="">Všetky kategórie</option>
             <?php foreach ($recipeCategories as $kategoria): ?>
                 <option value="<?= htmlspecialchars($kategoria['kluc']) ?>"><?= htmlspecialchars($kategoria['nazov']) ?></option>
             <?php endforeach; ?>
         </select>
 
-        <select id="recipeSortSelect" class="form-select form-select-sm shadow-sm" style="width:auto; min-width:220px;">
+        <select id="recipeSortSelect" class="form-select form-select-sm shadow-sm d-none d-md-block" style="width:auto; min-width:220px;" aria-label="Zoradenie receptov">
             <option value="default">Naposledy varené — najnovšie</option>
             <option value="last_made_asc">Naposledy varené — najstaršie</option>
             <option value="added_desc">Najnovšie pridané prvé</option>
             <option value="prep_time_asc">Čas prípravy (najkratšie prvé)</option>
         </select>
+    </div>
+    <!-- Kategórie ako veľké tlačidlá (len telefón) — nastavujú ten istý filter ako výber kategórie vyššie. -->
+    <div class="kategoria-cipy d-md-none" role="group" aria-label="Kategória receptov">
+        <button type="button" class="kategoria-cip is-active" data-kategoria="" aria-pressed="true">Všetko</button>
+        <?php foreach ($recipeCategories as $kategoria): ?>
+            <button type="button" class="kategoria-cip" data-kategoria="<?= htmlspecialchars($kategoria['kluc']) ?>" aria-pressed="false"><?= htmlspecialchars($kategoria['nazov']) ?></button>
+        <?php endforeach; ?>
     </div>
 </div>
 
@@ -480,7 +513,7 @@ header('X-Recepty-Offline: 1');
                             <span class="badge <?= $badgeClass ?>"><?= htmlspecialchars($badgeText) ?></span>
                         </div>
 
-                        <div class="d-flex flex-wrap gap-1 mb-2">
+                        <div class="d-flex flex-wrap gap-1 mb-2 recipe-card-meta">
                             <?php if (!empty($r['category'])): ?>
                                 <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle small px-2 py-1">
                                     <?= htmlspecialchars(recipe_category_label($recipeCategories, $r['category'])) ?>
@@ -494,7 +527,7 @@ header('X-Recepty-Offline: 1');
                             <?php endif; ?>
                         </div>
 
-                        <div class="text-secondary small mb-2">
+                        <div class="text-secondary small mb-2 recipe-card-autor">
                             <?= htmlspecialchars($r['created_by_username']) ?>
                         </div>
 
@@ -553,7 +586,7 @@ header('X-Recepty-Offline: 1');
 
 <!-- ================= MODAL: Pridať / upraviť recept ================= -->
 <div class="modal fade" id="recipeModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-fullscreen-md-down">
         <div class="modal-content">
             <form id="recipeForm" novalidate enctype="multipart/form-data">
                 <div class="modal-header">
@@ -677,11 +710,39 @@ header('X-Recepty-Offline: 1');
 
 <!-- ================= MODAL: Náhľad receptu ================= -->
 <div class="modal fade" id="recipeViewModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable recipe-view-dialog">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down recipe-view-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="viewRecipeName"></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h5 class="modal-title d-none d-md-block" id="viewRecipeName"></h5>
+                <button type="button" class="btn-close d-none d-md-inline-block" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+                <!-- Telefón: späť vľavo, menej časté akcie vpravo ako ikony (verzia 1.7) -->
+                <div class="view-mobil-lista d-md-none">
+                    <button type="button" class="btn view-mobil-tlacidlo" data-bs-dismiss="modal" aria-label="Späť na recepty">
+                        <i class="bi bi-arrow-left"></i>
+                    </button>
+                    <div class="view-mobil-akcie">
+                        <button type="button" class="btn view-mobil-tlacidlo" id="viewMobilZdielat" aria-label="Zdieľať recept">
+                            <i class="bi bi-share"></i>
+                        </button>
+                        <button type="button" class="btn view-mobil-tlacidlo" id="viewMobilUpravit" aria-label="Upraviť recept" data-vyzaduje-siet>
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <div class="dropdown">
+                            <button type="button" class="btn view-mobil-tlacidlo" data-bs-toggle="dropdown" aria-expanded="false"
+                                    aria-label="Ďalšie možnosti">
+                                <i class="bi bi-three-dots"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end view-mobil-menu">
+                                <li><button type="button" class="dropdown-item" id="viewMobilHistoria" data-vyzaduje-siet>
+                                    <i class="bi bi-clock-history me-2"></i>História receptu</button></li>
+                                <?php if (is_admin()): ?>
+                                <li><button type="button" class="dropdown-item text-danger" id="viewMobilZmazat" data-vyzaduje-siet>
+                                    <i class="bi bi-trash me-2"></i>Zmazať recept</button></li>
+                                <?php endif; ?>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="modal-body">
                 <div id="viewRecipeGallery" class="recipe-gallery mb-3 d-none">
@@ -700,6 +761,8 @@ header('X-Recepty-Offline: 1');
                     <div class="recipe-gallery-thumbs" id="viewRecipeThumbs" role="group" aria-label="Fotky receptu"></div>
                 </div>
 
+                <h2 class="view-mobil-nazov d-md-none" id="viewRecipeNameMobil"></h2>
+
                 <div class="d-flex flex-wrap gap-2 mb-3">
                     <span id="viewRecipeCategory"
                           class="badge bg-info-subtle text-info-emphasis border border-info-subtle d-none"></span>
@@ -708,6 +771,17 @@ header('X-Recepty-Offline: 1');
                     <span id="viewRecipeServings"
                           class="badge bg-body-secondary text-secondary-emphasis border d-none"></span>
                     <span id="viewRecipeLastMade" class="badge"></span>
+                </div>
+
+                <!-- Hodnotenie v náhľade (telefón): na karte receptu sa na telefóne hviezdičky neukazujú. -->
+                <div class="recipe-rating view-mobil-hodnotenie d-md-none d-none" id="viewRecipeRating" data-recipe-id="" data-user-rating="0">
+                    <span class="rating-stars" data-vyzaduje-siet role="group" aria-label="Tvoje hodnotenie">
+                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                            <i class="bi bi-star rating-star" data-value="<?= $i ?>" role="button" tabindex="0"
+                               aria-label="Hodnotiť: <?= $i ?> z 5"></i>
+                        <?php endfor; ?>
+                    </span>
+                    <span class="rating-summary"></span>
                 </div>
 
                 <div class="mb-3">
@@ -738,19 +812,23 @@ header('X-Recepty-Offline: 1');
 
                 <div class="text-secondary small" id="viewRecipeCreatedBy"></div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Zavrieť</button>
+            <div class="modal-footer view-paticka">
+                <button type="button" class="btn btn-outline-secondary btn-sm d-none d-md-inline-block" data-bs-dismiss="modal">Zavrieť</button>
                 <?php if ($shoppingEnabled): ?>
                 <button type="button" class="btn btn-outline-primary btn-sm fw-semibold d-none" id="viewRecipeShoppingBtn" data-vyzaduje-siet>
                     <i class="bi bi-cart-plus me-1"></i>Do nákupu
                 </button>
                 <?php endif; ?>
-                <button type="button" class="btn btn-sm fw-semibold text-white" id="viewRecipeShareBtn"
+                <button type="button" class="btn btn-sm fw-semibold text-white d-none d-md-inline-block" id="viewRecipeShareBtn"
                         style="background-color:#0d6efd; border-color:#0d6efd;">
                     <i class="bi bi-share-fill me-1"></i>Zdieľať
                 </button>
-                <button type="button" class="btn btn-primary btn-sm fw-semibold" id="viewRecipeEditBtn" data-vyzaduje-siet>
+                <button type="button" class="btn btn-primary btn-sm fw-semibold d-none d-md-inline-block" id="viewRecipeEditBtn" data-vyzaduje-siet>
                     <i class="bi bi-pencil me-1"></i>Upraviť recept
+                </button>
+                <!-- Telefón: hlavná akcia veľkým tlačidlom dole -->
+                <button type="button" class="btn btn-success fw-bold d-md-none view-mobil-uvarene" id="viewMobilUvarene" data-vyzaduje-siet>
+                    <i class="bi bi-check2-circle me-1"></i>Uvarené
                 </button>
             </div>
         </div>
@@ -764,8 +842,8 @@ header('X-Recepty-Offline: 1');
     <span class="badge rounded-pill text-bg-danger shopping-fab-count"><?= $shoppingCount ?></span>
 </button>
 <!-- ================= MODAL: Nákupný zoznam ================= -->
-<div class="modal fade" id="shoppingModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+<div class="modal fade modal-s-listou" id="shoppingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen-md-down">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-cart3 me-2"></i>Nákupný zoznam</h5>
@@ -796,6 +874,75 @@ header('X-Recepty-Offline: 1');
     </div>
 </div>
 <?php endif; ?>
+<!-- ================= Spodná lišta (len telefón, verzia 1.7) =================
+     Tie isté akcie ako horná lišta na PC. Nákup a Viac sa otvárajú nad receptami
+     a lišta ostáva viditeľná, ostatné okná (recept, formulár) ju zakryjú. -->
+<nav class="spodna-lista d-md-none" id="spodnaLista" aria-label="Hlavné menu">
+    <button type="button" class="spodna-lista-polozka is-active" data-lista="recepty" aria-current="page">
+        <i class="bi bi-journal-text" aria-hidden="true"></i><span>Recepty</span>
+    </button>
+    <button type="button" class="spodna-lista-polozka" data-lista="pridat" data-vyzaduje-siet>
+        <span class="spodna-lista-pridat" aria-hidden="true"><i class="bi bi-plus-lg"></i></span><span>Pridať</span>
+    </button>
+    <?php if ($shoppingEnabled): ?>
+    <button type="button" class="spodna-lista-polozka" data-lista="nakup" data-vyzaduje-siet>
+        <span class="spodna-lista-ikona" aria-hidden="true"><i class="bi bi-cart3"></i>
+            <span class="spodna-lista-pocet<?= $shoppingCount ? '' : ' d-none' ?>" id="spodnaListaPocet"><?= $shoppingCount ?></span></span><span>Nákup</span>
+    </button>
+    <?php endif; ?>
+    <button type="button" class="spodna-lista-polozka" data-lista="viac">
+        <i class="bi bi-list" aria-hidden="true"></i><span>Viac</span>
+    </button>
+</nav>
+<!-- ================= MODAL: Viac (len telefón) — motív, biometria, upozornenia, správa ================= -->
+<div class="modal fade modal-s-listou" id="viacModal" tabindex="-1" aria-hidden="true" aria-labelledby="viacModalTitle">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title viac-nadpis" id="viacModalTitle">Viac</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+            </div>
+            <div class="modal-body">
+                <div class="viac-pouzivatel">
+                    <div class="viac-inicialy" aria-hidden="true"><?= htmlspecialchars($menoInicialy) ?></div>
+                    <div class="min-w-0">
+                        <div class="viac-meno text-truncate"><?= htmlspecialchars($user['full_name'] ?: $user['username']) ?></div>
+                        <span class="badge <?= $user['role'] === 'admin' ? 'text-bg-warning' : 'text-bg-primary' ?>"><?= htmlspecialchars($user['role']) ?></span>
+                    </div>
+                </div>
+                <div class="viac-zoznam">
+                    <label class="viac-riadok" for="viacTemaPrepinac">
+                        <i class="bi bi-moon-stars viac-ikona" aria-hidden="true"></i>
+                        <span class="viac-text">Tmavý motív</span>
+                        <span class="form-check form-switch m-0">
+                            <input class="form-check-input viac-prepinac" type="checkbox" role="switch" id="viacTemaPrepinac">
+                        </span>
+                    </label>
+                    <button type="button" class="viac-riadok" onclick="setupPasskeyFromApp()" data-vyzaduje-siet>
+                        <i class="bi bi-fingerprint viac-ikona" aria-hidden="true"></i>
+                        <span class="viac-text">Prihlásenie odtlačkom / Face ID</span>
+                        <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="viac-riadok" onclick="enablePushNotifications()" data-vyzaduje-siet>
+                        <i class="bi bi-bell viac-ikona" aria-hidden="true"></i>
+                        <span class="viac-text">Upozornenia</span>
+                        <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
+                    </button>
+                    <?php if (is_admin()): ?>
+                    <a href="admin/index.php" class="viac-riadok" data-vyzaduje-siet>
+                        <i class="bi bi-gear viac-ikona" aria-hidden="true"></i>
+                        <span class="viac-text">Správa<small>Používatelia, kategórie, suroviny</small></span>
+                        <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
+                    </a>
+                    <?php endif; ?>
+                </div>
+                <a href="logout.php" class="btn viac-odhlasit" data-vyzaduje-siet>
+                    <i class="bi bi-box-arrow-right me-2" aria-hidden="true"></i>Odhlásiť sa
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
 <!-- ================= MODAL: Uvarené (dátum + voliteľná fotka) ================= -->
 <div class="modal fade" id="madeModal" tabindex="-1" aria-hidden="true" aria-labelledby="madeModalTitle">
     <div class="modal-dialog modal-dialog-centered">
@@ -840,7 +987,7 @@ header('X-Recepty-Offline: 1');
     </div>
 </div>
 <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down">
         <div class="modal-content">
             <div class="modal-header border-bottom-0 pb-0">
                 <h5 class="modal-title"><i class="bi bi-clock-history me-2 text-info"></i>História: <span
@@ -979,8 +1126,8 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_JEDNOTKY = <?= json_encode(SUROVINA_JEDNOTKY, JSON_UNESCAPED_UNICODE) ?>;
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
 </script>
-<script src="suroviny.js?v=26"></script>
-<script src="script.js?v=26"></script>
+<script src="suroviny.js?v=27"></script>
+<script src="script.js?v=27"></script>
 </body>
 </html>
 <?php

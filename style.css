@@ -207,7 +207,8 @@ body {
     max-height: 320px;
 }
 
-@media (min-width: 600px) {
+/* Od 768 px (pod tým je náhľad na celú obrazovku, pozri koniec súboru — verzia 1.7). */
+@media (min-width: 768px) {
     .recipe-view-dialog { max-width: 650px; }
     .recipe-view-image { max-height: 400px; }
 }
@@ -892,3 +893,364 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
 /* Návrh existujúcej suroviny pri preklepe („Nemysleli ste Paradajky?") */
 .surovina-option.is-podobna { border-left: 3px solid var(--app-accent); }
 .surovina-option-otazka { color: var(--app-muted); }
+
+/* ============================================================
+   Verzia 1.7 — rozloženie pre telefón (šírka pod 768 px)
+   PC a tablet od 768 px ostávajú bez zmeny: rozloženie je celé
+   v @media (max-width: 767.98px). Mimo neho sú len farby a okno
+   Viac, ktoré sa otvára iba zo spodnej lišty na telefóne.
+   ============================================================ */
+:root { --lista-vyska: 76px; }
+[data-bs-theme="dark"] {
+    --app-lista-bg: #14161b;
+    --app-plocha: #181b20;          /* plné pozadie kariet a riadkov na telefóne */
+    --app-muted-text: #94a3b8;      /* tlmený text s dostatočným kontrastom */
+}
+[data-bs-theme="light"] {
+    --app-lista-bg: #ffffff;
+    --app-plocha: #ffffff;
+    --app-muted-text: #57534e;
+}
+
+/* ── Okno Viac (otvára sa len zo spodnej lišty) ── */
+.viac-nadpis { font-size: 1.9rem; font-weight: 700; }
+.viac-pouzivatel {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 18px;
+    background: var(--app-plocha);
+    border: 1px solid var(--app-border);
+}
+.viac-inicialy {
+    width: 56px;
+    height: 56px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+    font-size: 1.25rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.viac-meno { font-size: 1.2rem; font-weight: 600; margin-bottom: .2rem; }
+.viac-zoznam {
+    margin-bottom: 1rem;
+    border-radius: 18px;
+    background: var(--app-plocha);
+    border: 1px solid var(--app-border);
+    overflow: hidden;
+}
+.viac-riadok {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+    min-height: 66px;
+    margin: 0;
+    padding: .5rem 1rem;
+    border: 0;
+    border-bottom: 1px solid var(--app-border);
+    background: none;
+    color: var(--app-text);
+    font-size: 1.1rem;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+.viac-riadok:last-child { border-bottom: 0; }
+.viac-riadok:hover, .viac-riadok:focus-visible { color: var(--app-text); background: var(--app-accent-soft); }
+.viac-ikona { width: 1.6rem; flex: none; text-align: center; font-size: 1.45rem; color: var(--app-muted-text); }
+.viac-text { flex: 1; min-width: 0; }
+.viac-text small { display: block; font-size: .88rem; color: var(--app-muted-text); }
+.viac-sipka { color: var(--app-muted-text); }
+.viac-prepinac { width: 3.2em !important; height: 1.75em; margin: 0 !important; cursor: pointer; }
+.viac-prepinac:checked { background-color: var(--app-accent); border-color: var(--app-accent); }
+.viac-odhlasit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 58px;
+    border-radius: 18px;
+    border: 1px solid rgba(220, 53, 69, .45);
+    background: rgba(220, 53, 69, .1);
+    color: var(--bs-danger-text-emphasis);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+.viac-odhlasit:hover, .viac-odhlasit:focus-visible { background: rgba(220, 53, 69, .2); color: var(--bs-danger-text-emphasis); }
+
+@media (max-width: 767.98px) {
+    /* Miesto pre spodnú lištu — len na stránke receptov (login a správa ju nemajú). */
+    body.ma-spodnu-listu {
+        padding-bottom: calc(var(--lista-vyska) + env(safe-area-inset-bottom, 0px) + 1rem);
+    }
+    .container-fluid { padding-left: 1rem; padding-right: 1rem; }
+
+    /* ── Hlavička: horná lišta s tlačidlami sa skryje, akcie sú v spodnej lište a vo Viac ── */
+    .app-navbar { display: none !important; }
+    .mobil-hlavicka {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: .75rem;
+        padding: 1.25rem 1rem 0;
+    }
+    .mobil-pozdrav { font-size: 1rem; color: var(--app-muted-text); }
+    .mobil-nadpis { margin: 0; font-size: 2rem; font-weight: 700; line-height: 1.15; }
+    .mobil-zoradenie {
+        width: auto;
+        max-width: 55%;
+        min-height: 48px;
+        flex-shrink: 0;
+        border-radius: 14px;
+        font-size: 1rem;
+    }
+
+    /* ── Hľadanie na celú šírku a kategórie ako veľké tlačidlá ── */
+    .recepty-filtre { margin: 0 !important; }
+    .recepty-hladanie { flex: 1 1 100% !important; max-width: none !important; }
+    .recepty-hladanie .input-group-text,
+    .recepty-hladanie .form-control { min-height: 54px; font-size: 1.05rem; }
+    .kategoria-cipy {
+        display: flex;
+        gap: .5rem;
+        margin: .85rem -1rem 0;
+        padding: 0 1rem .25rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+    .kategoria-cipy::-webkit-scrollbar { display: none; }
+    .kategoria-cip {
+        flex: none;
+        min-height: 46px;
+        padding: 0 1.15rem;
+        border-radius: 23px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        font-size: 1rem;
+        white-space: nowrap;
+    }
+    .kategoria-cip.is-active {
+        background: var(--app-accent);
+        border-color: var(--app-accent);
+        color: #1c1917;
+        font-weight: 600;
+    }
+
+    /* ── Karty receptov: fotka vľavo, text vpravo; akcie sú v náhľade receptu ── */
+    #recipesTable.app-card {
+        margin: .9rem 0 0 !important;
+        background: none;
+        border: 0;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    .recipes-grid { grid-template-columns: minmax(0, 1fr); gap: .75rem; padding: 0; }
+    .recipe-card {
+        flex-direction: row;
+        align-items: center;
+        gap: .9rem;
+        padding: .7rem;
+        border-radius: 18px;
+        background: var(--app-plocha);
+    }
+    .recipe-card:hover { transform: none; box-shadow: none; }
+    .recipe-card-media {
+        width: 96px;
+        height: 96px;
+        aspect-ratio: auto;
+        flex: none;
+        border-radius: 14px;
+    }
+    .recipe-card-img-placeholder { font-size: 2rem; }
+    .recipe-card-photo-count { right: .3rem; bottom: .3rem; font-size: .75rem; padding: .1rem .4rem; }
+    .recipe-card-body { padding: 0; min-width: 0; }
+    .recipe-card-title-row { margin-bottom: .35rem; }
+    .recipe-card-title { font-size: 1.15rem; line-height: 1.25; }
+    .recipe-card-title:hover { text-decoration: none; }
+    .recipe-card-body .badge {
+        font-size: .85rem;
+        padding: .35em .6em;
+        white-space: normal;
+        text-align: left;
+        line-height: 1.25;
+    }
+    .recipe-card-body .mb-2 { margin-bottom: .35rem !important; }
+    .recipe-card-meta { margin-bottom: 0 !important; }
+    .recipe-card-autor,
+    .recipe-card .recipe-rating,
+    .recipe-card-actions { display: none !important; }
+
+    /* Košík vpravo dole nahrádza spodná lišta */
+    .shopping-fab { display: none !important; }
+
+    /* ── Spodná lišta ── */
+    .spodna-lista {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1065; /* nad oknami Nákup a Viac (1055), pod oznámeniami (1080) */
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        gap: .25rem;
+        padding: .35rem .5rem calc(.35rem + env(safe-area-inset-bottom, 0px));
+        background: var(--app-lista-bg);
+        border-top: 1px solid var(--app-border);
+    }
+    body.lista-skryta .spodna-lista { display: none; }
+    .spodna-lista-polozka {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: .2rem;
+        min-height: 62px;
+        padding: 0;
+        border: 0;
+        border-radius: 14px;
+        background: none;
+        color: var(--app-muted-text);
+        font-size: .9rem;
+        line-height: 1.1;
+    }
+    .spodna-lista-polozka > i,
+    .spodna-lista-ikona > i { font-size: 1.6rem; line-height: 1; }
+    .spodna-lista-polozka.is-active { color: var(--app-accent); font-weight: 600; }
+    .spodna-lista-polozka:focus-visible { outline: 3px solid var(--app-accent-soft); }
+    .spodna-lista-pridat {
+        width: 54px;
+        height: 34px;
+        border-radius: 17px;
+        background: var(--app-accent);
+        color: #1c1917;
+        font-size: 1.35rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .spodna-lista-ikona { position: relative; display: inline-flex; }
+    .spodna-lista-pocet {
+        position: absolute;
+        top: -.4rem;
+        right: -.9rem;
+        min-width: 1.4rem;
+        height: 1.4rem;
+        padding: 0 .3rem;
+        border-radius: .7rem;
+        background: #dc3545;
+        color: #fff;
+        font-size: .78rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Okná Nákup a Viac nechajú spodnú lištu viditeľnú (prepína sa ako záložky). */
+    .modal-s-listou .modal-dialog {
+        height: calc(100% - var(--lista-vyska) - env(safe-area-inset-bottom, 0px));
+    }
+
+    /* ── Väčšie písmo a ovládanie v oknách ── */
+    .modal-title { font-size: 1.35rem; font-weight: 600; }
+    .modal-body { font-size: 1.05rem; }
+    .modal .form-control,
+    .modal .form-select { min-height: 52px; font-size: 1.05rem; }
+    .modal textarea.form-control { min-height: 120px; }
+    .modal .form-label.small,
+    .modal .form-text { font-size: .95rem !important; }
+    .modal-footer { gap: .5rem; flex-wrap: nowrap; }
+    .modal-footer > .btn,
+    .modal-footer > .dropdown > .btn { min-height: 54px; font-size: 1.05rem; padding: 0 1rem; margin: 0; }
+    #recipeModal .modal-footer > .btn,
+    #madeModal .modal-footer > .btn { flex: 1 1 0; }
+    /* Formulár receptu na celú obrazovku: <form> obaľuje hlavičku, telo aj pätičku,
+       preto musí byť sám flex, aby sa posúvalo len telo a Uložiť ostalo dole. */
+    #recipeModal .modal-content > form {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+    #recipeModal .modal-body { overflow-y: auto; }
+    #recipeModal .modal-footer { padding-bottom: calc(.75rem + env(safe-area-inset-bottom, 0px)); }
+    /* Sivé tlačidlá (Zrušiť, Vymazať) vyzerali na tmavom pozadí ako vypnuté. */
+    .modal-footer .btn-outline-secondary { color: var(--app-text); border-color: var(--app-border); }
+    .btn-close { width: 1.4em; height: 1.4em; padding: .6em; }
+
+    /* ── Náhľad receptu na celú obrazovku ── */
+    #recipeViewModal .modal-header { padding: .6rem 1rem; }
+    .view-mobil-lista { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+    .view-mobil-akcie { display: flex; gap: .5rem; }
+    .view-mobil-tlacidlo {
+        width: 48px;
+        height: 48px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        font-size: 1.3rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .view-mobil-tlacidlo:hover, .view-mobil-tlacidlo:focus-visible { color: var(--app-text); border-color: var(--app-accent); }
+    .view-mobil-menu { font-size: 1.05rem; }
+    .view-mobil-menu .dropdown-item { padding: .85rem 1.15rem; }
+    .view-mobil-nazov { margin: 0 0 .75rem; font-size: 1.65rem; font-weight: 700; line-height: 1.2; }
+    #recipeViewModal .modal-body .badge { font-size: .9rem; padding: .45em .7em; }
+    .view-mobil-hodnotenie { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; margin: -.25rem 0 1rem; }
+    .view-mobil-hodnotenie .rating-stars { display: inline-flex; margin-left: -.3rem; }
+    .view-mobil-hodnotenie .rating-stars .rating-star { font-size: 2rem; line-height: 1; padding: .3rem .25rem; margin: 0; }
+    .view-mobil-hodnotenie .rating-summary { font-size: .95rem; color: var(--app-muted-text); }
+    #recipeViewModal .suroviny-view-head .form-label { font-size: 1.2rem !important; font-weight: 700; color: var(--app-text) !important; }
+    #recipeViewModal .servings-stepper .btn { width: 48px; height: 48px; font-size: 1.2rem; }
+    #recipeViewModal .servings-value { font-size: 1.05rem; }
+    #recipeViewModal .suroviny-view-list { columns: 1; }
+    #recipeViewModal .suroviny-view-list li {
+        padding: .55rem 0 .55rem 1.1rem;
+        font-size: 1.1rem;
+        border-bottom: 1px solid var(--app-border);
+    }
+    #recipeViewModal .suroviny-view-list li::before { top: 1.05em; }
+    #recipeViewModal #viewRecipeIngredients { font-size: 1.05rem; line-height: 1.5; }
+    #recipeViewModal #viewRecipeUrl { min-height: 48px; display: inline-flex; align-items: center; font-size: 1rem; }
+    #recipeViewModal #viewRecipeUrl.d-none { display: none !important; }
+    .view-paticka {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        gap: .6rem;
+        padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px));
+    }
+    .view-paticka > .btn { min-height: 58px; font-size: 1.1rem; font-weight: 700; margin: 0; }
+
+    /* ── Nákupný zoznam ── */
+    #shoppingModal .modal-title { font-size: 1.6rem; font-weight: 700; }
+    #shoppingAddInput { min-height: 54px; }
+    .shopping-group { font-size: .85rem; margin: 1.25rem 0 .25rem; color: var(--app-muted-text); }
+    .shopping-item-label { min-height: 3.9rem; gap: 1rem; font-size: 1.1rem; }
+    .shopping-check { width: 1.9rem; height: 1.9rem; }
+    .shopping-item-zdroj { font-size: .9rem; color: var(--app-muted-text); }
+    .shopping-item .surovina-row-remove { width: 48px; height: 48px; font-size: 1.15rem; }
+    #shoppingModal .modal-footer { justify-content: space-between; padding: .75rem 1rem; }
+
+    /* ── Okno Uvarené ── */
+    #madeRecipeName { font-size: 1.2rem; }
+}
+
+/* Telefón na šírku: dve karty vedľa seba */
+@media (max-width: 767.98px) and (orientation: landscape) {
+    .recipes-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
