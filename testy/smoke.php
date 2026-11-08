@@ -445,6 +445,35 @@ over(nespadla($o) && ($o->json()['success'] ?? null) === false && str_contains((
     'Rozpoznanie bez kľúča sa odmietne a nespadne', $o->popis());
 
 /* ---------------------------------------------------------------------- */
+/* 5c. Formulár receptu (verzia 1.9) — na telefóne sprievodca v troch       */
+/*     krokoch, ale stále jeden formulár so všetkými poliami (PC ho má celý). */
+/* ---------------------------------------------------------------------- */
+echo "\nFormulár receptu\n";
+$formular = '';
+if (preg_match('~<form id="recipeForm".*?</form>~s', $stranka, $m)) {
+    $formular = $m[0];
+}
+over($formular !== '', 'Stránka obsahuje formulár receptu');
+$chybajuce = [];
+foreach (['name="name"', 'name="category"', 'name="prep_time"', 'name="url"', 'name="ingredients"', 'name="recipe_image"', 'name="last_made_date"', 'id="recipeFormSubmit"'] as $pole) {
+    if (!str_contains($formular, $pole)) {
+        $chybajuce[] = $pole;
+    }
+}
+if ($plny) {
+    foreach (['name="suroviny_json"', 'name="servings"', 'id="recipeImageKamera"'] as $pole) {
+        if (!str_contains($formular, $pole)) {
+            $chybajuce[] = $pole;
+        }
+    }
+}
+over(!$chybajuce, 'Formulár má všetky polia', implode(', ', $chybajuce));
+preg_match_all('~class="formular-krok" data-krok="(\d)" data-nadpis="([^"]+)"~', $formular, $kroky);
+over($kroky[1] === ['1', '2', '3'], 'Sprievodca má tri kroky: ' . implode(' → ', $kroky[2]), implode(',', $kroky[1]));
+over(str_contains($formular, 'id="recipeKrokDalej"') && str_contains($formular, 'class="formular-cip"'),
+    'Sprievodca má tlačidlo Ďalej a kategórie ako tlačidlá');
+
+/* ---------------------------------------------------------------------- */
 /* 6. Mazanie receptu                                                      */
 /* ---------------------------------------------------------------------- */
 echo "\nMazanie\n";

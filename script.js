@@ -399,10 +399,17 @@ function recipePhotoList(data) {
     return data && data.imagePath ? [{ id: null, path: data.imagePath, date: null, by: '' }] : [];
 }
 
+/** Telefón (rozloženie pod 768 px) — podľa toho istého zlomu ako CSS. */
+function jeTelefon() {
+    return window.matchMedia('(max-width: 767.98px)').matches;
+}
+
 /* ========================================================================
    Suroviny vo formulári receptu — vyhľadávacie pole pridáva riadky do
    zoznamu; každý riadok má nepovinné množstvo, jednotku a poznámku.
    Pri odoslaní sa zoznam zapíše ako JSON do skrytého poľa suroviny_json.
+   Na telefóne (verzia 1.9) je riadok zbalený na názov a množstvo, polia
+   sa ukážu ceruzkou (Upraviť) a zbalia tlačidlom Hotovo.
    ======================================================================== */
 const surovinyPicker = (function initSurovinyPicker() {
     const field = document.getElementById('surovinyField');
@@ -422,13 +429,47 @@ const surovinyPicker = (function initSurovinyPicker() {
         return rowElements().some((el) => el.dataset.key === key);
     }
 
-    function addRow(row) {
+    function ikonaTlacidlo(trieda, ikona, popis) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = trieda;
+        btn.setAttribute('aria-label', popis);
+        btn.innerHTML = '<i class="bi ' + ikona + '" aria-hidden="true"></i>';
+        return btn;
+    }
+
+    /** Zbalený riadok na telefóne: „300 g · nastrúhané", alebo „bez množstva". */
+    function suhrnRiadka(el) {
+        const polia = S.readDetailFields(el);
+        return [S.formatDavka(polia), polia.poznamka].filter(Boolean).join(' · ') || 'bez množstva';
+    }
+
+    function zbalRiadky(okrem) {
+        rowElements().forEach((el) => {
+            if (el !== okrem && el.classList.contains('je-upravovana')) zbal(el);
+        });
+    }
+
+    function zbal(el) {
+        el.classList.remove('je-upravovana');
+        el.querySelector('.surovina-row-suhrn').textContent = suhrnRiadka(el);
+        el.querySelector('.surovina-row-upravit').setAttribute('aria-expanded', 'false');
+    }
+
+    function rozbal(el) {
+        zbalRiadky(el);
+        el.classList.add('je-upravovana');
+        el.querySelector('.surovina-row-upravit').setAttribute('aria-expanded', 'true');
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        el.querySelector('.sur-mnozstvo').focus({ preventScroll: true });
+    }
+
+    function vytvorRiadok(row) {
         const nazov = S.displayName(row.nazov);
         const key = S.normKey(nazov);
-        if (!key || hasKey(key)) return;
 
         const el = document.createElement('div');
-        el.className = 'surovina-row';
+        el.className = 'surovina-row' + (row.id ? '' : ' je-nova');
         el.dataset.id = row.id || '';
         el.dataset.nazov = nazov;
         el.dataset.key = key;
@@ -448,6 +489,12 @@ const surovinyPicker = (function initSurovinyPicker() {
             head.appendChild(badge);
         }
 
+        // Ceruzka len na telefóne (na PC sú polia stále viditeľné).
+        const upravit = ikonaTlacidlo('surovina-row-upravit d-md-none', 'bi-pencil', 'Upraviť množstvo: ' + nazov);
+        upravit.setAttribute('aria-expanded', 'false');
+        upravit.addEventListener('click', () => (el.classList.contains('je-upravovana') ? zbal(el) : rozbal(el)));
+        head.appendChild(upravit);
+
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'btn btn-sm surovina-row-remove';
@@ -456,12 +503,62 @@ const surovinyPicker = (function initSurovinyPicker() {
         remove.innerHTML = '<i class="bi bi-x-lg"></i>';
         remove.addEventListener('click', () => {
             el.remove();
-            input.focus();
+            // Na telefóne by fokus vyskočil klávesnicu, preto len na PC.
+            if (!jeTelefon()) input.focus();
         });
         head.appendChild(remove);
+        el.appendChild(head);
 
-        el.append(head, S.createDetailFields(row, jednotky, nazov));
+        const suhrn = document.createElement('div');
+        suhrn.className = 'surovina-row-suhrn d-md-none';
+        el.appendChild(suhrn);
+
+        // Recept z fotky (AI): surovina nie je v číselníku, ale podobná áno.
+        if (row.navrh && row.navrh.nazov) {
+            const navrh = document.createElement('button');
+            navrh.type = 'button';
+            navrh.className = 'surovina-row-navrh';
+            navrh.textContent = 'Nemysleli ste ' + row.navrh.nazov + '?';
+            navrh.addEventListener('click', () => {
+                const novy = Object.assign({}, row, S.readDetailFields(el), { id: row.navrh.id, nazov: row.navrh.nazov, navrh: null });
+                // Ak už rovnaká surovina v zozname je, druhú netreba.
+                const novyKluc = S.normKey(S.displayName(novy.nazov));
+                rowElements().forEach((ine) => { if (ine !== el && ine.dataset.key === novyKluc) ine.remove(); });
+                el.replaceWith(vytvorRiadok(novy));
+            });
+            el.appendChild(navrh);
+        }
+
+        const polia = S.createDetailFields(row, jednotky, nazov);
+        const hotovo = document.createElement('button');
+        hotovo.type = 'button';
+        hotovo.className = 'btn btn-primary surovina-row-hotovo d-md-none';
+        hotovo.textContent = 'Hotovo';
+        hotovo.addEventListener('click', () => {
+            zbal(el);
+            upravit.focus({ preventScroll: true });
+        });
+        polia.appendChild(hotovo);
+        polia.addEventListener('input', () => { suhrn.textContent = suhrnRiadka(el); });
+        polia.addEventListener('change', () => { suhrn.textContent = suhrnRiadka(el); });
+        // Enter v poli množstva/poznámky na telefóne = Hotovo (nie odoslanie formulára).
+        polia.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && jeTelefon() && e.target.tagName === 'INPUT') {
+                e.preventDefault();
+                hotovo.click();
+            }
+        });
+        el.appendChild(polia);
+        suhrn.textContent = suhrnRiadka(el);
+        return el;
+    }
+
+    function addRow(row) {
+        const key = S.normKey(S.displayName(row.nazov));
+        if (!key || hasKey(key)) return null;
+        const el = vytvorRiadok(row);
         list.appendChild(el);
+        return el;
     }
 
     function getRows() {
@@ -475,9 +572,11 @@ const surovinyPicker = (function initSurovinyPicker() {
         items: window.APP_SUROVINY || [],
         isTaken: (item) => hasKey(item.key),
         onPick: (item) => {
-            addRow({ id: item.id, nazov: item.nazov });
+            const el = addRow({ id: item.id, nazov: item.nazov });
             input.value = '';
-            input.focus();
+            // Telefón: nová surovina sa rovno otvorí na zadanie množstva; PC: pokračuje sa v hľadaní.
+            if (el && jeTelefon()) rozbal(el);
+            else input.focus();
         },
     });
 
@@ -1183,6 +1282,9 @@ function openRecipeModal(data = null) {
     // Recept z fotky (verzia 1.8): tlačidlo „Vyplniť z fotky" len pri novom recepte, banner preč.
     if (window.aiRecept) window.aiRecept.pripravFormular(!data);
 
+    // Telefón (verzia 1.9): sprievodca začína krokom 1; pri úprave sa dá uložiť z každého kroku.
+    if (formularKroky) formularKroky.reset(!!data);
+
     bootstrap.Modal.getOrCreateInstance(document.getElementById('recipeModal')).show();
 }
 
@@ -1492,6 +1594,231 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
     return new File([blob], (file.name || 'photo').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
 }
 
+/* ========================================================================
+   Formulár receptu na telefóne (verzia 1.9) — sprievodca v troch krokoch:
+   Základ → Suroviny → Postup a fotka. Stále je to ten istý formulár
+   #recipeForm; krok sa len zapíše do form[data-krok] a CSS pre telefón
+   ukáže iba jeho .formular-krok. Na PC sú všetky polia naraz ako doteraz.
+   ======================================================================== */
+const formularKroky = (function initFormularKroky() {
+    const form = document.getElementById('recipeForm');
+    const modalEl = document.getElementById('recipeModal');
+    if (!form || !modalEl) return null;
+
+    const $ = (id) => document.getElementById(id);
+    const kroky = Array.from(form.querySelectorAll('.formular-krok[data-nadpis]'))
+        .sort((a, b) => Number(a.dataset.krok) - Number(b.dataset.krok));
+    const pocet = kroky.length;
+    if (!pocet) return null;
+
+    const telo = form.querySelector('.modal-body');
+    const spat = $('recipeKrokSpat');
+    const spatIkona = spat.querySelector('i');
+    const nazovPole = form.querySelector('[name="name"]');
+    const kategoria = form.querySelector('[name="category"]');
+    const cipy = Array.from(form.querySelectorAll('.formular-cip'));
+    const dieliky = Array.from(form.querySelectorAll('.formular-postup-dielik'));
+    const viacBtn = $('recipeViacPrepinac');
+    const zoznamSurovin = $('surovinyList');
+    let aktualny = 1;
+
+    const sklonuj = (n, jedna, dve, pat) => (n === 1 ? jedna : (n >= 2 && n <= 4 ? dve : pat));
+
+    function popisKroku(n) {
+        const popis = kroky[n - 1].dataset.popis || '';
+        if (popis !== 'pocet-surovin') return popis;
+        const m = zoznamSurovin ? zoznamSurovin.querySelectorAll('.surovina-row').length : 0;
+        return m ? 'Pridané: ' + m + ' ' + sklonuj(m, 'surovina', 'suroviny', 'surovín') : 'Začni písať a vyber zo zoznamu';
+    }
+
+    function nastav(n, opts = {}) {
+        aktualny = Math.min(Math.max(1, n), pocet);
+        form.dataset.krok = String(aktualny);
+        $('recipeKrokCislo').textContent = 'Krok ' + aktualny + ' z ' + pocet;
+        $('recipeKrokNadpis').textContent = kroky[aktualny - 1].dataset.nadpis;
+        $('recipeKrokPopis').textContent = popisKroku(aktualny);
+
+        // Hlavička: v prvom kroku Zrušiť, ďalej návrat na predchádzajúci krok.
+        if (aktualny === 1) {
+            spatIkona.className = 'bi bi-x-lg';
+            $('recipeKrokSpatText').textContent = 'Zrušiť';
+            spat.setAttribute('aria-label', 'Zrušiť a zavrieť');
+        } else {
+            const predosly = kroky[aktualny - 2].dataset.nadpis;
+            spatIkona.className = 'bi bi-chevron-left';
+            $('recipeKrokSpatText').textContent = predosly;
+            spat.setAttribute('aria-label', 'Späť na krok ' + predosly);
+        }
+        if (aktualny < pocet) {
+            // Vedľa tlačidla Uložiť sa dlhý text nezmestí, preto kratší (ak ho krok má).
+            const dalsi = kroky[aktualny].dataset;
+            $('recipeKrokDalejText').textContent = form.classList.contains('moze-ulozit') && dalsi.dalejKratko
+                ? dalsi.dalejKratko : dalsi.dalej;
+        }
+        dieliky.forEach((d, i) => {
+            d.classList.toggle('je-hotovy', i < aktualny);
+            if (i === aktualny - 1) d.setAttribute('aria-current', 'step');
+            else d.removeAttribute('aria-current');
+        });
+
+        if (opts.hore !== false) telo.scrollTop = 0;
+        if (opts.fokus && jeTelefon()) $('recipeKrokNadpis').focus({ preventScroll: true });
+    }
+
+    /** Prechod na iný krok. Z prvého kroku ďalej len s vyplneným názvom. */
+    function chodNa(ciel) {
+        if (ciel > aktualny && aktualny === 1 && !nazovPole.value.trim()) {
+            nazovPole.value = '';
+            nazovPole.classList.add('is-invalid');
+            nazovPole.focus();
+            return;
+        }
+        nastav(ciel, { fokus: true });
+    }
+    nazovPole.addEventListener('input', () => nazovPole.classList.remove('is-invalid'));
+
+    function krokPola(el) {
+        const obal = el && el.closest('.formular-krok');
+        return obal ? Number(obal.dataset.krok) : aktualny;
+    }
+
+    function nastavViac(otvorene) {
+        form.classList.toggle('viac-otvorene', otvorene);
+        if (!viacBtn) return;
+        viacBtn.setAttribute('aria-expanded', otvorene ? 'true' : 'false');
+        $('recipeViacNazov').textContent = otvorene ? 'Menej možností' : 'Viac možností';
+    }
+
+    function oznacCipy() {
+        cipy.forEach((cip) => {
+            const aktivny = cip.dataset.kategoria === kategoria.value;
+            cip.classList.toggle('is-active', aktivny);
+            cip.setAttribute('aria-pressed', aktivny ? 'true' : 'false');
+        });
+    }
+
+    $('recipeKrokDalej').addEventListener('click', () => chodNa(aktualny + 1));
+    spat.addEventListener('click', () => {
+        if (aktualny === 1) bootstrap.Modal.getInstance(modalEl)?.hide();
+        else nastav(aktualny - 1, { fokus: true });
+    });
+    dieliky.forEach((d) => d.addEventListener('click', () => chodNa(Number(d.dataset.ciel))));
+    viacBtn?.addEventListener('click', () => nastavViac(!form.classList.contains('viac-otvorene')));
+
+    // Enter v poli na telefóne = Ďalej (do posledného kroku), nie uloženie receptu.
+    form.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.defaultPrevented || !jeTelefon() || aktualny >= pocet) return;
+        const t = e.target;
+        if (t.tagName !== 'INPUT' || ['checkbox', 'radio', 'file', 'button', 'submit'].includes(t.type)) return;
+        e.preventDefault();
+        chodNa(aktualny + 1);
+    });
+
+    // Kategória ako tlačidlá — opätovné ťuknutie na vybranú kategóriu ju zruší.
+    cipy.forEach((cip) => cip.addEventListener('click', () => {
+        kategoria.value = kategoria.value === cip.dataset.kategoria ? '' : cip.dataset.kategoria;
+        kategoria.dispatchEvent(new Event('change', { bubbles: true }));
+    }));
+    kategoria.addEventListener('change', oznacCipy);
+
+    // Porcie a čas prípravy: − a +. Prázdne pole prvým + dostane bežnú hodnotu,
+    // pod najmenšiu hodnotu sa pole vyprázdni (= nevyplnené).
+    form.addEventListener('click', (e) => {
+        const btn = e.target.closest('.krokovac-tlacidlo');
+        if (!btn) return;
+        const obal = btn.closest('.krokovac');
+        const pole = obal.querySelector('input');
+        const krok = Number(obal.dataset.krokO) || 1;
+        const min = Number(pole.min) || 1;
+        const max = Number(pole.max) || 999;
+        const smer = Number(btn.dataset.smer);
+        const teraz = parseInt(pole.value, 10);
+        let nova;
+        if (isNaN(teraz)) {
+            if (smer < 0) return;
+            nova = Number(obal.dataset.predvolene) || min;
+        } else {
+            nova = smer > 0 ? Math.floor(teraz / krok) * krok + krok : Math.ceil(teraz / krok) * krok - krok;
+        }
+        pole.value = nova < min ? '' : String(Math.min(nova, max));
+        pole.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Počet surovín v podnadpise kroku 2 sa mení s riadkami zoznamu.
+    if (zoznamSurovin) {
+        new MutationObserver(() => {
+            $('recipeKrokPopis').textContent = popisKroku(aktualny);
+        }).observe(zoznamSurovin, { childList: true });
+    }
+
+    // Fotka z fotoaparátu: samostatné pole s capture, súbor sa presunie do recipe_image,
+    // aby ho spracoval ten istý náhľad aj ukladanie. Bez DataTransfer ostane len galéria.
+    const kamera = $('recipeImageKamera');
+    const obrazok = $('recipeImageInput');
+    if (kamera && obrazok) {
+        let mozeKamera = false;
+        try {
+            mozeKamera = typeof DataTransfer === 'function' && !!new DataTransfer().items;
+        } catch (err) {
+            mozeKamera = false;
+        }
+        if (!mozeKamera) {
+            $('recipeKameraDlazdica')?.remove();
+            kamera.remove();
+            $('recipeFotoDlazdice')?.classList.add('len-galeria');
+            const text = $('recipeGaleriaDlazdica')?.querySelector('span');
+            if (text) text.textContent = 'Pridať fotku';
+        } else {
+            kamera.addEventListener('change', () => {
+                const subor = kamera.files && kamera.files[0];
+                kamera.value = '';
+                if (!subor) return;
+                const prenos = new DataTransfer();
+                prenos.items.add(subor);
+                obrazok.files = prenos.files;
+                obrazok.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        }
+    }
+
+    return {
+        /** Pri každom otvorení formulára (openRecipeModal). */
+        reset(jeUprava) {
+            nazovPole.classList.remove('is-invalid');
+            form.classList.toggle('moze-ulozit', jeUprava);
+            $('recipeKrokRezim').textContent = jeUprava ? 'Úprava receptu' : 'Nový recept';
+            nastavViac(!!(form.querySelector('[name="url"]').value || form.querySelector('[name="last_made_date"]').value));
+            $('recipeOdhad')?.classList.add('d-none');
+            oznacCipy();
+            nastav(1);
+        },
+        /** Formulár sa predvyplnil z fotky (AI) — uložiť sa dá hneď z každého kroku. */
+        poVyplneni(odhad) {
+            form.classList.add('moze-ulozit');
+            $('recipeKrokRezim').textContent = 'Nový recept z fotky';
+            $('recipeOdhad')?.classList.toggle('d-none', !odhad);
+            oznacCipy();
+            nastav(aktualny, { hore: false });
+        },
+        /** Neplatný formulár pri uložení: ukáže krok s prvým chybným poľom. */
+        ukazChybu() {
+            const pole = form.querySelector(':invalid');
+            if (!pole) return;
+            if (pole.closest('.formular-viac')) nastavViac(true);
+            nastav(krokPola(pole));
+            pole.focus();
+        },
+        /** Ukáže krok, v ktorom je dané pole. */
+        ukazPole(el) {
+            nastav(krokPola(el));
+        },
+        /** Chybové hlásenie je pod poliami — na telefóne sa k nemu posunie. */
+        ukazHlasenie() {
+            $('recipeFormError').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        },
+    };
+})();
+
 (function initRecipeForm() {
     const form = document.getElementById('recipeForm');
     if (!form) return;
@@ -1508,6 +1835,7 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
 
         if (!form.checkValidity()) {
             form.classList.add('was-validated');
+            if (formularKroky) formularKroky.ukazChybu();
             return;
         }
 
@@ -1517,6 +1845,7 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
             if (pending) {
                 errorBox.textContent = 'Surovinu „' + pending + '“ ešte potvrď výberom zo zoznamu, alebo pole vymaž.';
                 errorBox.classList.remove('d-none');
+                if (formularKroky) formularKroky.ukazPole(document.getElementById('surovinaSearch'));
                 surovinyPicker.focusSearch();
                 return;
             }
@@ -1557,6 +1886,7 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
                 errorBox.textContent = 'Neplatná odpoveď servera (status ' + res.status + '): '
                     + rawText.slice(0, 300);
                 errorBox.classList.remove('d-none');
+                if (formularKroky) formularKroky.ukazHlasenie();
                 return;
             }
 
@@ -1570,13 +1900,15 @@ async function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
             } else {
                 errorBox.textContent = data.error || 'Niečo sa pokazilo, skús to znova.';
                 errorBox.classList.remove('d-none');
+                if (formularKroky) formularKroky.ukazHlasenie();
             }
         } catch (err) {
             errorBox.textContent = 'Chyba pripojenia k serveru (' + (err.message || err) + '). Skús to znova.';
             errorBox.classList.remove('d-none');
+            if (formularKroky) formularKroky.ukazHlasenie();
         } finally {
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Uložiť recept';
+            submitBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Uložiť<span class="ulozit-slovo-recept"> recept</span>';
         }
     });
 })();
@@ -1953,22 +2285,19 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 /* ========================================================================
    Recept z fotky cez AI (verzia 1.8). Server (akcia ai_rozpoznaj, includes/ai.php)
-   pošle fotku AI a vráti návrh receptu. Na telefóne ho vedie sprievodca v okne
-   #aiModal (fotka → rozpoznanie → kontrola surovín → formulár), na PC tlačidlo
-   „Vyplniť z fotky" priamo vo formulári. Uloží sa až tlačidlom Uložiť recept.
+   pošle fotku AI a vráti návrh receptu. Na telefóne okno #aiModal (výber fotky →
+   rozpoznanie) a potom formulár receptu v troch krokoch, už predvyplnený
+   (od verzie 1.9 bez samostatnej kontroly surovín); na PC tlačidlo „Vyplniť
+   z fotky" priamo vo formulári. Uloží sa až tlačidlom Uložiť recept.
    ======================================================================== */
 window.aiRecept = (function initAiRecept() {
     if (!window.APP_AI || !window.Suroviny) return null;
 
     const S = window.Suroviny;
-    const jednotky = window.APP_JEDNOTKY || [];
     const modalEl = document.getElementById('aiModal');
     const $ = (id) => document.getElementById(id);
 
     let fotkaFormulara = null;  // fotka, z ktorej sa vyplnil formulár (môže ísť do galérie)
-    let vysledok = null;        // posledný návrh od AI
-    let fotka = null;           // zmenšená fotka práve rozpoznávaná v sprievodcovi
-    let riadky = [];            // suroviny na kontrolu v sprievodcovi
     let ziadost = null;         // AbortController bežiaceho rozpoznania
     const url = { sprievodca: null, banner: null };
 
@@ -2044,8 +2373,10 @@ window.aiRecept = (function initAiRecept() {
         nastav('prep_time', navrh.cas_pripravy);
         nastav('servings', navrh.porcie);
 
+        // navrh = podobná surovina z číselníka („Nemysleli ste…?" v riadku suroviny).
         const suroviny = (navrh.suroviny || []).map((r) => ({
             id: r.id || null, nazov: r.nazov, mnozstvo: r.mnozstvo, jednotka: r.jednotka || '', poznamka: r.poznamka || '',
+            navrh: r.navrh || null,
         }));
         if (surovinyPicker) {
             surovinyPicker.setRows(opts.dopln ? surovinyPicker.getRows().concat(suroviny) : suroviny);
@@ -2067,9 +2398,11 @@ window.aiRecept = (function initAiRecept() {
         $('aiBannerUlozitFotku').checked = !jeRecept;
         $('aiBanner').classList.toggle('d-none', !fotkaFormulara);
         $('aiVyplnitWrap')?.classList.toggle('d-none', !!fotkaFormulara);
+        // Telefón: uložiť sa dá z každého kroku, v kroku Suroviny upozornenie na odhad.
+        if (formularKroky) formularKroky.poVyplneni(!jeRecept);
     }
 
-    // PC (aj telefón vo formulári): „Vyplniť z fotky".
+    // PC: „Vyplniť z fotky" vo formulári (na telefóne je skryté, tam fotka ide cez okno Nový recept).
     const vstupFormular = $('aiFotkaFormular');
     vstupFormular?.addEventListener('change', async () => {
         const subor = vstupFormular.files && vstupFormular.files[0];
@@ -2081,9 +2414,9 @@ window.aiRecept = (function initAiRecept() {
         $('aiStavFormular').classList.remove('d-none');
         try {
             const data = await rozpoznaj(subor);
-            // Preklep v názve suroviny opravíme rovno (na PC nie je krok s kontrolou surovín).
+            // Preklep v názve suroviny opravíme rovno, inú podobnú surovinu ponúkne riadok.
             data.vysledok.suroviny.forEach((r) => {
-                if (r.navrh && r.navrh.druh === 'preklep') Object.assign(r, { id: r.navrh.id, nazov: r.navrh.nazov });
+                if (r.navrh && r.navrh.druh === 'preklep') Object.assign(r, { id: r.navrh.id, nazov: r.navrh.nazov, navrh: null });
             });
             vyplnFormular(data.vysledok, data.fotka, { dopln: true });
         } catch (err) {
@@ -2095,11 +2428,20 @@ window.aiRecept = (function initAiRecept() {
         }
     });
 
-    /* ---------- Sprievodca na telefóne ---------- */
+    /* ---------- Okno Nový recept na telefóne ---------- */
 
     function krok(nazov) {
         modalEl.querySelectorAll('.ai-krok').forEach((el) => el.classList.toggle('d-none', el.dataset.krok !== nazov));
         modalEl.querySelector('.ai-krok[data-krok="' + nazov + '"] .modal-body')?.scrollTo(0, 0);
+    }
+
+    /** Zavrie okno a otvorí formulár receptu (prázdny, alebo vyplnený návrhom od AI). */
+    function doFormulara(navrh, subor) {
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            openRecipeModal();
+            if (navrh) vyplnFormular(navrh, subor);
+        }, { once: true });
+        bootstrap.Modal.getInstance(modalEl)?.hide();
     }
 
     async function spustiRozpoznanie(subor) {
@@ -2108,9 +2450,7 @@ window.aiRecept = (function initAiRecept() {
         ziadost = new AbortController();
         try {
             const data = await rozpoznaj(subor, ziadost.signal);
-            fotka = data.fotka;
-            vysledok = data.vysledok;
-            ukazKontrolu();
+            doFormulara(data.vysledok, data.fotka);
         } catch (err) {
             if (err.name === 'AbortError') {
                 krok('vyber');
@@ -2125,133 +2465,6 @@ window.aiRecept = (function initAiRecept() {
         }
     }
 
-    function ukazKontrolu() {
-        $('aiNahladMaly').src = url.sprievodca || '';
-        $('aiVysledokNazov').textContent = vysledok.nazov || 'Nový recept';
-        $('aiOdhad').classList.toggle('d-none', vysledok.typ !== 'jedlo');
-        riadky = vysledok.suroviny.map((r) => Object.assign({}, r));
-        $('aiPridatWrap').classList.add('d-none');
-        vykresliRiadky();
-        krok('kontrola');
-    }
-
-    function vykresliRiadky() {
-        const zoznam = $('aiSurovinyZoznam');
-        zoznam.replaceChildren(...riadky.map(riadokSuroviny));
-        if (!riadky.length) {
-            const prazdne = document.createElement('p');
-            prazdne.className = 'ai-prazdne';
-            prazdne.textContent = 'AI nenašla žiadne suroviny. Pridaj ich tlačidlom Surovina.';
-            zoznam.appendChild(prazdne);
-        }
-        const n = riadky.length;
-        $('aiVysledokPocet').textContent = 'Navrhnuté: ' + n + ' ' + sklonuj(n, 'surovina', 'suroviny', 'surovín');
-    }
-
-    function tlacidloIkona(ikona, popis, trieda = '') {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'ai-tlacidlo-ikona ' + trieda;
-        btn.setAttribute('aria-label', popis);
-        btn.innerHTML = '<i class="bi ' + ikona + '" aria-hidden="true"></i>';
-        return btn;
-    }
-
-    function riadokSuroviny(r) {
-        const el = document.createElement('div');
-        el.className = 'ai-surovina' + (!r.id ? ' je-nova' : '');
-
-        const hlava = document.createElement('div');
-        hlava.className = 'ai-surovina-hlava';
-        const text = document.createElement('div');
-        text.className = 'ai-surovina-text';
-
-        const nazov = document.createElement('div');
-        nazov.className = 'ai-surovina-nazov';
-        nazov.append(r.nazov);
-        if (!r.id) {
-            const odznak = document.createElement('span');
-            odznak.className = 'ai-odznak-nova';
-            odznak.textContent = 'nová';
-            nazov.appendChild(odznak);
-        }
-        const davka = document.createElement('div');
-        davka.className = 'ai-surovina-davka';
-        davka.textContent = [S.formatDavka(r), r.poznamka].filter(Boolean).join(' · ') || 'bez množstva';
-        text.append(nazov, davka);
-
-        if (r.navrh) {
-            const navrh = document.createElement('button');
-            navrh.type = 'button';
-            navrh.className = 'ai-surovina-navrh';
-            navrh.textContent = 'Nemysleli ste ' + r.navrh.nazov + '?';
-            navrh.addEventListener('click', () => {
-                Object.assign(r, { id: r.navrh.id, nazov: r.navrh.nazov, navrh: null });
-                // Ak už rovnaká surovina v zozname je, druhú netreba.
-                const kluc = S.normKey(r.nazov);
-                riadky = riadky.filter((x) => x === r || S.normKey(x.nazov) !== kluc);
-                vykresliRiadky();
-            });
-            text.appendChild(navrh);
-        }
-
-        const upravit = tlacidloIkona('bi-pencil', 'Upraviť množstvo: ' + r.nazov);
-        const odstranit = tlacidloIkona('bi-x-lg', 'Odstrániť: ' + r.nazov, 'odstranit');
-        hlava.append(text, upravit, odstranit);
-        el.appendChild(hlava);
-
-        odstranit.addEventListener('click', () => {
-            riadky = riadky.filter((x) => x !== r);
-            vykresliRiadky();
-        });
-        upravit.addEventListener('click', () => {
-            const otvorena = el.querySelector('.ai-surovina-uprava');
-            if (otvorena) {
-                ulozUpravu(r, otvorena);
-                vykresliRiadky();
-                return;
-            }
-            const uprava = document.createElement('div');
-            uprava.className = 'ai-surovina-uprava';
-            const hotovo = document.createElement('button');
-            hotovo.type = 'button';
-            hotovo.className = 'btn btn-primary fw-semibold';
-            hotovo.textContent = 'Hotovo';
-            hotovo.addEventListener('click', () => {
-                ulozUpravu(r, uprava);
-                vykresliRiadky();
-            });
-            uprava.append(S.createDetailFields(r, jednotky, r.nazov), hotovo);
-            el.appendChild(uprava);
-            uprava.querySelector('.sur-mnozstvo').focus();
-        });
-        return el;
-    }
-
-    function ulozUpravu(r, uprava) {
-        const polia = S.readDetailFields(uprava);
-        const cislo = Number(String(polia.mnozstvo).replace(',', '.'));
-        r.mnozstvo = polia.mnozstvo !== '' && isFinite(cislo) && cislo > 0 ? cislo : null;
-        r.jednotka = polia.jednotka || null;
-        r.poznamka = polia.poznamka || null;
-    }
-
-    function dalej() {
-        // Rozpísané úpravy, ktoré sa nepotvrdili tlačidlom Hotovo, sa uložia tiež.
-        modalEl.querySelectorAll('.ai-surovina-uprava').forEach((uprava) => {
-            const el = uprava.closest('.ai-surovina');
-            const index = Array.from($('aiSurovinyZoznam').children).indexOf(el);
-            if (riadky[index]) ulozUpravu(riadky[index], uprava);
-        });
-        const navrh = Object.assign({}, vysledok, { suroviny: riadky });
-        const subor = fotka;
-        modalEl.addEventListener('hidden.bs.modal', () => {
-            openRecipeModal();
-            vyplnFormular(navrh, subor);
-        }, { once: true });
-        bootstrap.Modal.getInstance(modalEl)?.hide();
-    }
-
     if (modalEl) {
         ['aiFotkaKamera', 'aiFotkaGaleria'].forEach((id) => {
             const vstup = $(id);
@@ -2261,33 +2474,12 @@ window.aiRecept = (function initAiRecept() {
                 if (subor) spustiRozpoznanie(subor);
             });
         });
-        const rucne = () => {
-            modalEl.addEventListener('hidden.bs.modal', () => openRecipeModal(), { once: true });
-            bootstrap.Modal.getInstance(modalEl)?.hide();
-        };
-        $('aiRucne').addEventListener('click', rucne);
-        $('aiChybaRucne').addEventListener('click', rucne);
+        $('aiRucne').addEventListener('click', () => doFormulara(null));
+        $('aiChybaRucne').addEventListener('click', () => doFormulara(null));
         $('aiChybaZnova').addEventListener('click', () => krok('vyber'));
-        $('aiZnova').addEventListener('click', () => krok('vyber'));
         $('aiZrusit').addEventListener('click', () => {
             if (ziadost) ziadost.abort();
             krok('vyber');
-        });
-        $('aiDalej').addEventListener('click', dalej);
-        $('aiPridatSurovinu').addEventListener('click', () => {
-            $('aiPridatWrap').classList.remove('d-none');
-            $('aiPridatInput').focus();
-            $('aiPridatInput').scrollIntoView({ block: 'center', behavior: 'smooth' });
-        });
-        S.attachCombobox($('aiPridatInput'), {
-            items: window.APP_SUROVINY || [],
-            isTaken: (item) => riadky.some((r) => S.normKey(r.nazov) === item.key),
-            onPick: (item) => {
-                riadky.push({ id: item.id || null, nazov: item.nazov, mnozstvo: null, jednotka: null, poznamka: null, navrh: null });
-                $('aiPridatInput').value = '';
-                vykresliRiadky();
-                $('aiPridatInput').focus();
-            },
         });
         modalEl.addEventListener('hidden.bs.modal', () => {
             if (ziadost) ziadost.abort();

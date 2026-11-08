@@ -21,7 +21,7 @@ Tento dokument má dve časti:
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty aj bez internetu.** Posledné načítané recepty sa uložia v zariadení a bez pripojenia sa dajú pozerať (meniť nie).
 - **Recept z fotky.** Odfotíš hotové jedlo, stranu z kuchárky alebo ručne písaný recept a AI (Gemini, Claude alebo OpenAI) navrhne názov, kategóriu, porcie, čas, suroviny s množstvami aj postup. Návrh si skontroluješ a upravíš, uloží sa až potom. Fotka jedla sa pridá do galérie receptu. Funkcia je nepovinná, zapne sa kľúčom v `.env`.
-- **Rozloženie pre telefón.** Na telefóne je dole lišta so štyrmi veľkými tlačidlami (Recepty, Pridať, Nákup, Viac), recept, nákupný zoznam aj formulár sú na celú obrazovku a hlavné akcie majú veľké tlačidlá. Na PC a tablete ostáva klasické rozloženie.
+- **Rozloženie pre telefón.** Na telefóne je dole lišta so štyrmi veľkými tlačidlami (Recepty, Pridať, Nákup, Viac), recept, nákupný zoznam aj formulár sú na celú obrazovku a hlavné akcie majú veľké tlačidlá. Recept sa pridáva v troch krokoch (Základ, Suroviny, Postup a fotka). Na PC a tablete ostáva klasické rozloženie.
 - **Svetlý a tmavý vzhľad**, veľké ovládacie prvky vhodné aj pre starších používateľov.
 
 ---
@@ -428,7 +428,20 @@ Pod šírkou 768 bodov (telefón na výšku, menší telefón aj na šírku) má
 - **Karta receptu** má fotku vľavo a vpravo názov, odznak naposledy vareného, kategóriu a čas. Hviezdičky, autor a päť malých tlačidiel na nej nie sú.
 - **Náhľad receptu** je na celú obrazovku. Hore je šípka späť a ikony Zdieľať, Upraviť a „…" (História, Zmazať pre admina), pod fotkou názov a hodnotenie hviezdičkami, dole veľké tlačidlá **Do nákupu** a **Uvarené**.
 - **Nákupný zoznam, formulár receptu a história** sú na celú obrazovku s väčším písmom, políčkami a tlačidlami. Plávajúci košík vpravo dole na telefóne nie je, nahrádza ho Nákup v lište.
+- **Formulár receptu** je sprievodca v troch krokoch (pozri nižšie).
 - Lišta si cez `env(safe-area-inset-bottom)` nechá miesto nad pásikom na spodku iPhonu (v `index.php` je preto vo `viewport` aj `viewport-fit=cover`).
+
+### Formulár receptu na telefóne
+
+Na telefóne je pridanie aj úprava receptu rozdelená do troch krokov. Hore je tlačidlo späť (v prvom kroku **Zrušiť**), „Krok X z 3" a pásik priebehu, ktorého dieliky sa dajú ťuknúť a preskočiť tak na iný krok. Dole je veľké tlačidlo **Ďalej: …**, v poslednom kroku **Uložiť recept**.
+
+1. **Základ** — názov, kategória ako veľké tlačidlá (opätovným ťuknutím sa výber zruší), čas prípravy a porcie s tlačidlami − a +. Prvé + dá bežnú hodnotu (30 minút, 4 porcie), čas sa mení po 5 minútach, pod najmenšiu hodnotu sa pole vyprázdni. Bez názvu Ďalej nepustí.
+2. **Suroviny** — hľadanie ako na PC. Vybraná surovina sa hneď otvorí na zadanie množstva, jednotky a poznámky a tlačidlom **Hotovo** (alebo Enter) sa zbalí na riadok „Zemiaky — 1 kg · nastrúhané" s ceruzkou na úpravu a krížikom na odstránenie. Pod nadpisom je počet pridaných surovín.
+3. **Postup a fotka** — postup a poznámky, fotka cez veľké dlaždice **Odfotiť** (otvorí fotoaparát) a **Z galérie** a pod **Viac možností** odkaz na web a dátum posledného varenia. Pri úprave receptu, ktorý ich má vyplnené, je Viac možností otvorené.
+
+Pri úprave receptu a pri recepte vyplnenom z fotky je vedľa Ďalej aj menšie tlačidlo **Uložiť**, takže netreba prechádzať všetky kroky. Pri chybe pri uložení (napr. nepotvrdená surovina v hľadaní, neplatný odkaz) sa formulár prepne na krok s chybou.
+
+Je to stále jeden formulár `#recipeForm` s rovnakými poľami a ukladaním ako na PC. Polia sú v `index.php` rozdelené do blokov `.formular-krok` s `data-krok`, aktuálny krok je v `form[data-krok]` a štýly v `@media (max-width: 767.98px)` ukážu len jeho bloky. Ovládanie je v `script.js` (`formularKroky`, riadky surovín v `surovinyPicker`). Na PC sa bloky nijako neprejavia a formulár vyzerá ako predtým. Bez číselníka surovín (stará databáza) sú kroky Základ, Suroviny a postup, Fotka.
 
 ### Recept z fotky (AI)
 
@@ -436,12 +449,11 @@ Recept sa dá vyplniť z fotky hotového jedla, strany z kuchárky, ručne písa
 
 **Na telefóne** otvorí tlačidlo **Pridať** (s ikonou fotoaparátu) sprievodcu:
 
-1. **Odfotiť** (otvorí fotoaparát), **Vybrať fotku z telefónu** alebo **Vyplniť ručne, bez fotky**.
+1. **Odfotiť** (otvorí fotoaparát), **Vybrať fotku z telefónu** alebo **Vyplniť ručne, bez AI** (otvorí prázdny [formulár v troch krokoch](#formulár-receptu-na-telefóne)).
 2. **Rozpoznávanie**, zvyčajne 5 až 20 sekúnd. Dá sa zrušiť.
-3. **Kontrola surovín.** Každá surovina má množstvo, tlačidlo na úpravu (množstvo, jednotka, poznámka) a na odstránenie. Surovina, ktorá nie je v číselníku, má odznak „nová", podobná existujúcej má tlačidlo „Nemysleli ste …?". Ďalšia sa pridá tlačidlom **Surovina**. Pri fotke jedla je hore upozornenie, že ide o odhad.
-4. **Formulár receptu** vyplnený návrhom (názov, kategória, čas, porcie, suroviny, postup). Je to ten istý formulár ako pri ručnom pridaní, uloží sa tlačidlom **Uložiť recept**.
+3. **Formulár receptu v troch krokoch**, už vyplnený návrhom (názov, kategória, čas, porcie, suroviny, postup). Je to ten istý formulár ako pri ručnom pridaní. Hore je náhľad fotky, v kroku Suroviny pri fotke jedla upozornenie, že ide o odhad. Surovina, ktorá nie je v číselníku, má odznak „nová", podobná existujúcej tlačidlo „Nemysleli ste …?". Uložiť sa dá z ktoréhokoľvek kroku.
 
-**Na PC** (a vo formulári aj na telefóne) je pri novom recepte tlačidlo **Vyplniť z fotky**. Návrh doplní len prázdne polia, suroviny pridá k už vybraným a preklep v názve suroviny rovno opraví na existujúcu.
+**Na PC** je pri novom recepte vo formulári tlačidlo **Vyplniť z fotky**. Návrh doplní len prázdne polia, suroviny pridá k už vybraným, preklep v názve suroviny rovno opraví na existujúcu a pri inej podobnej surovine ponúkne „Nemysleli ste …?".
 
 **Fotka v galérii.** Vo formulári je náhľad fotky s políčkom **Pridať fotku k receptu**. Pri fotke jedla je zaškrtnuté, pri fotke textu receptu nie (stranu z kuchárky ako titulnú fotku väčšinou netreba). Zaškrtnutá fotka sa pri uložení pridá do galérie ako pri bežnom pridaní fotky.
 
@@ -646,7 +658,7 @@ Testy sú v priečinku `testy/`. GitHub ich spúšťa pri každom nahratí do `m
 5. **databázu z predchádzajúcej verzie bez migrácie:** nová appka na nej musí bežať,
 6. **migrácie** na tej istej databáze (každú dvakrát po sebe), znova priechod appkou a porovnanie štruktúry s novou inštaláciou.
 
-Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, zmaže recept, v správe pridá, premenuje, posunie a zmaže kategóriu receptov (a overí, že používanú zmazať nejde), v správe surovín zaradí, premenuje a zlúči surovinu s preklepom, otvorí biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
+Priechod appkou (`testy/smoke.php`) robí to isté ako človek: prihlási sa (aj nesprávnym heslom), pridá recept s fotkou a surovinami, upraví ho, zapíše varenie, ohodnotí, pozrie históriu, zmaže fotku z galérie, použije nákupný zoznam, skontroluje formulár receptu (všetky polia a tri kroky sprievodcu), zmaže recept, v správe pridá, premenuje, posunie a zmaže kategóriu receptov (a overí, že používanú zmazať nejde), v správe surovín zaradí, premenuje a zlúči surovinu s preklepom, otvorí biometriu a `cron.php`, overí „Zostať prihlásený" a odhlási sa. Skontroluje aj, že hlavnú stránku si appka môže uložiť na čítanie bez internetu a presmerovanie ani odpovede akcií nie. Po každom priechode skontroluje aj záznam chýb appky. Samotný offline režim v prehliadači test nespúšťa, ten treba vyskúšať ručne (napr. v Chrome: Nástroje pre vývojárov → Network → Offline).
 
 Po nahratí na server skript `testy/kontrola-po-nahrati.sh` overí ostrú appku a `testy/kontrola-ftp.sh` pred nahratím skontroluje FTP a cieľový priečinok.
 
@@ -674,6 +686,14 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 | Každá verzia má záznam v Histórii verzií nižšie. | Pri vydaní verzie upozornenie, ak záznam chýba. |
 
 ## B15. História verzií
+
+**1.9**
+
+- Formulár receptu na telefóne je sprievodca v troch krokoch: **Základ** (názov, kategória ako tlačidlá, čas a porcie s − a +), **Suroviny** (riadky zbalené na „Zemiaky — 1 kg", úprava ceruzkou) a **Postup a fotka** (dlaždice Odfotiť a Z galérie, odkaz a naposledy varené pod Viac možností). Hore krok a pásik priebehu, dole veľké tlačidlo Ďalej.
+- Pri úprave receptu a pri recepte z fotky sa dá uložiť z každého kroku.
+- Recept z fotky na telefóne ide po rozpoznaní rovno do tohto formulára (už vyplneného), samostatná obrazovka s kontrolou surovín odpadla. Tlačidlo v sprievodcovi sa volá „Vyplniť ručne, bez AI".
+- Na PC sa formulár nemení. Pribudol len text „Napíš názov receptu." pri prázdnom názve a pri recepte z fotky tlačidlo „Nemysleli ste …?" pri surovine podobnej existujúcej.
+- Databáza sa nemení, migrácia netreba.
 
 **1.8.2**
 

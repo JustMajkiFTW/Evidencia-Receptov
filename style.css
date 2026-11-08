@@ -1257,8 +1257,8 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
 
 /* ============================================================
    Verzia 1.8 — recept z fotky cez AI
-   Okno #aiModal (sprievodca) sa otvára len zo spodnej lišty na telefóne,
-   tlačidlo „Vyplniť z fotky" a banner sú vo formulári na telefóne aj na PC.
+   Okno #aiModal sa otvára len zo spodnej lišty na telefóne. Tlačidlo
+   „Vyplniť z fotky" vo formulári je len na PC, banner na PC aj na telefóne.
    ============================================================ */
 [data-bs-theme="dark"] { --app-modra-text: #93c5fd; --app-modra-bg: rgba(59, 130, 246, .16); --app-modra-okraj: rgba(96, 165, 250, .5); }
 [data-bs-theme="light"] { --app-modra-text: #1d4ed8; --app-modra-bg: rgba(59, 130, 246, .1); --app-modra-okraj: rgba(37, 99, 235, .45); }
@@ -1360,7 +1360,6 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     font-size: 1rem;
 }
 .ai-spat:hover { color: var(--app-text); border-color: var(--app-accent); }
-.ai-krok-cislo { margin-left: auto; font-size: .95rem; color: var(--app-muted-text); }
 .ai-nahlad {
     display: block;
     width: 100%;
@@ -1374,10 +1373,6 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
 .ai-cakanie-kruh { width: 3rem; height: 3rem; flex: none; border-width: .35rem; color: var(--app-accent); }
 .ai-cakanie-nadpis { font-size: 1.35rem; font-weight: 700; }
 .ai-cakanie-popis { color: var(--app-muted-text); }
-.ai-vysledok-hlava { display: flex; align-items: center; gap: .85rem; margin-bottom: .85rem; }
-.ai-nahlad-maly { width: 64px; height: 64px; flex: none; object-fit: cover; border-radius: 14px; }
-.ai-vysledok-nazov { margin: 0; font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
-.ai-vysledok-pocet { font-size: .95rem; color: var(--app-muted-text); }
 .ai-upozornenie {
     display: flex;
     gap: .6rem;
@@ -1389,71 +1384,298 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
     font-size: .95rem;
     line-height: 1.4;
 }
-.ai-suroviny { display: flex; flex-direction: column; gap: .5rem; }
-.ai-prazdne { margin: .5rem 0; color: var(--app-muted-text); }
-.ai-surovina {
-    padding: .5rem .5rem .5rem .9rem;
-    border-radius: 16px;
-    background: var(--app-plocha);
-    border: 1px solid var(--app-border);
-}
-.ai-surovina.je-nova { border-color: var(--app-modra-okraj); }
-.ai-surovina-hlava { display: flex; align-items: center; gap: .5rem; min-height: 50px; }
-.ai-surovina-text { flex: 1; min-width: 0; }
-.ai-surovina-nazov { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: 1.1rem; font-weight: 600; }
-.ai-odznak-nova {
-    padding: .1rem .5rem;
-    border-radius: 7px;
-    background: var(--app-modra-bg);
-    color: var(--app-modra-text);
-    font-size: .8rem;
-    font-weight: 700;
-}
-.ai-surovina-davka { font-size: 1rem; color: var(--app-muted-text); }
-.ai-surovina-navrh {
-    margin-top: .4rem;
-    min-height: 42px;
-    padding: 0 .8rem;
-    border-radius: 12px;
-    border: 1px solid var(--app-modra-okraj);
-    background: var(--app-modra-bg);
-    color: var(--app-modra-text);
-    font-size: .98rem;
-    text-align: left;
-}
-.ai-tlacidlo-ikona {
-    width: 48px;
-    height: 48px;
-    flex: none;
-    padding: 0;
-    border-radius: 14px;
-    border: 1px solid var(--app-border);
-    background: transparent;
-    color: var(--app-text);
-    font-size: 1.2rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-.ai-tlacidlo-ikona.odstranit { color: var(--bs-danger-text-emphasis); }
-.ai-surovina-uprava { display: flex; flex-direction: column; gap: .5rem; margin: .5rem .4rem .25rem 0; }
-.ai-surovina-uprava .btn { min-height: 48px; }
-.ai-pridat-combo { margin-top: .75rem; }
-.ai-paticka {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: .6rem;
-    padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px));
-}
-.ai-paticka > .btn { min-height: 58px; margin: 0; font-size: 1.1rem; }
 .ai-chyba { padding: 2rem 0 1.5rem; text-align: center; }
 .ai-chyba > i { font-size: 3rem; color: var(--app-muted-text); }
 .ai-chyba-text { margin: .75rem 0 0; font-size: 1.2rem; }
 .ai-chyba-detail { margin: .5rem 0 0; font-size: .85rem; color: var(--app-muted-text); overflow-wrap: anywhere; }
 .ai-chyba-tlacidlo { width: 100%; min-height: 58px; margin-bottom: .6rem; border-radius: 16px; font-size: 1.1rem; }
 
+/* ============================================================
+   Verzia 1.9 — formulár receptu na telefóne ako sprievodca
+   v troch krokoch (Základ → Suroviny → Postup a fotka).
+   Všetko je v @media (max-width: 767.98px); na PC ostáva formulár
+   celý na jednej obrazovke. Mimo media je len tlačidlo „Nemysleli
+   ste…?" pri surovine z fotky (AI), ktoré sa ukazuje aj na PC.
+   ============================================================ */
+.surovina-row-navrh {
+    display: block;
+    margin: .3rem 0 .35rem;
+    padding: .3rem .7rem;
+    border-radius: 10px;
+    border: 1px solid var(--app-modra-okraj);
+    background: var(--app-modra-bg);
+    color: var(--app-modra-text);
+    font-size: .875rem;
+    text-align: left;
+}
+
 @media (max-width: 767.98px) {
-    .ai-vyplnit-tlacidlo { width: 100%; min-height: 54px; font-size: 1.05rem; }
-    .ai-surovina-uprava .surovina-fields .form-control,
-    .ai-surovina-uprava .surovina-fields .form-select { min-height: 48px; font-size: 1.05rem; }
+    /* ── Čo z PC verzie formulára telefón nepotrebuje ── */
+    #recipeModal .modal-header > .modal-title,
+    #recipeModal .modal-header > .btn-close,
+    #recipeModal .modal-footer > [data-bs-dismiss],
+    #recipeModal .ai-vyplnit,
+    #recipeModal select[name="category"],
+    #surovinyField > .form-label { display: none; }
+    #recipePhotosField #recipeImageInput {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+        min-height: 0 !important;
+    }
+
+    /* ── Hlavička: späť / Zrušiť, číslo kroku a priebeh ── */
+    #recipeModal .modal-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: .55rem;
+        padding: .85rem 1rem .35rem;
+        border-bottom: 0;
+    }
+    .formular-lista { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+    .formular-spat {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        min-height: 48px;
+        padding: 0 1rem 0 .7rem;
+        border-radius: 14px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        font-size: 1.05rem;
+    }
+    .formular-spat:hover, .formular-spat:focus-visible { color: var(--app-text); border-color: var(--app-accent); }
+    .formular-spat .bi { font-size: 1.2rem; }
+    .formular-krok-cislo { font-size: .95rem; color: var(--app-muted-text); }
+    .formular-postup { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    /* Dielik je vyšší, než vyzerá — aby sa naň dalo ľahko ťuknúť. */
+    .formular-postup-dielik { position: relative; height: 20px; padding: 0; border: 0; background: none; }
+    .formular-postup-dielik::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 7px;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--app-border);
+    }
+    [data-bs-theme="dark"] .formular-postup-dielik::before { background: #2a2d33; }
+    .formular-postup-dielik.je-hotovy::before { background: var(--app-accent); }
+
+    /* ── Telo: nadpis kroku a len polia aktuálneho kroku ── */
+    #recipeModal .modal-body { display: flex; flex-direction: column; padding-top: .35rem; }
+    .formular-rezim { font-size: .85rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--app-accent); }
+    .formular-nadpis { margin: .1rem 0 0; font-size: 1.85rem; font-weight: 700; line-height: 1.15; }
+    .formular-nadpis:focus { outline: 0; }
+    .formular-popis { margin: .3rem 0 1.1rem; font-size: 1.05rem; color: var(--app-muted-text); }
+    .formular-popis:empty { display: none; }
+
+    #recipeForm .formular-krok { display: none; }
+    #recipeForm[data-krok="1"] .formular-krok[data-krok="1"],
+    #recipeForm[data-krok="2"] .formular-krok[data-krok="2"],
+    #recipeForm[data-krok="3"] .formular-krok[data-krok="3"] { display: block; }
+    #recipeForm:not(.viac-otvorene) .formular-viac { display: none !important; }
+    /* Odkaz a naposledy varené sú v HTML hneď pod základom (kvôli PC), tu idú pod „Viac možností". */
+    #recipeUrlPole { order: 2; }
+    #recipeNaposledyPole { order: 3; }
+    #recipeFormError { order: 4; margin-top: .5rem; font-size: 1rem !important; }
+
+    #recipeModal input[name="name"] { min-height: 58px; font-size: 1.15rem; }
+    #recipeModal .invalid-feedback { font-size: 1rem; }
+    /* Po neúspešnom uložení nech svieti len chybné pole, nie zelené fajky na všetkých ostatných. */
+    #recipeForm.was-validated .form-control:valid:not(.krokovac > input),
+    #recipeForm.was-validated .form-select:valid {
+        border-color: var(--app-border);
+        background-image: none;
+        padding-right: .75rem;
+    }
+    #recipeForm.was-validated .form-control:valid:not(.krokovac > input):focus { border-color: var(--app-accent); box-shadow: 0 0 0 3px var(--app-accent-soft); }
+    #recipeForm.was-validated .krokovac > .form-control:valid { border-color: transparent; background-image: none; }
+
+    /* Kategória ako tlačidlá */
+    .formular-cipy { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .formular-cip {
+        min-height: 46px;
+        padding: 0 1.05rem;
+        border-radius: 23px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        font-size: 1rem;
+    }
+    .formular-cip.is-active { background: var(--app-accent); border-color: var(--app-accent); color: #1c1917; font-weight: 600; }
+
+    /* Porcie a čas: − hodnota + */
+    .krokovac {
+        display: flex;
+        align-items: center;
+        gap: .25rem;
+        height: 58px;
+        padding: 0 4px;
+        border-radius: 16px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+    }
+    .krokovac:has(input:focus) { border-color: var(--app-accent); box-shadow: 0 0 0 3px var(--app-accent-soft); }
+    #recipeModal .krokovac input {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 0;
+        height: 48px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        text-align: center;
+        font-size: 1.25rem;
+        font-weight: 700;
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
+    #recipeModal .krokovac input::-webkit-outer-spin-button,
+    #recipeModal .krokovac input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    #recipeModal .krokovac input::placeholder { font-size: .85rem; font-weight: 400; }
+    .krokovac-tlacidlo {
+        flex: none;
+        width: 46px;
+        height: 48px;
+        padding: 0;
+        border: 0;
+        border-radius: 12px;
+        background: var(--app-surface);
+        color: var(--app-text);
+        font-size: 1.3rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    [data-bs-theme="dark"] .krokovac-tlacidlo { background: #23272e; }
+    [data-bs-theme="light"] .krokovac-tlacidlo { background: #f1f0ec; }
+
+    /* ── Krok 2: hľadanie suroviny a zbalené riadky ── */
+    .surovina-combo-ikona {
+        position: absolute;
+        left: 1rem;
+        top: 29px;
+        transform: translateY(-50%);
+        z-index: 1;
+        font-size: 1.2rem;
+        color: var(--app-muted-text);
+        pointer-events: none;
+    }
+    #recipeModal #surovinaSearch { min-height: 58px; padding-left: 2.9rem; font-size: 1.1rem; border-width: 2px; }
+    #recipeModal .surovina-options { max-height: 19rem; border-radius: 16px; }
+    #recipeModal .surovina-option { align-items: center; min-height: 52px; padding: .65rem .9rem; font-size: 1.05rem; border-radius: 12px; }
+    #recipeModal .surovina-option-cat { font-size: .85rem; }
+
+    #surovinyList { gap: .5rem; margin-top: .9rem; }
+    #surovinyList .surovina-row {
+        padding: .4rem .4rem .45rem .9rem;
+        border-radius: 16px;
+        background: var(--app-plocha);
+    }
+    #surovinyList .surovina-row.je-nova { border-color: var(--app-modra-okraj); }
+    #surovinyList .surovina-row.je-upravovana { border-color: var(--app-accent); }
+    #surovinyList .surovina-row-head { min-height: 50px; }
+    #surovinyList .surovina-row-name { font-size: 1.1rem; }
+    #surovinyList .surovina-row .badge { padding: .3em .55em; border-radius: 7px; background: var(--app-modra-bg) !important; color: var(--app-modra-text) !important; font-size: .8rem; }
+    .surovina-row-upravit,
+    #surovinyList .surovina-row-remove {
+        flex: none;
+        width: 48px;
+        height: 48px;
+        padding: 0;
+        border-radius: 14px;
+        border: 1px solid var(--app-border);
+        background: transparent;
+        color: var(--app-text);
+        font-size: 1.15rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .surovina-row-upravit { margin-left: auto; }
+    #surovinyList .surovina-row-remove { margin-left: 0; color: var(--bs-danger-text-emphasis); }
+    .surovina-row-upravit[aria-expanded="true"] { border-color: var(--app-accent); color: var(--app-accent); }
+    .surovina-row-suhrn { margin: -.45rem 0 .15rem; font-size: 1rem; color: var(--app-muted-text); }
+    .je-upravovana .surovina-row-suhrn { display: none; }
+    .surovina-row-navrh { min-height: 44px; margin: .35rem .4rem .35rem 0; font-size: 1rem; }
+    #surovinyList .surovina-row:not(.je-upravovana) .surovina-fields { display: none; }
+    #surovinyList .surovina-fields {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: .5rem;
+        padding: .45rem .5rem .35rem 0;
+    }
+    #surovinyList .surovina-fields .sur-poznamka,
+    .surovina-row-hotovo { grid-column: 1 / -1; }
+    #recipeModal #surovinyList .surovina-fields .form-control,
+    #recipeModal #surovinyList .surovina-fields .form-select { min-height: 50px; font-size: 1.05rem; }
+    .surovina-row-hotovo { min-height: 50px; font-size: 1.05rem; font-weight: 700; border-radius: 14px; }
+
+    /* ── Krok 3: fotka a viac možností ── */
+    .foto-dlazdice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+    .foto-dlazdice.len-galeria { grid-template-columns: minmax(0, 1fr); }
+    .foto-dlazdica {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: .35rem;
+        min-height: 96px;
+        margin: 0;
+        border-radius: 16px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        font-size: 1.05rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .foto-dlazdica .bi { font-size: 1.8rem; line-height: 1; }
+    .foto-dlazdica.je-hlavna { border: 2px dashed var(--app-accent); background: var(--app-accent-soft); color: var(--app-accent); }
+    .foto-dlazdica:active { transform: scale(.98); }
+
+    .formular-viac-prepinac {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        width: 100%;
+        min-height: 62px;
+        margin: .25rem 0 1rem;
+        padding: .5rem 1rem;
+        border-radius: 18px;
+        border: 1px solid var(--app-border);
+        background: var(--app-plocha);
+        color: var(--app-text);
+        text-align: left;
+    }
+    .formular-viac-text { flex: 1; min-width: 0; }
+    .formular-viac-nazov { display: block; font-size: 1.05rem; font-weight: 600; }
+    .formular-viac-popis { display: block; font-size: .9rem; color: var(--app-muted-text); }
+    .formular-viac-prepinac .bi { font-size: 1.2rem; color: var(--app-muted-text); transition: transform .2s ease; }
+    .formular-viac-prepinac[aria-expanded="true"] .bi { transform: rotate(180deg); }
+
+    /* ── Pätička: Ďalej, v poslednom kroku Uložiť recept ── */
+    #recipeModal .modal-footer { gap: .6rem; padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px)); }
+    #recipeModal .modal-footer > .btn { min-height: 58px; border-radius: 16px; font-size: 1.1rem; font-weight: 700; }
+    #recipeModal .modal-footer > #recipeKrokDalej { flex: 1.7 1 0; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+    #recipeModal .modal-footer > #recipeFormSubmit { white-space: nowrap; }
+    #recipeForm[data-krok="3"] #recipeKrokDalej { display: none; }
+    #recipeForm:not([data-krok="3"]):not(.moze-ulozit) #recipeFormSubmit { display: none; }
+    /* Úprava alebo recept z fotky: Uložiť je aj v kroku 1 a 2, ale ako vedľajšie tlačidlo. */
+    #recipeForm:not([data-krok="3"]) #recipeFormSubmit { background: transparent; color: var(--app-accent); border-color: var(--app-accent); }
+    #recipeForm:not([data-krok="3"]) .ulozit-slovo-recept { display: none; }
+}
+/* Úzky telefón: dve tlačidlá vedľa seba sa musia zmestiť. */
+@media (max-width: 374.98px) {
+    #recipeModal .modal-footer > .btn { font-size: 1rem; padding: 0 .75rem; }
+    #recipeForm:not([data-krok="3"]) #recipeFormSubmit .bi { display: none; }
 }

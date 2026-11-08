@@ -304,7 +304,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=28">
+    <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -594,20 +594,44 @@ header('X-Recepty-Offline: 1');
     </div>
 </div>
 
-<!-- ================= MODAL: Pridať / upraviť recept ================= -->
+<!-- ================= MODAL: Pridať / upraviť recept =================
+     Na PC je celý formulár na jednej obrazovke. Na telefóne (verzia 1.9) ho
+     .formular-krok delia na sprievodcu v troch krokoch: Základ → Suroviny →
+     Postup a fotka (script.js formularKroky, CSS v @media pre telefón).
+     Prvky d-md-none patria len sprievodcovi na telefóne. -->
 <div class="modal fade" id="recipeModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-fullscreen-md-down">
         <div class="modal-content">
-            <form id="recipeForm" novalidate enctype="multipart/form-data">
+            <form id="recipeForm" novalidate enctype="multipart/form-data" data-krok="1">
                 <div class="modal-header">
                     <h5 class="modal-title" id="recipeModalTitle"><i class="bi bi-journal-plus me-2"></i>Pridať recept
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <div class="formular-lista d-md-none">
+                        <button type="button" class="btn formular-spat" id="recipeKrokSpat">
+                            <i class="bi bi-x-lg" aria-hidden="true"></i><span id="recipeKrokSpatText">Zrušiť</span>
+                        </button>
+                        <span class="formular-krok-cislo" id="recipeKrokCislo">Krok 1 z 3</span>
+                    </div>
+                    <div class="formular-postup d-md-none" role="group" aria-label="Kroky formulára">
+                        <button type="button" class="formular-postup-dielik je-hotovy" data-ciel="1" aria-label="Krok 1: Základ"></button>
+                        <button type="button" class="formular-postup-dielik" data-ciel="2" aria-label="Krok 2: <?= $surovinyEnabled ? 'Suroviny' : 'Suroviny a postup' ?>"></button>
+                        <button type="button" class="formular-postup-dielik" data-ciel="3" aria-label="Krok 3: <?= $surovinyEnabled ? 'Postup a fotka' : 'Fotka' ?>"></button>
+                    </div>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                     <input type="hidden" name="recipe_id" value="">
 
+                    <div class="formular-hlavicka d-md-none">
+                        <div class="formular-rezim" id="recipeKrokRezim">Nový recept</div>
+                        <h2 class="formular-nadpis" id="recipeKrokNadpis" tabindex="-1">Základ</h2>
+                        <p class="formular-popis" id="recipeKrokPopis"></p>
+                    </div>
+
+                    <!-- Krok 1: Základ -->
+                    <div class="formular-krok" data-krok="1" data-nadpis="Základ"
+                         data-popis="<?= $servingsEnabled ? 'Ako sa jedlo volá a pre koľkých je' : 'Ako sa jedlo volá a ako dlho trvá' ?>">
                     <?php if ($aiEnabled): ?>
                     <!-- Recept z fotky (verzia 1.8) — len pri novom recepte, skryje ho script.js pri úprave. -->
                     <div class="ai-vyplnit mb-3" id="aiVyplnitWrap">
@@ -636,8 +660,9 @@ header('X-Recepty-Offline: 1');
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label small text-secondary">Názov receptu *</label>
-                        <input type="text" name="name" class="form-control" maxlength="150" required>
+                        <label class="form-label small text-secondary" for="recipeName">Názov receptu *</label>
+                        <input type="text" name="name" id="recipeName" class="form-control" maxlength="150" required>
+                        <div class="invalid-feedback">Napíš názov receptu.</div>
                     </div>
 
                     <div class="row g-3 mb-3">
@@ -649,30 +674,57 @@ header('X-Recepty-Offline: 1');
                                     <option value="<?= htmlspecialchars($kategoria['kluc']) ?>"><?= htmlspecialchars($kategoria['nazov']) ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <!-- Telefón: kategórie ako tlačidlá, nastavujú výber vyššie (opätovné ťuknutie zruší) -->
+                            <div class="formular-cipy d-md-none" role="group" aria-label="Kategória">
+                                <?php foreach ($recipeCategories as $kategoria): ?>
+                                    <button type="button" class="formular-cip" data-kategoria="<?= htmlspecialchars($kategoria['kluc']) ?>" aria-pressed="false"><?= htmlspecialchars($kategoria['nazov']) ?></button>
+                                <?php endforeach; ?>
+                            </div>
                         </div>
                         <div class="<?= $servingsEnabled ? 'col-6' : 'col-md-6' ?>">
                             <label class="form-label small text-secondary" for="recipePrepTime">Čas prípravy (min)</label>
-                            <input type="number" name="prep_time" id="recipePrepTime" class="form-control" min="1" max="999"
-                                   placeholder="napr. 45">
+                            <div class="krokovac" data-krok-o="5" data-predvolene="30">
+                                <button type="button" class="krokovac-tlacidlo d-md-none" data-smer="-1" aria-label="O 5 minút menej"><i class="bi bi-dash-lg" aria-hidden="true"></i></button>
+                                <input type="number" name="prep_time" id="recipePrepTime" class="form-control" min="1" max="999"
+                                       inputmode="numeric" placeholder="napr. 45">
+                                <button type="button" class="krokovac-tlacidlo d-md-none" data-smer="1" aria-label="O 5 minút viac"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+                            </div>
                         </div>
                         <?php if ($servingsEnabled): ?>
                         <div class="col-6">
                             <label class="form-label small text-secondary" for="recipeServings">Počet porcií</label>
-                            <input type="number" name="servings" id="recipeServings" class="form-control" min="1" max="99"
-                                   step="1" inputmode="numeric" placeholder="napr. 4">
+                            <div class="krokovac" data-krok-o="1" data-predvolene="4">
+                                <button type="button" class="krokovac-tlacidlo d-md-none" data-smer="-1" aria-label="Menej porcií"><i class="bi bi-dash-lg" aria-hidden="true"></i></button>
+                                <input type="number" name="servings" id="recipeServings" class="form-control" min="1" max="99"
+                                       step="1" inputmode="numeric" placeholder="napr. 4">
+                                <button type="button" class="krokovac-tlacidlo d-md-none" data-smer="1" aria-label="Viac porcií"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+                            </div>
                         </div>
                         <?php endif; ?>
                     </div>
-
-                    <div class="mb-3">
-                        <label class="form-label small text-secondary">Odkaz na recept (URL)</label>
-                        <input type="url" name="url" class="form-control" placeholder="https://example.com/recept">
                     </div>
 
+                    <!-- Odkaz je na PC hneď pod základom, na telefóne v kroku 3 pod „Viac možností" -->
+                    <div class="formular-krok formular-viac" data-krok="3" id="recipeUrlPole">
+                    <div class="mb-3">
+                        <label class="form-label small text-secondary" for="recipeUrl">Odkaz na recept (URL)</label>
+                        <input type="url" name="url" id="recipeUrl" class="form-control" placeholder="https://example.com/recept">
+                    </div>
+                    </div>
+
+                    <!-- Krok 2: Suroviny -->
                     <?php if ($surovinyEnabled): ?>
+                    <div class="formular-krok" data-krok="2" data-nadpis="Suroviny" data-dalej="Ďalej: suroviny" data-popis="pocet-surovin">
+                    <?php if ($aiEnabled): ?>
+                    <div class="ai-upozornenie d-none d-md-none" id="recipeOdhad">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        <span>Odhad z fotky jedla. Skontroluj, či suroviny sedia, a uprav množstvá.</span>
+                    </div>
+                    <?php endif; ?>
                     <div class="mb-3" id="surovinyField">
                         <label class="form-label small text-secondary" for="surovinaSearch">Suroviny</label>
                         <div class="surovina-combo">
+                            <i class="bi bi-search surovina-combo-ikona d-md-none" aria-hidden="true"></i>
                             <input type="text" id="surovinaSearch" class="form-control" autocomplete="off"
                                    placeholder="Začni písať, napr. múka…" maxlength="100">
                         </div>
@@ -680,13 +732,24 @@ header('X-Recepty-Offline: 1');
                         <div id="surovinyList" class="suroviny-list"></div>
                         <input type="hidden" name="suroviny_json" value="[]">
                     </div>
+                    </div>
                     <?php endif; ?>
 
+                    <!-- Krok 3: Postup a fotka (bez číselníka surovín: krok 2 Suroviny a postup, krok 3 Fotka) -->
+                    <?php if ($surovinyEnabled): ?>
+                    <div class="formular-krok" data-krok="3" data-nadpis="Postup a fotka" data-dalej="Ďalej: postup a fotka" data-dalej-kratko="Ďalej: postup" data-popis="Ako sa varí a ako jedlo vyzerá">
+                    <?php else: ?>
+                    <div class="formular-krok" data-krok="2" data-nadpis="Suroviny a postup" data-dalej="Ďalej: suroviny" data-popis="Čo treba a ako sa to robí">
+                    <?php endif; ?>
                     <div class="mb-3">
                         <label class="form-label small text-secondary" for="recipeNotes"><?= $surovinyEnabled ? 'Poznámky / postup' : 'Suroviny / Poznámky' ?></label>
                         <textarea name="ingredients" id="recipeNotes" class="form-control" rows="3"
                                   placeholder="<?= $surovinyEnabled ? 'Stručný postup, pomôcky, kde čo kúpiť…' : 'Napíš sem suroviny alebo stručný postup...' ?>"></textarea>
                     </div>
+                    <?php if (!$surovinyEnabled): ?>
+                    </div>
+                    <div class="formular-krok" data-krok="3" data-nadpis="Fotka" data-dalej="Ďalej: fotka" data-popis="Ako jedlo vyzerá">
+                    <?php endif; ?>
 
                     <?php if ($photosEnabled): ?>
                     <div class="mb-3" id="recipePhotosField">
@@ -701,6 +764,17 @@ header('X-Recepty-Offline: 1');
                             <input type="file" name="recipe_image" id="recipeImageInput" class="form-control"
                                    accept="image/jpeg,image/png,image/webp" aria-describedby="recipeImageHelp">
                         </div>
+                        <!-- Telefón: veľké dlaždice namiesto poľa na výber súboru. Fotka z fotoaparátu
+                             sa presunie do recipeImageInput (script.js formularKroky). -->
+                        <div class="foto-dlazdice d-md-none" id="recipeFotoDlazdice">
+                            <label class="foto-dlazdica je-hlavna" for="recipeImageKamera" id="recipeKameraDlazdica">
+                                <i class="bi bi-camera" aria-hidden="true"></i>Odfotiť
+                            </label>
+                            <label class="foto-dlazdica" for="recipeImageInput" id="recipeGaleriaDlazdica">
+                                <i class="bi bi-image" aria-hidden="true"></i><span>Z galérie</span>
+                            </label>
+                        </div>
+                        <input type="file" id="recipeImageKamera" class="visually-hidden" accept="image/*" capture="environment">
                         <div id="recipePhotoDateWrap" class="mt-2 d-none">
                             <label class="form-label small text-secondary" for="recipePhotoDate">Dátum novej fotky</label>
                             <input type="date" name="photo_date" id="recipePhotoDate" class="form-control">
@@ -726,9 +800,21 @@ header('X-Recepty-Offline: 1');
                     </div>
                     <?php endif; ?>
 
+                    <button type="button" class="formular-viac-prepinac d-md-none" id="recipeViacPrepinac"
+                            aria-expanded="false" aria-controls="recipeUrlPole recipeNaposledyPole">
+                        <span class="formular-viac-text">
+                            <span class="formular-viac-nazov" id="recipeViacNazov">Viac možností</span>
+                            <span class="formular-viac-popis">Odkaz na web, naposledy varené</span>
+                        </span>
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                    </button>
+                    </div>
+
+                    <div class="formular-krok formular-viac" data-krok="3" id="recipeNaposledyPole">
                     <div class="mb-1">
-                        <label class="form-label small text-secondary">Naposledy varené <span class="opacity-50">(nepovinné)</span></label>
-                        <input type="date" name="last_made_date" class="form-control" max="<?= app_today() ?>">
+                        <label class="form-label small text-secondary" for="recipeLastMade">Naposledy varené <span class="opacity-50">(nepovinné)</span></label>
+                        <input type="date" name="last_made_date" id="recipeLastMade" class="form-control" max="<?= app_today() ?>">
+                    </div>
                     </div>
 
                     <div class="alert alert-danger py-2 small d-none" id="recipeFormError"></div>
@@ -737,7 +823,10 @@ header('X-Recepty-Offline: 1');
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Zrušiť
                     </button>
                     <button type="submit" class="btn btn-primary btn-sm fw-semibold" id="recipeFormSubmit">
-                        <i class="bi bi-check2 me-1"></i>Uložiť recept
+                        <i class="bi bi-check2 me-1"></i>Uložiť<span class="ulozit-slovo-recept"> recept</span>
+                    </button>
+                    <button type="button" class="btn btn-primary fw-bold formular-dalej d-md-none" id="recipeKrokDalej">
+                        <span id="recipeKrokDalejText">Ďalej: suroviny</span><i class="bi bi-arrow-right ms-2" aria-hidden="true"></i>
                     </button>
                 </div>
             </form>
@@ -747,8 +836,8 @@ header('X-Recepty-Offline: 1');
 
 <?php if ($aiEnabled): ?>
 <!-- ================= MODAL: Nový recept z fotky (verzia 1.8) =================
-     Sprievodca na telefóne: výber fotky → rozpoznanie → kontrola surovín → formulár
-     receptu (ten istý ako pri ručnom pridaní). Otvára ho Pridať v spodnej lište. -->
+     Na telefóne: výber fotky → rozpoznanie → formulár receptu v troch krokoch
+     (ten istý ako pri ručnom pridaní, už predvyplnený). Otvára ho Pridať v spodnej lište. -->
 <div class="modal fade" id="aiModal" tabindex="-1" aria-hidden="true" aria-labelledby="aiModalTitle">
     <div class="modal-dialog modal-fullscreen-md-down">
         <div class="modal-content">
@@ -770,7 +859,7 @@ header('X-Recepty-Offline: 1');
                     </label>
                     <input type="file" id="aiFotkaGaleria" class="visually-hidden" accept="image/jpeg,image/png,image/webp">
                     <button type="button" class="btn ai-rucne" id="aiRucne">
-                        <i class="bi bi-pencil me-2" aria-hidden="true"></i>Vyplniť ručne, bez fotky
+                        <i class="bi bi-pencil me-2" aria-hidden="true"></i>Vyplniť ručne, bez AI
                     </button>
                     <div class="ai-info">
                         <i class="bi bi-info-circle" aria-hidden="true"></i>
@@ -783,7 +872,6 @@ header('X-Recepty-Offline: 1');
             <section class="ai-krok d-none" data-krok="rozpoznavam">
                 <div class="modal-header border-0">
                     <button type="button" class="btn ai-spat" id="aiZrusit"><i class="bi bi-x-lg me-1" aria-hidden="true"></i>Zrušiť</button>
-                    <span class="ai-krok-cislo">Krok 1 z 3</span>
                 </div>
                 <div class="modal-body">
                     <img class="ai-nahlad" id="aiNahlad" src="" alt="Fotka na rozpoznanie">
@@ -794,35 +882,6 @@ header('X-Recepty-Offline: 1');
                             <div class="ai-cakanie-popis">Zvyčajne to trvá 5 až 20 sekúnd</div>
                         </div>
                     </div>
-                </div>
-            </section>
-
-            <section class="ai-krok d-none" data-krok="kontrola">
-                <div class="modal-header border-0 pb-0">
-                    <button type="button" class="btn ai-spat" id="aiZnova"><i class="bi bi-camera me-1" aria-hidden="true"></i>Odfotiť znova</button>
-                    <span class="ai-krok-cislo">Krok 2 z 3</span>
-                </div>
-                <div class="modal-body">
-                    <div class="ai-vysledok-hlava">
-                        <img class="ai-nahlad-maly" id="aiNahladMaly" src="" alt="">
-                        <div class="min-w-0">
-                            <h2 class="ai-vysledok-nazov" id="aiVysledokNazov"></h2>
-                            <div class="ai-vysledok-pocet" id="aiVysledokPocet"></div>
-                        </div>
-                    </div>
-                    <div class="ai-upozornenie d-none" id="aiOdhad">
-                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                        <span>Odhad z fotky jedla. Skontroluj, či suroviny sedia, a uprav množstvá.</span>
-                    </div>
-                    <div class="ai-suroviny" id="aiSurovinyZoznam"></div>
-                    <div class="surovina-combo ai-pridat-combo d-none" id="aiPridatWrap">
-                        <input type="text" id="aiPridatInput" class="form-control" autocomplete="off" maxlength="100"
-                               placeholder="Začni písať, napr. múka…" aria-label="Pridať surovinu">
-                    </div>
-                </div>
-                <div class="modal-footer ai-paticka">
-                    <button type="button" class="btn btn-outline-secondary" id="aiPridatSurovinu"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Surovina</button>
-                    <button type="button" class="btn btn-primary fw-bold" id="aiDalej">Ďalej<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></button>
                 </div>
             </section>
 
@@ -1265,8 +1324,8 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
     window.APP_AI = <?= $aiEnabled ? 'true' : 'false' ?>; // recept z fotky (includes/ai.php)
 </script>
-<script src="suroviny.js?v=28"></script>
-<script src="script.js?v=28"></script>
+<script src="suroviny.js?v=29"></script>
+<script src="script.js?v=29"></script>
 </body>
 </html>
 <?php
