@@ -9,7 +9,7 @@ Rodinná webová appka na recepty. Beží v prehliadači a dá sa pridať na plo
 - **Prepočet porcií** s prevodom jednotiek (2000 g → 2 kg, 0,5 PL → 1½ ČL).
 - **Spoločný nákupný zoznam.** Zlúči suroviny z viacerých receptov, dá sa odškrtávať a poslať do Google Keep. Zmeny od ostatných sa ukážu do pár sekúnd.
 - **Uvarené, hodnotenie a história.** Pri recepte je vidno, kedy sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodil zopakovať.
-- **Objednané jedlo** (Wolt, Bolt Food, Bistro.sk a iné) zvlášť od receptov: kedy sme naposledy mali objednané jedlo, z akej reštaurácie a čo to bolo. Hľadanie, filter podľa služby, objednávky po mesiacoch so súčtom cien. Samostatná stránka na celú obrazovku: na PC v bočnej ponuke pod Receptami, na telefóne v spodnej lište.
+- **Objednané jedlo** (Wolt, Bolt Food, Bistro.sk a iné) zvlášť od receptov: kedy sme naposledy mali objednané jedlo, z akej reštaurácie a čo to bolo. Ku každej objednávke sa dá pridať fotka. Hľadanie, filter podľa služby, objednávky po mesiacoch so súčtom cien. Samostatná stránka na celú obrazovku: na PC v bočnej ponuke pod Receptami, na telefóne v spodnej lište.
 - **Upozornenia do telefónu** na nový recept, nové hodnotenie a dlho nevarené recepty.
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty bez internetu** (len na čítanie).
@@ -34,7 +34,7 @@ Node.js ani žiadne zostavovanie netreba, súbory sa nahrávajú tak, ako sú.
 ## Inštalácia na webhosting
 
 1. **Knižnice.** V priečinku projektu spusti `composer install --no-dev`. Vznikne priečinok `vendor/`.
-2. **Súbory.** Nahraj celý projekt aj s `vendor/` na server, napríklad cez FTP. Appka funguje v koreni domény aj v podpriečinku. Do priečinka `uploads/recipes/` musí PHP vedieť zapisovať (práva 755 alebo 775).
+2. **Súbory.** Nahraj celý projekt aj s `vendor/` na server, napríklad cez FTP. Appka funguje v koreni domény aj v podpriečinku. Do priečinka `uploads/` musí PHP vedieť zapisovať (práva 755 alebo 775). Fotky receptov idú do `uploads/recipes/`, fotky objednaného jedla do `uploads/objfood/` (ten si appka vytvorí sama pri prvej fotke).
 3. **Databáza.** V administrácii hostingu vytvor databázu a používateľa s heslom. V phpMyAdmin klikni na **Import** a nahraj `sql/instalacia.sql`.
 4. **Sprievodca.** Otvor `https://tvoja-domena/install.php`. Skontroluje server, pripraví obsah súboru `includes/.env` aj s kľúčmi (ulož ho, doplň údaje k databáze a obnov stránku) a vytvorí prvého admina.
 5. **Upratanie.** Zmaž `install.php` zo servera a v administrácii hostingu zapni HTTPS (Let's Encrypt býva zadarmo).
@@ -115,7 +115,7 @@ Nastavenie sa dá overiť cez **Actions → Nasadenie na server → Run workflow
 
 ### Ručne cez FTP
 
-1. Zálohuj databázu a priečinok `uploads/recipes/`.
+1. Zálohuj databázu a priečinok `uploads/` (fotky receptov aj objednaného jedla).
 2. Nahraj nové súbory cez staré. `includes/.env` a `uploads/` nechaj tak.
 3. Ak verzia prináša `sql/migracia-X.Y.sql`, naimportuj ju v phpMyAdmin. Pri preskočení viacerých verzií naimportuj všetky chýbajúce od najstaršej.
 
@@ -148,12 +148,12 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `includes/auth.php` | Prihlásenie, „Zostať prihlásený", brzda proti hádaniu hesla. |
 | `includes/functions.php` | Recepty, suroviny, porcie, nákup, fotky, hodnotenia, upozornenia. |
 | `includes/webpush.php` | Odosielanie upozornení (šifrovanie a podpis cez openssl a curl). |
-| `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok, kto ich môže zmazať. |
+| `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok aj s fotkou, kto ich môže zmazať. |
 | `includes/ai.php` | Recept z fotky: volanie AI služieb, kontrola odpovede, párovanie surovín, denný limit. |
 | `includes/sprava.php` | Spoločné rozloženie stránok Správy: bočná ponuka na PC, tlačidlá častí a spodná lišta na telefóne. |
 | `webauthn/` | Serverová časť biometrie. |
 | `sql/` | `instalacia.sql` pre novú inštaláciu a `migracia-X.Y.sql` pre aktualizácie. |
-| `uploads/recipes/` | Fotky receptov. |
+| `uploads/recipes/`, `uploads/objfood/` | Fotky receptov a fotky objednaného jedla. |
 | `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. |
 
 ### Databáza
@@ -174,6 +174,7 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 | `migracia-1.5.sql` | Tabuľku `kategorie_receptov` s doterajšími siedmimi kategóriami. |
 | `migracia-1.8.sql` | Tabuľku `ai_rozpoznania`. |
 | `migracia-2.2.sql` | Tabuľku `objednane_jedla`. |
+| `migracia-2.4.sql` | Stĺpec `foto` v `objednane_jedla` (fotka objednávky). |
 
 ### Pravidlá pre novú verziu
 
@@ -208,7 +209,7 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | „Chýba povinná konfiguračná premenná…" | Doplň uvedený riadok do `includes/.env`. |
 | „Aplikácia sa nevie pripojiť k databáze" | Skontroluj `DB_HOST`, `DB_NAME`, `DB_USER` a `DB_PASS`. |
 | Biela stránka | Chýba `vendor/` alebo je na serveri PHP staršie než 8.4.1. |
-| Fotka sa nenahrá | Do `uploads/recipes/` sa nedá zapisovať alebo chýba rozšírenie `gd`. |
+| Fotka sa nenahrá | Do `uploads/recipes/` (pri objednanom jedle `uploads/objfood/`) sa nedá zapisovať alebo chýba rozšírenie `gd`. |
 | Upozornenia nechodia | Používateľ ich nepovolil, appka nebeží na HTTPS, alebo je v logu `PUSH ZLYHAL`. Na iPhone len v appke z plochy. |
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou alebo appka nebeží na HTTPS. |
 | Po nahratí novej verzie starý vzhľad | V `sw.js` nebol zvýšený `CACHE_NAME`. |
@@ -217,12 +218,13 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 
 ## Zálohovanie
 
-Zálohovať treba databázu (export v phpMyAdmin), priečinok `uploads/recipes/` a súbor `includes/.env`. Všetko ostatné je na GitHube.
+Zálohovať treba databázu (export v phpMyAdmin), priečinok `uploads/` (recepty aj objednané jedlo) a súbor `includes/.env`. Všetko ostatné je na GitHube.
 
 Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť údaje k databáze a `APP_HOST`. Pri zmene domény si každý musí znova zapnúť prihlásenie odtlačkom.
 
 ## História verzií
 
+- **2.4** Fotka pri objednanom jedle: vo formulári Odfotiť alebo Z galérie (na PC Vybrať fotku), v zozname miniatúra, pri Naposledy objednané fotka poslednej objednávky. Fotky sa ukladajú do `uploads/objfood/` a spracujú sa rovnako ako fotky receptov (zmenšenie, JPEG). Pri novej fotke, odstránení alebo zmazaní objednávky sa starý súbor zmaže. Migrácia `migracia-2.4.sql`.
 - **2.3.1** Objednané jedlo: namiesto foodora je na výber Bistro.sk (červený krúžok „Bi“). Staršie záznamy z foodora sa ukazujú ako Iné. Databáza sa nemení.
 - **2.3** Objednané jedlo je samostatná stránka na celú obrazovku namiesto okna, aj formulár na pridanie a úpravu. Spodná lišta na telefóne: Recepty, Objednané, Pridať (v strede), Nákup, Viac. Tlačidlo Späť v telefóne vráti z formulára na zoznam a zo zoznamu na recepty. Databáza sa nemení.
 - **2.2** Objednané jedlo: zvlášť od receptov sa dá zapísať jedlo z Wolt, Bolt Food, foodora a podobne (kedy, odkiaľ, reštaurácia, čo sme mali, nepovinne cena). Hore je vidno, kedy sme naposledy objednávali a čo, zoznam sa dá prehľadávať a filtrovať podľa služby a pozrieť aj bez internetu. Na PC v bočnej ponuke pod Receptami, na telefóne v okne Viac. Zapísať a upraviť môže každý, zmazať ten, kto objednávku zapísal, alebo admin. Migrácia `migracia-2.2.sql`.

@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS `objednane_jedla` (
   `restauracia` varchar(150) DEFAULT NULL,
   `jedlo` text DEFAULT NULL,                    -- čo sme mali (voľný text)
   `cena` decimal(8,2) DEFAULT NULL,             -- spolu v eurách, nepovinné
+  `foto` varchar(255) DEFAULT NULL,             -- fotka v uploads/objfood/ (od 2.4)
   `pridal` int(11) DEFAULT NULL,                -- users.id, kto objednávku zapísal
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),

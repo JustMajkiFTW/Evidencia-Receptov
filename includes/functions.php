@@ -142,13 +142,15 @@ function get_recipe_uploads_url(): string
 /**
  * Spracuje nahraný súbor z $_FILES['recipe_image']: overí ho, zmenší
  * (max 1200x800, zachová pomer strán) a uloží ako JPEG do uploads/recipes/.
+ * Od verzie 2.4 to isté robí aj pre fotky objednaného jedla: iný priečinok
+ * ($priecinok, napr. 'uploads/objfood/') a začiatok názvu súboru ($predpona).
  *
  * Návratové hodnoty:
  *  - []                          → žiadny súbor nebol nahraný (nič sa nedeje)
  *  - ['error' => '...']          → nahrávanie zlyhalo, chyba na zobrazenie
  *  - ['path' => 'uploads/...']   → úspech, cesta na uloženie do DB
  */
-function process_recipe_image_upload(array $file): array
+function process_recipe_image_upload(array $file, ?string $priecinok = null, string $predpona = 'recipe_'): array
 {
 	ini_set('memory_limit', '256M');
     if (!isset($file['error']) || is_array($file['error'])) {
@@ -213,17 +215,19 @@ function process_recipe_image_upload(array $file): array
     imagefill($dstImage, 0, 0, $white);
     imagecopyresampled($dstImage, $srcImage, 0, 0, 0, 0, $newW, $newH, $origW, $origH);
 
-    $dir = get_recipe_uploads_dir();
+    // Relatívna cesta (do DB a <img src>) a priečinok na disku; predvolene fotky receptov.
+    $url = $priecinok ?? get_recipe_uploads_url();
+    $dir = $priecinok === null ? get_recipe_uploads_dir() : dirname(__DIR__) . '/' . $priecinok;
     if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
+        @mkdir($dir, 0755, true); // napr. uploads/objfood/ sa na serveri vytvorí pri prvej fotke
     }
     if (!is_dir($dir) || !is_writable($dir)) {
         imagedestroy($srcImage);
         imagedestroy($dstImage);
-        return ['error' => 'Priečinok na fotky neexistuje alebo doň appka nemôže zapisovať (uploads/recipes/).'];
+        return ['error' => 'Priečinok na fotky neexistuje alebo doň appka nemôže zapisovať (' . $url . ').'];
     }
 
-    $filename = uniqid('recipe_', true) . '.jpg';
+    $filename = uniqid($predpona, true) . '.jpg';
     $fullPath = $dir . $filename;
 
     $saved = imagejpeg($dstImage, $fullPath, 82);
@@ -235,7 +239,7 @@ function process_recipe_image_upload(array $file): array
         return ['error' => 'Nepodarilo sa uložiť fotku na server.'];
     }
 
-    return ['path' => get_recipe_uploads_url() . $filename];
+    return ['path' => $url . $filename];
 }
 
 /** Zmaže súbor fotky z disku (ak existuje). Ticho ignoruje chýbajúci súbor. */

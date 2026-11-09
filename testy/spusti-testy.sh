@@ -97,7 +97,7 @@ bash testy/kontrola-pravidiel.sh || ZLYHANIA=$((ZLYHANIA + 1))
 # Kópia appky do dočasného priečinka: test tak nezmení tvoj includes/.env, záznam chýb ani fotky.
 APP="$(mktemp -d "${TMPDIR:-/tmp}/recepty-test-XXXXXX")"
 tar --exclude=./.git --exclude=./includes/.env --exclude=./includes/debug-log.txt \
-    --exclude='./uploads/recipes/*' -cf - . | tar -xf - -C "$APP"
+    --exclude='./uploads/recipes/*' --exclude='./uploads/objfood/*' -cf - . | tar -xf - -C "$APP"
 mkdir -p "$APP/uploads/recipes"
 
 # Appka nepozná zvlášť port databázy, ale PDO prijme 'host;port=…" v DB_HOST.

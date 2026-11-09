@@ -972,6 +972,8 @@ const objednavky = (function initObjednavky() {
     let upravovana = null; // objednávka vo formulári (null = nová)
     let formularPripraveny = false; // formulár bol v tejto návšteve otvorený (inak #objednane-formular = zoznam)
     let strankaTeraz = 'recepty';
+    let vybranaFotka = null;        // nová fotka z formulára (File), odošle sa ako 'foto' (verzia 2.4)
+    let nahladUrl = null;           // dočasná adresa náhľadu vybranej fotky (URL.createObjectURL)
 
     /* ── Pomôcky na text a dátumy ── */
     const normalizuj = (text) => (window.Suroviny ? window.Suroviny.normKey(text) : String(text || '').toLowerCase());
@@ -1016,6 +1018,15 @@ const objednavky = (function initObjednavky() {
         if (ZNAKY[sluzba]) el.textContent = ZNAKY[sluzba];
         else el.innerHTML = '<i class="bi bi-shop"></i>';
         return el;
+    }
+
+    /** <img> fotky objednávky (lazy; bez internetu ju OfflineRezim nahradí obrázkom „nie je uložená"). */
+    function obrazok(cesta) {
+        const img = document.createElement('img');
+        img.src = cesta;
+        img.alt = '';
+        img.loading = 'lazy';
+        return img;
     }
 
     /** Hlavný názov objednávky: reštaurácia, inak prvý riadok toho, čo sme mali. */
@@ -1069,6 +1080,11 @@ const objednavky = (function initObjednavky() {
         ikona.className = 'objednavky-naposledy-ikona';
         ikona.setAttribute('aria-hidden', 'true');
         ikona.innerHTML = '<i class="bi bi-clock-history"></i>';
+        if (zobrazene[0]?.foto) {
+            // Ak má posledná objednávka fotku, ukáže sa namiesto hodín (verzia 2.4).
+            ikona.classList.add('ma-fotku');
+            ikona.replaceChildren(obrazok(zobrazene[0].foto));
+        }
         const text = document.createElement('div');
         text.className = 'min-w-0';
         const popis = document.createElement('div');
@@ -1123,7 +1139,17 @@ const objednavky = (function initObjednavky() {
         sipka.className = 'bi bi-chevron-right objednavka-sipka';
         sipka.setAttribute('aria-hidden', 'true');
 
-        btn.append(znak(o.sluzba), text, sipka);
+        if (o.foto) {
+            // Miniatúra fotky, v rohu malý krúžok služby (verzia 2.4).
+            const miniatura = document.createElement('span');
+            miniatura.className = 'objednavka-foto';
+            const maly = znak(o.sluzba);
+            maly.classList.add('je-maly');
+            miniatura.append(obrazok(o.foto), maly);
+            btn.append(miniatura, text, sipka);
+        } else {
+            btn.append(znak(o.sluzba), text, sipka);
+        }
         btn.setAttribute('aria-label', 'Upraviť: ' + meta.textContent.split(' · ')[0] + ', ' + nazov.textContent);
         btn.addEventListener('click', () => {
             if (OfflineRezim.jeAktivny()) {
@@ -1273,6 +1299,7 @@ const objednavky = (function initObjednavky() {
         form.datum.max = todayISO();
         form.cena.value = o && o.cena !== null ? o.cena.toFixed(2).replace('.', ',') : '';
         zmazatBtn.classList.toggle('d-none', !(o && o.mozeZmazat));
+        nastavFotku(null, o && o.foto ? o.foto : '');
         vykresliTipy();
         formularPripraveny = true;
         history.pushState({ hlbka: hlbka() + 1 }, '', '#objednane-formular');
@@ -1287,6 +1314,45 @@ const objednavky = (function initObjednavky() {
             history.replaceState(history.state, '', '#objednane');
             zobraz();
         }
+    }
+
+    /* ── Fotka vo formulári (verzia 2.4) ──
+       Odfotiť (fotoaparát na telefóne) alebo Z galérie / Vybrať fotku. Vybraný súbor si
+       pamätáme v premennej a pred odoslaním ho zmenšíme (downscaleImageFile), aby
+       neprekročil limit servera. Krížik odstráni novú aj doterajšiu fotku. */
+    const fotoPole = $('objednavkaFotoPole');
+    const fotoNahlad = $('objednavkaFotoNahlad');
+    const fotoImg = $('objednavkaFotoImg');
+
+    /** subor = nová fotka (File) alebo null; doterajsia = cesta k fotke pri úprave ('' = žiadna). */
+    function nastavFotku(subor, doterajsia = '') {
+        if (!fotoPole) return;
+        if (nahladUrl) URL.revokeObjectURL(nahladUrl);
+        nahladUrl = subor ? URL.createObjectURL(subor) : null;
+        vybranaFotka = subor;
+        form.odstranit_foto.value = '';
+        const zdroj = nahladUrl || doterajsia;
+        fotoImg.src = zdroj || '';
+        fotoNahlad.classList.toggle('d-none', !zdroj);
+    }
+
+    if (fotoPole) {
+        ['objednavkaFotoKamera', 'objednavkaFotoGaleria'].forEach((id) => $(id).addEventListener('change', (e) => {
+            const subor = e.target.files && e.target.files[0];
+            e.target.value = ''; // rovnakú fotku sa dá vybrať znova
+            if (!subor) return;
+            if (!/^image\//.test(subor.type)) {
+                showToast('Vyber fotku (JPG, PNG alebo WEBP).', true);
+                return;
+            }
+            nastavFotku(subor);
+        }));
+        $('objednavkaFotoZrusit').addEventListener('click', () => {
+            const malaDoterajsiu = !vybranaFotka && upravovana && upravovana.foto;
+            nastavFotku(null);
+            // Pri úprave: doterajšia fotka sa zmaže až po Uložiť.
+            if (malaDoterajsiu) form.odstranit_foto.value = '1';
+        });
     }
 
     /** Reštaurácie, z ktorých sa už objednávalo (najnovšie prvé), zúžené podľa napísaného textu. */
@@ -1342,7 +1408,12 @@ const objednavky = (function initObjednavky() {
         const ulozitBtn = $('objednavkaUlozit');
         ulozitBtn.disabled = true;
         const nova = !upravovana;
-        const data = await call('objednavka_ulozit', new FormData(form));
+        const udaje = new FormData(form);
+        if (vybranaFotka) {
+            const zmensena = await downscaleImageFile(vybranaFotka);
+            udaje.append('foto', zmensena, zmensena.name || 'foto.jpg');
+        }
+        const data = await call('objednavka_ulozit', udaje);
         ulozitBtn.disabled = false;
         if (data.success) {
             spatNaZoznam();

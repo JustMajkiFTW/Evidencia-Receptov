@@ -15,7 +15,7 @@
 // obsahuje CSRF token a dáta viazané na session. Ostatné PHP stránky (login,
 // admin, webauthn) idú vždy len na sieť. Bump CACHE_NAME pri každej zmene
 // statických súborov.
-const CACHE_NAME = 'recepty-static-v36';
+const CACHE_NAME = 'recepty-static-v37';
 const STRANKA_CACHE = 'recepty-stranka';   // posledná kópia index.php (prežije aktualizáciu appky)
 const FOTKY_CACHE = 'recepty-fotky';       // fotky receptov (prežijú aktualizáciu appky)
 const MAX_FOTIEK = 250;                    // ~200 kB na fotku → najviac okolo 50 MB
@@ -137,7 +137,7 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Fotky receptov: názov súboru je jedinečný a obsah sa nemení, preto stačí
+    // Fotky receptov (a od 2.4 aj objednaného jedla, uploads/objfood/): názov súboru je jedinečný a obsah sa nemení, preto stačí
     // cache-first. Vlastná cache s limitom, aby fotky nezaplnili telefón.
     if (url.pathname.includes('/uploads/')) {
         fotka(event);

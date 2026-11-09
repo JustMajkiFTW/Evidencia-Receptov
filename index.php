@@ -240,7 +240,9 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
             }
             $result = ['success' => true];
             if ($action === 'objednavka_ulozit') {
-                $result = save_objednavka($pdo, (int) ($_POST['objednavka_id'] ?? 0), $userId, $_POST);
+                // Fotka (od 2.4) ide ako súbor 'foto', odstránenie doterajšej ako odstranit_foto=1.
+                $result = save_objednavka($pdo, (int) ($_POST['objednavka_id'] ?? 0), $userId, $_POST,
+                    $_FILES['foto'] ?? null, !empty($_POST['odstranit_foto']));
             } elseif ($action === 'objednavka_zmazat') {
                 $result = delete_objednavka($pdo, (int) ($_POST['objednavka_id'] ?? 0), $userId, is_admin());
             }
@@ -281,6 +283,7 @@ $recipeCategories = get_recipe_categories($pdo); // z tabuľky kategorie_recepto
 // Objednané jedlo (verzia 2.2): bez sql/migracia-2.2.sql sa ponuka ani okno neukážu.
 $objednavkyEnabled = objednavky_available($pdo);
 $objednavky = $objednavkyEnabled ? get_objednavky($pdo, $currentUserId, is_admin()) : [];
+$objednavkyFotky = objednavky_maju_fotky($pdo); // verzia 2.4, bez migracia-2.4.sql formulár fotku neponúkne
 // Recept z fotky: zapnuté, keď je v .env kľúč aspoň k jednej AI službe (includes/ai.php).
 $aiEnabled = ai_dostupne() && $currentUserId !== null;
 $aiZostava = $aiEnabled ? ai_zostava($pdo, $currentUserId) : null;
@@ -326,7 +329,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=36">
+    <link rel="stylesheet" href="style.css?v=37">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -726,6 +729,31 @@ header('X-Recepty-Offline: 1');
                 <textarea name="jedlo" id="objednavkaJedlo" class="form-control" rows="3" maxlength="<?= OBJEDNAVKA_JEDLO_MAX ?>"
                           placeholder="napr. 2× pizza šunková, hranolky, kofola"></textarea>
             </div>
+            <?php if ($objednavkyFotky): ?>
+            <!-- Fotka (verzia 2.4): jedna na objednávku, ukladá sa do uploads/objfood/ ako fotky receptov.
+                 Vybraný súbor si drží script.js a pred odoslaním ho zmenší (pole foto). -->
+            <div class="mb-3" id="objednavkaFotoPole">
+                <div class="form-label small text-secondary">Fotka <span class="opacity-50">(nepovinné)</span></div>
+                <div class="objednavky-foto-nahlad d-none" id="objednavkaFotoNahlad">
+                    <img id="objednavkaFotoImg" src="" alt="Fotka objednávky">
+                    <button type="button" class="btn objednavky-foto-zrusit" id="objednavkaFotoZrusit" aria-label="Odstrániť fotku" title="Odstrániť fotku">
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="objednavky-foto-tlacidla">
+                    <label class="objednavky-foto-tlacidlo je-hlavne d-md-none" for="objednavkaFotoKamera" data-vyzaduje-siet>
+                        <i class="bi bi-camera" aria-hidden="true"></i><span class="objednavky-foto-text">Odfotiť</span>
+                    </label>
+                    <label class="objednavky-foto-tlacidlo" for="objednavkaFotoGaleria" data-vyzaduje-siet>
+                        <i class="bi bi-image" aria-hidden="true"></i><span class="objednavky-foto-text"><span class="d-md-none">Z galérie</span><span class="d-none d-md-inline">Vybrať fotku</span></span>
+                    </label>
+                </div>
+                <input type="file" id="objednavkaFotoKamera" class="visually-hidden" accept="image/*" capture="environment">
+                <input type="file" id="objednavkaFotoGaleria" class="visually-hidden" accept="image/jpeg,image/png,image/webp">
+                <input type="hidden" name="odstranit_foto" value="">
+                <div class="form-text">JPG, PNG alebo WEBP — appka ju sama zmenší.</div>
+            </div>
+            <?php endif; ?>
             <!-- Telefón: dátum a cena pod sebou (široké polia), PC vedľa seba -->
             <div class="row g-3 mb-4">
                 <div class="col-12 col-sm-7">
@@ -1520,7 +1548,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=36"></script>
+<script src="script.js?v=37"></script>
 </body>
 </html>
 <?php

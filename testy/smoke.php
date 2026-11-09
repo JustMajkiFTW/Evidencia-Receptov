@@ -491,12 +491,52 @@ if ($objednavkyVDb) {
     $o = akcia($p, $csrf, 'objednavka_ulozit', ['objednavka_id' => 999999, 'restauracia' => 'Nikde']);
     over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'neexistuje'), 'Úprava neexistujúcej objednávky sa odmietne', $o->popis());
 
+    // Fotka (verzia 2.4, stĺpec foto z migracia-2.4.sql): spracuje sa ako fotka receptu, uloží do uploads/objfood/.
+    $fotkyVDb = $plny || str_contains($stranka, 'id="objednavkaFotoPole"');
+    $upravKfc = fn(array $polia) => akcia($p, $csrf, 'objednavka_ulozit', $polia + ['objednavka_id' => $kfcId, 'sluzba' => 'bistro',
+        'restauracia' => "KFC $znacka", 'jedlo' => 'Bucket', 'datum' => $vcera]);
+    $fotkaKfc = fn(Odpoved $o) => (string) ($objednavka($o->json()['polozky'] ?? [], $kfcId)['foto'] ?? '');
+    $o = $upravKfc(['foto' => testovacia_fotka('#d04020')]);
+    $prvaFotka = $fotkaKfc($o);
+    $poslednaFotka = '';
+    if ($fotkyVDb) {
+        over(str_contains($stranka, 'id="objednavkaFotoPole"') && str_contains($stranka, 'id="objednavkaFotoKamera"'),
+            'Formulár objednávky ponúka fotku (odfotiť aj z galérie)');
+        over(uspech($o) && str_starts_with($prvaFotka, 'uploads/objfood/objfood_') && str_ends_with($prvaFotka, '.jpg'),
+            'Fotka objednávky sa uloží do uploads/objfood/ (priečinok si appka vytvorí sama)', $o->popis() . ' foto=' . $prvaFotka);
+        $f = $p->get($prvaFotka);
+        over($f->kod === 200 && str_starts_with($f->telo, "\xFF\xD8"), 'Fotka objednávky sa dá otvoriť a je to JPEG', "HTTP {$f->kod}");
+
+        $o = $upravKfc(['foto' => testovacia_fotka('#2040d0')]);
+        $druhaFotka = $fotkaKfc($o);
+        over(uspech($o) && str_starts_with($druhaFotka, 'uploads/objfood/') && $druhaFotka !== $prvaFotka && $p->get($prvaFotka)->kod === 404,
+            'Nová fotka nahradí starú a stará sa zmaže z disku', $o->popis());
+        $o = $upravKfc(['cena' => '9,90']);
+        over(uspech($o) && $fotkaKfc($o) === $druhaFotka, 'Úprava bez novej fotky fotku ponechá', $o->popis());
+        $o = $upravKfc(['odstranit_foto' => '1']);
+        over(uspech($o) && $fotkaKfc($o) === '' && $p->get($druhaFotka)->kod === 404, 'Fotka sa dá odstrániť (zmaže sa aj z disku)', $o->popis());
+
+        $text = tempnam(sys_get_temp_dir(), 'recepty-text-');
+        file_put_contents($text, 'toto nie je obrázok');
+        $o = $upravKfc(['foto' => new CURLFile($text, 'image/jpeg', 'fotka.jpg')]);
+        over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'obrázok'), 'Súbor, ktorý nie je obrázok, sa odmietne', $o->popis());
+
+        $o = $upravKfc(['foto' => testovacia_fotka('#20a040')]);
+        $poslednaFotka = $fotkaKfc($o);
+    } else {
+        over(uspech($o) && $prvaFotka === '', 'Bez migrácie 2.4 sa objednávka uloží, fotka sa len nezapíše', $o->popis());
+        over(!str_contains($stranka, 'id="objednavkaFotoPole"'), 'Bez migrácie 2.4 formulár fotku neponúka');
+    }
+
     $stranka = $p->get('index.php')->telo;
     $zoStranky = preg_match('/window\.APP_OBJEDNAVKY = (.*?);\n/', $stranka, $m) ? json_decode($m[1], true) : null;
     over(is_array($zoStranky) && $objednavka($zoStranky, $kfcId) !== null, 'Objednávky sú priamo v stránke (pre pozretie bez internetu)');
 
     $o = akcia($p, $csrf, 'objednavka_zmazat', ['objednavka_id' => $kfcId]);
     over(uspech($o) && $objednavka($o->json()['polozky'] ?? [], $kfcId) === null, 'Objednávka sa dá zmazať', $o->popis());
+    if ($fotkyVDb) {
+        over($poslednaFotka !== '' && $p->get($poslednaFotka)->kod === 404, 'So zmazanou objednávkou sa zmaže aj jej fotka', $poslednaFotka);
+    }
     akcia($p, $csrf, 'objednavka_zmazat', ['objednavka_id' => $pizzaId]);
     $o = akcia($p, $csrf, 'objednavka_zmazat', ['objednavka_id' => $kfcId]);
     over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Druhé zmazanie tej istej objednávky sa odmietne a nespadne', $o->popis());
