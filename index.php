@@ -6,7 +6,9 @@ require_once __DIR__ . '/includes/objednavky.php';
 // ?recept=ID (odkaz z upozornenia) otvorí náhľad daného receptu. Ak treba najprv
 // prihlásenie, číslo receptu sa prenesie cez login.php a vráti späť sem.
 $openRecipeId = (isset($_GET['recept']) && ctype_digit((string) $_GET['recept'])) ? (int) $_GET['recept'] : 0;
-$keepQuery = $openRecipeId > 0 ? 'recept=' . $openRecipeId : '';
+// ?objednavka=ID (upozornenie na objednané jedlo, verzia 2.5) otvorí náhľad objednávky — prenáša sa rovnako.
+$openObjednavkaId = (isset($_GET['objednavka']) && ctype_digit((string) $_GET['objednavka'])) ? (int) $_GET['objednavka'] : 0;
+$keepQuery = $openRecipeId > 0 ? 'recept=' . $openRecipeId : ($openObjednavkaId > 0 ? 'objednavka=' . $openObjednavkaId : '');
 require_login($keepQuery); // presmeruje na prihlásenie, ak nie si prihlásený
 enforce_session_idle_timeout($keepQuery);
 
@@ -32,7 +34,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? null;
 /* ------------------------------------------------------------------ */
 if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recipe', 'delete_photo', 'get_logs', 'rate_recipe', 'save_push_subscription',
         'shopping_get', 'shopping_add_recipe', 'shopping_add_item', 'shopping_toggle', 'shopping_delete', 'shopping_clear',
-        'ai_rozpoznaj', 'objednavky_get', 'objednavka_ulozit', 'objednavka_zmazat'], true)
+        'ai_rozpoznaj', 'objednavky_get', 'objednavka_ulozit', 'objednavka_zmazat', 'objednavka_hodnotit'], true)
         && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -234,6 +236,7 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
         case 'objednavky_get':
         case 'objednavka_ulozit':
         case 'objednavka_zmazat':
+        case 'objednavka_hodnotit':
             if (!objednavky_available($pdo)) {
                 $result = ['success' => false, 'error' => 'Objednané jedlo ešte nie je v databáze pripravené.'];
                 break;
@@ -243,8 +246,37 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
                 // Fotka (od 2.4) ide ako súbor 'foto', odstránenie doterajšej ako odstranit_foto=1.
                 $result = save_objednavka($pdo, (int) ($_POST['objednavka_id'] ?? 0), $userId, $_POST,
                     $_FILES['foto'] ?? null, !empty($_POST['odstranit_foto']));
+                // Nová objednávka → upozornenie všetkým ostatným (2.5), ako pri novom recepte.
+                if ($result['success'] && !empty($result['nova'])) {
+                    $kto = $user['full_name'] ?? $user['username'] ?? 'Niekto';
+                    $odkial = $result['sluzba'] !== 'ine' ? ' (' . OBJEDNAVKY_SLUZBY[$result['sluzba']] . ')' : '';
+                    send_push_notification(
+                        $pdo,
+                        null,
+                        'Objednané jedlo 🛍️',
+                        $kto . ' zapísal(a) objednávku „' . $result['nazov'] . '"' . $odkial,
+                        './?objednavka=' . (int) $result['id'],
+                        $userId
+                    );
+                }
+                unset($result['nova'], $result['nazov'], $result['sluzba']);
             } elseif ($action === 'objednavka_zmazat') {
                 $result = delete_objednavka($pdo, (int) ($_POST['objednavka_id'] ?? 0), $userId, is_admin());
+            } elseif ($action === 'objednavka_hodnotit') {
+                $objednavkaId = (int) ($_POST['objednavka_id'] ?? 0);
+                $result = ohodnot_objednavku($pdo, $objednavkaId, $userId, (int) ($_POST['hodnotenie'] ?? 0));
+                // Upozornenie tomu, kto objednávku zapísal — nie pri hodnotení vlastnej (ako pri receptoch).
+                if ($result['success'] && $result['pridal'] !== null && $result['pridal'] !== $userId) {
+                    $kto = $user['full_name'] ?? $user['username'] ?? 'Niekto';
+                    send_push_notification(
+                        $pdo,
+                        $result['pridal'],
+                        'Nové hodnotenie ⭐',
+                        $kto . ' dal(a) objednávke „' . $result['nazov'] . '" ' . $result['hodnotenie'] . ' ★',
+                        './?objednavka=' . $objednavkaId
+                    );
+                }
+                unset($result['pridal'], $result['nazov']);
             }
             // Každá akcia vráti aj čerstvý zoznam — klient ho len prekreslí.
             $result['polozky'] = get_objednavky($pdo, $userId, is_admin());
@@ -284,6 +316,7 @@ $recipeCategories = get_recipe_categories($pdo); // z tabuľky kategorie_recepto
 $objednavkyEnabled = objednavky_available($pdo);
 $objednavky = $objednavkyEnabled ? get_objednavky($pdo, $currentUserId, is_admin()) : [];
 $objednavkyFotky = objednavky_maju_fotky($pdo); // verzia 2.4, bez migracia-2.4.sql formulár fotku neponúkne
+$objednavkyHodnotenia = objednavky_maju_hodnotenia($pdo); // verzia 2.5, bez migracia-2.5.sql bez hviezdičiek
 // Recept z fotky: zapnuté, keď je v .env kľúč aspoň k jednej AI službe (includes/ai.php).
 $aiEnabled = ai_dostupne() && $currentUserId !== null;
 $aiZostava = $aiEnabled ? ai_zostava($pdo, $currentUserId) : null;
@@ -329,7 +362,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=37">
+    <link rel="stylesheet" href="style.css?v=38">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -691,6 +724,52 @@ header('X-Recepty-Offline: 1');
                 <?php endforeach; ?>
             </div>
             <div id="objednavkyZoznam" class="objednavky-zoznam"></div>
+        </div>
+    </section>
+
+    <!-- Náhľad objednávky (verzia 2.5) — ako náhľad receptu: fotka, údaje, hodnotenie.
+         Klik na objednávku v zozname otvorí najprv toto, upraviť sa dá tlačidlom hore.
+         Adresa index.php#objednane-ID, vyplní ho script.js (objednavky). -->
+    <section class="objednavky-cast" data-cast="nahlad" hidden>
+        <div class="objednavka-nahlad-lista">
+            <button type="button" class="btn objednavka-nahlad-tlacidlo" id="nahladSpat" aria-label="Späť na objednávky">
+                <i class="bi bi-arrow-left" aria-hidden="true"></i><span class="d-none d-md-inline">Späť na objednávky</span>
+            </button>
+            <div class="objednavka-nahlad-akcie">
+                <button type="button" class="btn objednavka-nahlad-tlacidlo" id="nahladUpravit" aria-label="Upraviť objednávku" data-vyzaduje-siet>
+                    <i class="bi bi-pencil" aria-hidden="true"></i><span class="d-none d-md-inline">Upraviť</span>
+                </button>
+                <button type="button" class="btn objednavka-nahlad-tlacidlo je-zmazat d-none" id="nahladZmazat" aria-label="Zmazať objednávku" data-vyzaduje-siet>
+                    <i class="bi bi-trash" aria-hidden="true"></i><span class="d-none d-md-inline">Zmazať</span>
+                </button>
+            </div>
+        </div>
+        <div class="objednavka-nahlad" id="objednavkaNahlad">
+            <div class="objednavka-nahlad-foto d-none" id="nahladFoto">
+                <img src="" alt="Fotka objednaného jedla" id="nahladFotoImg">
+            </div>
+            <div class="objednavka-nahlad-telo">
+                <div class="objednavka-nahlad-sluzba" id="nahladSluzba"></div>
+                <h1 class="objednavka-nahlad-nazov" id="nahladNazov" tabindex="-1"></h1>
+                <div class="objednavka-nahlad-udaje" id="nahladUdaje"></div>
+                <?php if ($objednavkyHodnotenia): ?>
+                <!-- Hodnotenie ako pri receptoch: každý jedno 1 až 5, pod tým priemer a počet -->
+                <div class="objednavka-hodnotenie" id="nahladHodnotenie">
+                    <div class="objednavka-nahlad-nadpis">Ako chutilo?</div>
+                    <span class="rating-stars" data-vyzaduje-siet role="group" aria-label="Tvoje hodnotenie objednávky">
+                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                            <i class="bi bi-star rating-star" data-value="<?= $i ?>" role="button" tabindex="0" aria-label="Hodnotiť: <?= $i ?> z 5"></i>
+                        <?php endfor; ?>
+                    </span>
+                    <span class="rating-summary" id="nahladHodnotenieSuhrn"></span>
+                </div>
+                <?php endif; ?>
+                <div class="objednavka-nahlad-blok d-none" id="nahladJedloBlok">
+                    <div class="objednavka-nahlad-nadpis">Čo sme mali</div>
+                    <div class="objednavka-nahlad-jedlo" id="nahladJedlo"></div>
+                </div>
+                <div class="objednavka-nahlad-autor" id="nahladAutor"></div>
+            </div>
         </div>
     </section>
 
@@ -1538,6 +1617,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
 <script>
     window.APP_VAPID_PUBLIC_KEY = <?= json_encode(VAPID_PUBLIC_KEY) ?>;
     window.APP_OPEN_RECIPE = <?= (int) $openRecipeId ?>;
+    window.APP_OPEN_OBJEDNAVKA = <?= (int) $openObjednavkaId ?>; // ?objednavka=ID z upozornenia (2.5)
     window.APP_SUROVINY = <?= json_encode($allSuroviny, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
     window.APP_JEDNOTKY = <?= json_encode(SUROVINA_JEDNOTKY, JSON_UNESCAPED_UNICODE) ?>;
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
@@ -1548,7 +1628,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=37"></script>
+<script src="script.js?v=38"></script>
 </body>
 </html>
 <?php

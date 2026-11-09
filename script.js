@@ -940,6 +940,7 @@ function openShoppingModal() {
      index.php                       → Recepty
      index.php#objednane             → Objednané jedlo, zoznam
      index.php#objednane-formular    → Objednané jedlo, formulár (pridať / upraviť)
+     index.php#objednane-12          → náhľad objednávky č. 12 (od 2.5, ako náhľad receptu)
    Každý prechod pridá záznam do histórie prehliadača, takže tlačidlo Späť
    (aj systémové na Androide) vráti z formulára na zoznam a zo zoznamu na recepty.
    V history.state.hlbka je, koľko takých záznamov je nad receptami.
@@ -972,6 +973,7 @@ const objednavky = (function initObjednavky() {
     let upravovana = null; // objednávka vo formulári (null = nová)
     let formularPripraveny = false; // formulár bol v tejto návšteve otvorený (inak #objednane-formular = zoznam)
     let strankaTeraz = 'recepty';
+    let nahladId = 0;               // objednávka v náhľade (#objednane-ID), 0 = náhľad nie je otvorený
     let vybranaFotka = null;        // nová fotka z formulára (File), odošle sa ako 'foto' (verzia 2.4)
     let nahladUrl = null;           // dočasná adresa náhľadu vybranej fotky (URL.createObjectURL)
 
@@ -1027,6 +1029,15 @@ const objednavky = (function initObjednavky() {
         img.alt = '';
         img.loading = 'lazy';
         return img;
+    }
+
+    /** Riadok zoznamu: „★ 4,5"; náhľad: „priemer 4,5 ★ z 2 hodnotení". Bez hodnotení '' / „Zatiaľ bez hodnotenia". */
+    function suhrnHodnotenia(o, kratko = false) {
+        const h = o.hodnotenie || { priemer: 0, pocet: 0 };
+        if (!h.pocet) return kratko ? '' : 'Zatiaľ bez hodnotenia';
+        const priemer = h.priemer.toFixed(1).replace('.', ',');
+        if (kratko) return '★ ' + priemer;
+        return 'priemer ' + priemer + ' ★ z ' + h.pocet + ' ' + (h.pocet === 1 ? 'hodnotenia' : 'hodnotení');
     }
 
     /** Hlavný názov objednávky: reštaurácia, inak prvý riadok toho, čo sme mali. */
@@ -1132,7 +1143,7 @@ const objednavky = (function initObjednavky() {
         const meta = document.createElement('span');
         meta.className = 'objednavka-meta';
         meta.textContent = [denADatum(o.datum), predKolko(o.datum), nazovSluzby(o.sluzba),
-            o.cena !== null ? formatCena(o.cena) : '', o.pridal].filter(Boolean).join(' · ');
+            o.cena !== null ? formatCena(o.cena) : '', suhrnHodnotenia(o, true), o.pridal].filter(Boolean).join(' · ');
         text.appendChild(meta);
 
         const sipka = document.createElement('i');
@@ -1150,18 +1161,14 @@ const objednavky = (function initObjednavky() {
         } else {
             btn.append(znak(o.sluzba), text, sipka);
         }
-        btn.setAttribute('aria-label', 'Upraviť: ' + meta.textContent.split(' · ')[0] + ', ' + nazov.textContent);
-        btn.addEventListener('click', () => {
-            if (OfflineRezim.jeAktivny()) {
-                showToast('Bez internetu sa objednávka nedá upraviť. Teraz si ju môžeš len pozrieť.', true);
-                return;
-            }
-            otvorFormular(o);
-        });
+        btn.setAttribute('aria-label', 'Zobraziť: ' + meta.textContent.split(' · ')[0] + ', ' + nazov.textContent);
+        // Klik otvorí náhľad (od 2.5), upraviť sa dá až z neho. Náhľad ide aj bez internetu.
+        btn.addEventListener('click', () => otvorNahlad(o));
         return btn;
     }
 
     function vykresli() {
+        if (nahladId) vykresliNahlad();
         const zobrazene = vyfiltrovane();
         vykresliNaposledy(zobrazene);
         zoznamEl.replaceChildren();
@@ -1216,12 +1223,19 @@ const objednavky = (function initObjednavky() {
     function zobraz() {
         let stranka = 'recepty';
         let cast = 'zoznam';
+        const nahladZAdresy = /^#objednane-(\d+)$/.exec(location.hash);
+        nahladId = 0;
         if (location.hash === '#objednane-formular' && formularPripraveny) {
             stranka = 'objednane';
             cast = 'formular';
+        } else if (nahladZAdresy && najdi(Number(nahladZAdresy[1]))) {
+            stranka = 'objednane';
+            cast = 'nahlad';
+            nahladId = Number(nahladZAdresy[1]);
+            vykresliNahlad();
         } else if (location.hash.startsWith('#objednane')) {
             stranka = 'objednane';
-            // Formulár po obnovení stránky nemá čo ukázať — adresa sa vráti na zoznam.
+            // Formulár po obnovení stránky alebo zmazaná objednávka nemá čo ukázať — adresa sa vráti na zoznam.
             if (location.hash !== '#objednane') history.replaceState(history.state, '', '#objednane');
         }
         if (cast !== 'formular') {
@@ -1252,6 +1266,8 @@ const objednavky = (function initObjednavky() {
             // Na PC rovno do poľa reštaurácie; na telefóne nie, klávesnica by zakryla polovicu obrazovky.
             if (jeTelefon()) $('objednavkaNadpis').focus({ preventScroll: true });
             else form.restauracia.focus({ preventScroll: true });
+        } else if (cast === 'nahlad') {
+            $('nahladNazov').focus({ preventScroll: true });
         }
     }
     window.addEventListener('popstate', zobraz);
@@ -1259,8 +1275,13 @@ const objednavky = (function initObjednavky() {
     /** Prejde na stránku 'recepty' alebo 'objednane' (bočná ponuka, spodná lišta). */
     function prejdi(stranka) {
         if (stranka === 'objednane') {
-            if (location.hash === '#objednane-formular' && hlbka() > 0) {
-                history.back(); // z formulára späť na zoznam (zobrazí popstate)
+            if (location.hash.startsWith('#objednane-')) {
+                // Z náhľadu alebo formulára späť na zoznam (zoznam je v histórii na úrovni 1).
+                if (hlbka() > 1) history.go(-(hlbka() - 1));
+                else {
+                    history.replaceState(history.state, '', '#objednane');
+                    zobraz();
+                }
                 return;
             }
             if (location.hash !== '#objednane') {
@@ -1306,15 +1327,117 @@ const objednavky = (function initObjednavky() {
         zobraz();
     }
 
-    /** Späť, Zrušiť a po uložení: z formulára na zoznam (ako tlačidlo Späť v prehliadači). */
+    /**
+     * Späť, Zrušiť a po uložení: o krok späť ako tlačidlo Späť v prehliadači — z formulára
+     * na náhľad alebo zoznam (odkiaľ prišiel), z náhľadu na zoznam.
+     */
     function spatNaZoznam() {
-        if (location.hash === '#objednane-formular' && hlbka() > 0) {
+        if (location.hash.startsWith('#objednane-') && hlbka() > 0) {
             history.back();
         } else {
             history.replaceState(history.state, '', '#objednane');
             zobraz();
         }
     }
+
+    /* ── Náhľad objednávky (verzia 2.5) ── */
+    const najdi = (id) => polozky.find((o) => o.id === id) || null;
+
+    function otvorNahlad(o) {
+        history.pushState({ hlbka: hlbka() + 1 }, '', '#objednane-' + o.id);
+        zobraz();
+    }
+
+    function vykresliNahlad() {
+        const o = najdi(nahladId);
+        if (!o) return;
+        const fotoEl = $('nahladFoto');
+        fotoEl.classList.toggle('d-none', !o.foto);
+        if (o.foto && $('nahladFotoImg').getAttribute('src') !== o.foto) $('nahladFotoImg').src = o.foto;
+        strankaEl.querySelector('.objednavka-nahlad').classList.toggle('bez-fotky', !o.foto);
+
+        const sluzbaEl = $('nahladSluzba');
+        sluzbaEl.replaceChildren(znak(o.sluzba), document.createTextNode(nazovSluzby(o.sluzba)));
+        $('nahladNazov').textContent = nadpisPolozky(o);
+
+        // Údaje ako odznaky v náhľade receptu: kedy, pred koľkými dňami, cena.
+        const udaje = $('nahladUdaje');
+        udaje.replaceChildren(...[
+            ['bi-calendar3', denADatum(o.datum)],
+            ['bi-clock-history', predKolko(o.datum)],
+            o.cena !== null ? ['bi-cash-coin', formatCena(o.cena)] : null,
+        ].filter(Boolean).map(([ikona, text]) => {
+            const el = document.createElement('span');
+            el.className = 'objednavka-nahlad-udaj';
+            el.innerHTML = '<i class="bi ' + ikona + '" aria-hidden="true"></i>';
+            el.appendChild(document.createTextNode(text));
+            return el;
+        }));
+
+        const hodnotenieEl = $('nahladHodnotenie');
+        if (hodnotenieEl) {
+            hodnotenieEl.dataset.moje = o.mojeHodnotenie || 0;
+            vyfarbiHviezdy(o.mojeHodnotenie || 0);
+            const suhrn = suhrnHodnotenia(o);
+            $('nahladHodnotenieSuhrn').textContent = o.mojeHodnotenie
+                ? 'Tvoje ' + o.mojeHodnotenie + ' ★ · ' + suhrn
+                : (o.hodnotenie && o.hodnotenie.pocet ? suhrn.charAt(0).toUpperCase() + suhrn.slice(1) + ' · ťukni na hviezdičku' : 'Zatiaľ bez hodnotenia · ťukni na hviezdičku');
+        }
+
+        // Jedlo, ak nie je už v nadpise namiesto reštaurácie.
+        const jedlo = o.restauracia ? o.jedlo : (o.jedlo || '').split('\n').slice(1).join('\n').trim();
+        $('nahladJedloBlok').classList.toggle('d-none', !jedlo);
+        $('nahladJedlo').textContent = jedlo;
+        $('nahladAutor').textContent = o.pridal ? 'Zapísal(a): ' + o.pridal : '';
+        $('nahladZmazat').classList.toggle('d-none', !o.mozeZmazat);
+    }
+
+    /* Hviezdičky: klik uloží, prejdenie myšou ukáže náhľad (ako pri receptoch). */
+    const hviezdy = () => Array.from(strankaEl.querySelectorAll('#nahladHodnotenie .rating-star'));
+    function vyfarbiHviezdy(pocet) {
+        hviezdy().forEach((h) => {
+            const hodnota = Number(h.dataset.value);
+            h.classList.toggle('bi-star-fill', hodnota <= pocet);
+            h.classList.toggle('bi-star', hodnota > pocet);
+        });
+    }
+    let hodnotiSa = false;
+    async function ohodnot(hodnota) {
+        if (!nahladId || hodnotiSa) return;
+        hodnotiSa = true;
+        vyfarbiHviezdy(hodnota);
+        const data = await call('objednavka_hodnotit', { objednavka_id: nahladId, hodnotenie: hodnota });
+        hodnotiSa = false;
+        if (data.success) showToast('Vďaka za hodnotenie!');
+        else {
+            if (data.error) showToast(data.error, true);
+            vykresliNahlad();
+        }
+    }
+    hviezdy().forEach((h) => {
+        h.addEventListener('click', () => ohodnot(Number(h.dataset.value)));
+        h.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            h.click();
+        });
+        h.addEventListener('mouseenter', () => { if (!OfflineRezim.jeAktivny()) vyfarbiHviezdy(Number(h.dataset.value)); });
+        h.addEventListener('mouseleave', () => vyfarbiHviezdy(Number($('nahladHodnotenie').dataset.moje) || 0));
+    });
+
+    $('nahladSpat').addEventListener('click', spatNaZoznam);
+    $('nahladUpravit').addEventListener('click', () => { const o = najdi(nahladId); if (o) otvorFormular(o); });
+    $('nahladZmazat').addEventListener('click', async () => {
+        const o = najdi(nahladId);
+        if (!o || !confirm('Naozaj zmazať túto objednávku?')) return;
+        const data = await call('objednavka_zmazat', { objednavka_id: o.id });
+        if (data.success) {
+            spatNaZoznam();
+            showToast('Objednávka je zmazaná.');
+        } else if (data.error) {
+            showToast(data.error, true);
+        }
+    });
 
     /* ── Fotka vo formulári (verzia 2.4) ──
        Odfotiť (fotoaparát na telefóne) alebo Z galérie / Vybrať fotku. Vybraný súbor si
@@ -1444,7 +1567,16 @@ const objednavky = (function initObjednavky() {
         btn.addEventListener('click', () => prejdi(btn.dataset.stranka)));
 
     vykresli();
-    zobraz(); // príchod s adresou index.php#objednane (obnovenie stránky)
+    const zUpozornenia = Number(window.APP_OPEN_OBJEDNAVKA) || 0;
+    if (zUpozornenia > 0) {
+        // Príchod z upozornenia (index.php?objednavka=ID): história Recepty → Objednané → náhľad,
+        // aby tlačidlo Späť viedlo na zoznam a potom na recepty. Zmazaná objednávka = zoznam.
+        history.replaceState({ hlbka: 0 }, '', location.pathname);
+        history.pushState({ hlbka: 1 }, '', '#objednane');
+        if (najdi(zUpozornenia)) history.pushState({ hlbka: 2 }, '', '#objednane-' + zUpozornenia);
+        else showToast('Táto objednávka už neexistuje.', true);
+    }
+    zobraz(); // príchod s adresou index.php#objednane… (obnovenie stránky, upozornenie)
     return { prejdi, aktualna: () => strankaTeraz };
 })();
 

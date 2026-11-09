@@ -528,6 +528,29 @@ if ($objednavkyVDb) {
         over(!str_contains($stranka, 'id="objednavkaFotoPole"'), 'Bez migrácie 2.4 formulár fotku neponúka');
     }
 
+    // Náhľad a hodnotenie (verzia 2.5, tabuľka objednavky_hodnotenia z migracia-2.5.sql).
+    over(str_contains($stranka, 'data-cast="nahlad"') && str_contains($stranka, 'id="nahladUpravit"') && str_contains($stranka, 'id="nahladZmazat"'),
+        'Objednávka má náhľad ako recept (s tlačidlami Upraviť a Zmazať)');
+    $hodnoteniaVDb = $plny || str_contains($stranka, 'id="nahladHodnotenie"');
+    $o = akcia($p, $csrf, 'objednavka_hodnotit', ['objednavka_id' => $kfcId, 'hodnotenie' => '4']);
+    if ($hodnoteniaVDb) {
+        $kfc = $objednavka($o->json()['polozky'] ?? [], $kfcId);
+        over(uspech($o) && ($kfc['mojeHodnotenie'] ?? 0) === 4 && ($kfc['hodnotenie']['pocet'] ?? 0) === 1
+            && ($kfc['hodnotenie']['priemer'] ?? 0) == 4, 'Objednávka sa dá ohodnotiť hviezdičkami', $o->popis());
+        $o = akcia($p, $csrf, 'objednavka_hodnotit', ['objednavka_id' => $kfcId, 'hodnotenie' => '5']);
+        $kfc = $objednavka($o->json()['polozky'] ?? [], $kfcId);
+        over(uspech($o) && ($kfc['mojeHodnotenie'] ?? 0) === 5 && ($kfc['hodnotenie']['pocet'] ?? 0) === 1,
+            'Nové hodnotenie toho istého človeka prepíše staré (jeden hlas)', json_encode($kfc['hodnotenie'] ?? null));
+        $o = akcia($p, $csrf, 'objednavka_hodnotit', ['objednavka_id' => $kfcId, 'hodnotenie' => '9']);
+        over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'Neplatné'), 'Hodnotenie mimo 1 až 5 sa odmietne', $o->popis());
+        $o = akcia($p, $csrf, 'objednavka_hodnotit', ['objednavka_id' => 999999, 'hodnotenie' => '3']);
+        over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'neexistuje'), 'Hodnotenie neexistujúcej objednávky sa odmietne', $o->popis());
+        over(str_contains($stranka, 'id="nahladHodnotenie"'), 'Náhľad objednávky má hviezdičky');
+    } else {
+        over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Bez migrácie 2.5 sa hodnotenie odmietne, appka nespadne', $o->popis());
+        over(!str_contains($stranka, 'id="nahladHodnotenie"'), 'Bez migrácie 2.5 náhľad hviezdičky neukazuje');
+    }
+
     $stranka = $p->get('index.php')->telo;
     $zoStranky = preg_match('/window\.APP_OBJEDNAVKY = (.*?);\n/', $stranka, $m) ? json_decode($m[1], true) : null;
     over(is_array($zoStranky) && $objednavka($zoStranky, $kfcId) !== null, 'Objednávky sú priamo v stránke (pre pozretie bez internetu)');
@@ -789,6 +812,15 @@ over(in_array($o->kod, [301, 302, 303], true), 'Správa surovín bez prihláseni
 echo "\nĎalšie stránky\n";
 $o = $p->get("index.php?recept=$receptId");
 over($o->kod === 200 && bez_chyby($o), 'Odkaz z upozornenia (index.php?recept=…) sa otvorí', $o->popis());
+// Upozornenie na objednané jedlo (2.5): ?objednavka=ID sa prenesie aj cez prihlásenie.
+$o = $p->get('index.php?objednavka=7');
+over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'window.APP_OPEN_OBJEDNAVKA = 7;'),
+    'Odkaz z upozornenia na objednávku (index.php?objednavka=…) sa otvorí', $o->popis());
+$o = (new Prehliadac($adresa))->get('index.php?objednavka=7');
+over(in_array($o->kod, [301, 302, 303], true) && str_contains($o->presmerovanie(), 'login.php?objednavka=7'),
+    'Bez prihlásenia sa číslo objednávky prenesie na prihlásenie', $o->presmerovanie());
+$o = (new Prehliadac($adresa))->get('login.php?objednavka=7');
+over(str_contains($o->telo, 'name="objednavka" value="7"'), 'Prihlásenie si číslo objednávky zapamätá do formulára');
 
 $o = $p->get('admin/index.php');
 over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Používatelia'), 'Správa používateľov sa otvorí', $o->popis());

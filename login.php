@@ -5,7 +5,10 @@ require_once __DIR__ . '/includes/functions.php';
 
 // Číslo receptu z upozornenia (login.php?recept=12) — po prihlásení sa otvorí práve ten recept.
 $openRecipeId = (isset($_REQUEST['recept']) && ctype_digit((string) $_REQUEST['recept'])) ? (int) $_REQUEST['recept'] : 0;
-$afterLoginUrl = 'index.php' . ($openRecipeId > 0 ? '?recept=' . $openRecipeId : '');
+// Rovnako objednávka (login.php?objednavka=5, verzia 2.5) — po prihlásení sa otvorí jej náhľad.
+$openObjednavkaId = (isset($_REQUEST['objednavka']) && ctype_digit((string) $_REQUEST['objednavka'])) ? (int) $_REQUEST['objednavka'] : 0;
+$afterLoginUrl = 'index.php' . ($openRecipeId > 0 ? '?recept=' . $openRecipeId
+    : ($openObjednavkaId > 0 ? '?objednavka=' . $openObjednavkaId : ''));
 
 // Zariadenie so „Zostať prihlásený" sem nemá prečo chodiť — rovno ho pustíme do appky.
 remember_restore($pdo);
@@ -85,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'passw
         <form method="post" autocomplete="on">
             <input type="hidden" name="action" value="password_login">
             <?php if ($openRecipeId > 0): ?><input type="hidden" name="recept" value="<?= $openRecipeId ?>"><?php endif; ?>
+            <?php if ($openObjednavkaId > 0): ?><input type="hidden" name="objednavka" value="<?= $openObjednavkaId ?>"><?php endif; ?>
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
             <div class="mb-3">
                 <label class="form-label">Používateľské meno</label>

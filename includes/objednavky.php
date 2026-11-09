@@ -1,6 +1,6 @@
 <?php
 /**
- * objednavky.php — Objednané jedlo (verzia 2.2, fotky od 2.4).
+ * objednavky.php — Objednané jedlo (verzia 2.2, fotky od 2.4, hodnotenie a upozornenia od 2.5).
  *
  * Zvlášť od receptov: jedlo objednané cez Wolt, Bolt Food, Bistro.sk a podobne.
  * Pri každej objednávke je dátum, odkiaľ sa objednávalo, reštaurácia, čo sme
@@ -19,6 +19,14 @@
  * zmenšenie, JPEG) a uloží do uploads/objfood/. Pri novej fotke, odstránení fotky
  * alebo zmazaní objednávky sa starý súbor zmaže z disku. Bez migrácie 2.4
  * Objednané jedlo funguje ďalej, len bez fotiek.
+ *
+ * Hodnotenie (verzia 2.5, tabuľka objednavky_hodnotenia z sql/migracia-2.5.sql):
+ * ako pri receptoch — každý používateľ jedno hodnotenie 1 až 5, ukazuje sa priemer
+ * a počet. Bez migrácie 2.5 sa hodnotenie neukazuje.
+ *
+ * Upozornenia (2.5): nová objednávka príde ostatným, hodnotenie tomu, kto
+ * objednávku zapísal (send_push_notification z functions.php, ako pri receptoch).
+ * Odkaz z upozornenia je ./?objednavka=ID — otvorí náhľad objednávky.
  *
  * Očakáva, že functions.php je už načítaný (app_today, parse_app_date, debug_log).
  */
@@ -81,6 +89,34 @@ function objednavky_maju_fotky(PDO $pdo): bool
     return $maju;
 }
 
+/** Existuje už tabuľka objednavky_hodnotenia (migracia-2.5.sql)? */
+function objednavky_maju_hodnotenia(PDO $pdo): bool
+{
+    static $maju = null;
+    if ($maju === null) {
+        $maju = false;
+        if (objednavky_available($pdo)) {
+            try {
+                $pdo->query('SELECT 1 FROM objednavky_hodnotenia LIMIT 1');
+                $maju = true;
+            } catch (Throwable $e) {
+                debug_log('OBJEDNAVKY: chýba tabuľka objednavky_hodnotenia, spusti sql/migracia-2.5.sql (' . $e->getMessage() . ')');
+            }
+        }
+    }
+    return $maju;
+}
+
+/** Krátky názov objednávky do upozornenia: reštaurácia, inak prvý riadok jedla. */
+function objednavka_nazov(?string $restauracia, ?string $jedlo): string
+{
+    $nazov = trim((string) $restauracia);
+    if ($nazov === '') {
+        $nazov = trim(strtok((string) $jedlo, "\n") ?: '');
+    }
+    return mb_strlen($nazov) > 60 ? mb_substr($nazov, 0, 59) . '…' : $nazov;
+}
+
 /**
  * Cena z formulára: „24,90", „24.90", „24,90 €", „ 7 " → float. Prázdne = null.
  * Návrat: ['ok' => bool, 'cena' => ?float]
@@ -128,6 +164,23 @@ function get_objednavky(PDO $pdo, ?int $userId, bool $jeAdmin): array
          ORDER BY o.datum DESC, o.id DESC"
     )->fetchAll(PDO::FETCH_ASSOC);
 
+    // Hodnotenia (od 2.5): priemer a počet pre každú objednávku a hodnotenie aktuálneho používateľa.
+    $suhrny = [];
+    $moje = [];
+    if (objednavky_maju_hodnotenia($pdo)) {
+        foreach ($pdo->query('SELECT objednavka_id, AVG(hodnotenie) AS priemer, COUNT(*) AS pocet
+                              FROM objednavky_hodnotenia GROUP BY objednavka_id') as $h) {
+            $suhrny[(int) $h['objednavka_id']] = ['priemer' => round((float) $h['priemer'], 1), 'pocet' => (int) $h['pocet']];
+        }
+        if ($userId !== null) {
+            $stmt = $pdo->prepare('SELECT objednavka_id, hodnotenie FROM objednavky_hodnotenia WHERE user_id = ?');
+            $stmt->execute([$userId]);
+            foreach ($stmt as $h) {
+                $moje[(int) $h['objednavka_id']] = (int) $h['hodnotenie'];
+            }
+        }
+    }
+
     return array_map(static fn(array $r): array => [
         'id'          => (int) $r['id'],
         'datum'       => $r['datum'],
@@ -138,6 +191,8 @@ function get_objednavky(PDO $pdo, ?int $userId, bool $jeAdmin): array
         'foto'        => $r['foto'] ?? '',
         'pridal'      => $r['pridal_meno'] ?? '',
         'mozeZmazat'  => $jeAdmin || ($userId !== null && (int) $r['pridal'] === $userId),
+        'hodnotenie'  => $suhrny[(int) $r['id']] ?? ['priemer' => 0, 'pocet' => 0],
+        'mojeHodnotenie' => $moje[(int) $r['id']] ?? 0,
     ], $rows);
 }
 
@@ -176,6 +231,7 @@ function save_objednavka(PDO $pdo, int $id, int $userId, array $vstup, ?array $f
     }
 
     $fotky = objednavky_maju_fotky($pdo);
+    $jeNova = $id <= 0; // nová objednávka → upozornenie ostatným (index.php)
     $staraFotka = null;
     if ($id > 0) {
         $existuje = $pdo->prepare('SELECT ' . ($fotky ? 'foto' : "''") . ' FROM objednane_jedla WHERE id = ?');
@@ -227,7 +283,8 @@ function save_objednavka(PDO $pdo, int $id, int $userId, array $vstup, ?array $f
     if ($staraFotka !== null && $staraFotka !== $fotka) {
         delete_recipe_image($staraFotka);
     }
-    return ['success' => true, 'error' => null, 'id' => $id];
+    return ['success' => true, 'error' => null, 'id' => $id, 'nova' => $jeNova,
+            'nazov' => objednavka_nazov($restauracia, $jedlo), 'sluzba' => $sluzba];
 }
 
 /** Zmaže objednávku — len ten, kto ju zapísal, alebo admin (kontrola na serveri, nie len skrytým tlačidlom). */
@@ -248,4 +305,37 @@ function delete_objednavka(PDO $pdo, int $id, int $userId, bool $jeAdmin): array
     $pdo->prepare('DELETE FROM objednane_jedla WHERE id = ?')->execute([$id]);
     delete_recipe_image($objednavka['foto'] ?: null); // fotku z disku až po zmazaní z databázy
     return ['success' => true, 'error' => null];
+}
+
+/**
+ * Hodnotenie objednávky 1 až 5 (od 2.5). Jeden používateľ = jeden hlas, nové hodnotenie
+ * prepíše jeho predošlé. Návrat: success, a pre upozornenie autorovi aj kto objednávku
+ * zapísal (pridal) a jej názov.
+ */
+function ohodnot_objednavku(PDO $pdo, int $id, int $userId, int $hodnotenie): array
+{
+    if (!objednavky_maju_hodnotenia($pdo)) {
+        return ['success' => false, 'error' => 'Hodnotenie objednávok ešte nie je v databáze pripravené (sql/migracia-2.5.sql).'];
+    }
+    if ($hodnotenie < 1 || $hodnotenie > 5) {
+        return ['success' => false, 'error' => 'Neplatné hodnotenie.'];
+    }
+    $stmt = $pdo->prepare('SELECT pridal, restauracia, jedlo FROM objednane_jedla WHERE id = ?');
+    $stmt->execute([$id]);
+    $objednavka = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$objednavka) {
+        return ['success' => false, 'error' => 'Táto objednávka už neexistuje.'];
+    }
+    $pdo->prepare(
+        'INSERT INTO objednavky_hodnotenia (objednavka_id, user_id, hodnotenie) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE hodnotenie = VALUES(hodnotenie), updated_at = CURRENT_TIMESTAMP'
+    )->execute([$id, $userId, $hodnotenie]);
+
+    return [
+        'success'    => true,
+        'error'      => null,
+        'hodnotenie' => $hodnotenie,
+        'pridal'     => $objednavka['pridal'] !== null ? (int) $objednavka['pridal'] : null,
+        'nazov'      => objednavka_nazov($objednavka['restauracia'], $objednavka['jedlo']),
+    ];
 }

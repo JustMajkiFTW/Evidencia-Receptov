@@ -2323,6 +2323,7 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
    (zoznam a formulár), riadky a tlačidlá sú veľké ako v Nákupe.
    Farebné krúžky služieb (W, B, Bi) nie sú logá, len rozlíšenie.
    Od 2.4 môže mať objednávka fotku (miniatúra v zozname, náhľad vo formulári).
+   Od 2.5 otvorí klik na objednávku náhľad s hodnotením hviezdičkami.
    ============================================================ */
 /* Stránky Recepty / Objednané jedlo a časti stránky prepína script.js atribútom hidden */
 .stranka[hidden],
@@ -2614,6 +2615,102 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 .objednavky-foto-tlacidlo:hover { border-color: var(--app-accent); }
 @media (min-width: 768px) {
     .objednavky-foto-tlacidla { max-width: 320px; }
+}
+
+/* ── Náhľad objednávky (verzia 2.5) — ako náhľad receptu: na PC fotka vľavo a údaje vpravo,
+   na telefóne fotka hore. Hore Späť a akcie (na PC s popisom, na telefóne krúžky s ikonou). ── */
+.objednavka-nahlad-lista {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem;
+    max-width: 1100px;
+    margin-bottom: 1.25rem;
+}
+.objednavka-nahlad-akcie { display: flex; gap: .5rem; }
+.objednavka-nahlad-tlacidlo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    min-height: 48px;
+    padding: 0 1.1rem;
+    border-radius: 14px;
+    border: 1px solid var(--app-border);
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-size: 1.02rem;
+    font-weight: 600;
+}
+.objednavka-nahlad-tlacidlo .bi { font-size: 1.15rem; }
+.objednavka-nahlad-tlacidlo:hover, .objednavka-nahlad-tlacidlo:focus-visible { border-color: var(--app-accent); color: var(--app-text); }
+.objednavka-nahlad-tlacidlo.je-zmazat { color: var(--bs-danger-text-emphasis); border-color: rgba(220, 53, 69, .45); }
+.objednavka-nahlad-tlacidlo.je-zmazat:hover { background: rgba(220, 53, 69, .1); color: var(--bs-danger-text-emphasis); }
+.objednavka-nahlad { max-width: 1100px; }
+.objednavka-nahlad.bez-fotky { max-width: 760px; }
+.objednavka-nahlad-foto { margin-bottom: 1.25rem; }
+.objednavka-nahlad-foto img {
+    width: 100%;
+    max-height: 520px;
+    border-radius: 18px;
+    object-fit: cover;
+    display: block;
+    background: var(--app-jemna);
+}
+.objednavka-nahlad-sluzba {
+    display: inline-flex;
+    align-items: center;
+    gap: .55rem;
+    margin-bottom: .45rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--app-muted-text);
+}
+.objednavka-nahlad-sluzba .objednavka-znak { width: 34px; height: 34px; font-size: 1rem; }
+.objednavka-nahlad-sluzba .objednavka-znak[data-sluzba="bistro"] { font-size: .8rem; }
+.objednavka-nahlad-nazov { margin: 0 0 .8rem; font-size: 2.1rem; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; outline: none; }
+.objednavka-nahlad-udaje { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.1rem; }
+.objednavka-nahlad-udaj {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .45rem .8rem;
+    border-radius: 12px;
+    background: var(--app-jemna);
+    font-size: 1rem;
+}
+.objednavka-nahlad-udaj .bi { color: var(--app-muted-text); }
+.objednavka-hodnotenie {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .2rem .9rem;
+    margin-bottom: 1.1rem;
+    padding: 1rem 1.1rem;
+    border-radius: 18px;
+    border: 1px solid var(--app-border);
+    background: var(--app-plocha);
+}
+.objednavka-hodnotenie .objednavka-nahlad-nadpis { flex-basis: 100%; }
+.objednavka-hodnotenie .rating-stars { display: inline-flex; margin-left: -.3rem; }
+.objednavka-hodnotenie .rating-stars .rating-star { margin: 0; padding: .3rem .25rem; font-size: 2.1rem; line-height: 1; }
+.objednavka-hodnotenie .rating-summary { font-size: 1rem; color: var(--app-muted-text); }
+.objednavka-nahlad-nadpis { margin-bottom: .35rem; font-size: 1.15rem; font-weight: 700; }
+.objednavka-nahlad-blok { margin-bottom: 1.1rem; }
+.objednavka-nahlad-jedlo { font-size: 1.1rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.objednavka-nahlad-autor { font-size: .95rem; color: var(--app-muted-text); }
+@media (min-width: 992px) {
+    .objednavka-nahlad:not(.bez-fotky) { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); column-gap: 2rem; align-items: start; }
+    .objednavka-nahlad:not(.bez-fotky) .objednavka-nahlad-foto { position: sticky; top: 1.5rem; margin-bottom: 0; }
+}
+@media (max-width: 767.98px) {
+    .objednavka-nahlad-lista { padding: 1rem 1rem 0; margin-bottom: .9rem; }
+    .objednavka-nahlad-tlacidlo { width: 48px; padding: 0; border-radius: 50%; }
+    .objednavka-nahlad-tlacidlo .bi { font-size: 1.3rem; }
+    .objednavka-nahlad-foto { margin: 0 1rem 1rem; }
+    .objednavka-nahlad-foto img { max-height: 320px; }
+    .objednavka-nahlad-telo { padding: 0 1rem; }
+    .objednavka-nahlad-nazov { font-size: 1.7rem; }
 }
 
 /* ── Telefón: obsah s okrajmi ako recepty, tlačidlá na celú šírku ── */
