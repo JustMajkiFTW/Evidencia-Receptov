@@ -932,6 +932,387 @@ function openShoppingModal() {
 }
 
 /* ========================================================================
+   Objednané jedlo (verzia 2.2) — Wolt, Bolt Food… zvlášť od receptov.
+   Zoznam je priamo v stránke (window.APP_OBJEDNAVKY), takže sa dá pozrieť
+   aj bez internetu. Pri otvorení okna sa potichu stiahne čerstvý zo servera
+   a každá akcia (uloženie, zmazanie) vráti celý aktuálny zoznam.
+   V okne sú dve časti: zoznam a formulár (pridať / upraviť).
+   ======================================================================== */
+const objednavky = (function initObjednavky() {
+    const modalEl = document.getElementById('objednavkyModal');
+    if (!modalEl) return null;
+
+    const SLUZBY = window.APP_OBJEDNAVKY_SLUZBY || {};
+    const MESIACE = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August', 'September', 'Október', 'November', 'December'];
+    const DNI = ['nedeľa', 'pondelok', 'utorok', 'streda', 'štvrtok', 'piatok', 'sobota'];
+
+    const $ = (id) => document.getElementById(id);
+    const zoznamEl = $('objednavkyZoznam');
+    const naposledyEl = $('objednavkyNaposledy');
+    const hladajEl = $('objednavkyHladaj');
+    const cipy = Array.from(modalEl.querySelectorAll('.objednavky-cip'));
+    const form = $('objednavkaForm');
+    const chybaEl = $('objednavkaChyba');
+    const tipyEl = $('objednavkaTipy');
+    const zmazatBtn = $('objednavkaZmazat');
+
+    let polozky = Array.isArray(window.APP_OBJEDNAVKY) ? window.APP_OBJEDNAVKY : [];
+    let filterSluzba = '';
+    let upravovana = null; // objednávka vo formulári (null = nová)
+
+    /* ── Pomôcky na text a dátumy ── */
+    const normalizuj = (text) => (window.Suroviny ? window.Suroviny.normKey(text) : String(text || '').toLowerCase());
+
+    /** Počet dní medzi dvoma dátumami Y-m-d (bez vplyvu časového pásma). */
+    function dniMedzi(od, po) {
+        const utc = (iso) => {
+            const [r, m, d] = iso.split('-').map(Number);
+            return Date.UTC(r, m - 1, d);
+        };
+        return Math.round((utc(po) - utc(od)) / 86400000);
+    }
+
+    /** „dnes", „včera", „pred 5 dňami", „pred 3 mesiacmi", „pred rokom". */
+    function predKolko(iso) {
+        const dni = dniMedzi(iso, todayISO());
+        if (dni <= 0) return 'dnes';
+        if (dni === 1) return 'včera';
+        if (dni <= 60) return 'pred ' + dni + ' dňami';
+        if (dni < 365) return 'pred ' + Math.round(dni / 30) + ' mesiacmi';
+        const roky = Math.floor(dni / 365);
+        return roky === 1 ? 'pred rokom' : 'pred ' + roky + ' rokmi';
+    }
+
+    /** „sobota 7. 11." (rok len pri inom než tomto roku). */
+    function denADatum(iso) {
+        const [r, m, d] = iso.split('-').map(Number);
+        const den = DNI[new Date(Date.UTC(r, m - 1, d)).getUTCDay()];
+        return den + ' ' + d + '. ' + m + '.' + (r !== new Date().getFullYear() ? ' ' + r : '');
+    }
+
+    const formatCena = (cena) => cena.toFixed(2).replace('.', ',') + ' €';
+    const pocetObjednavok = (n) => n + ' ' + (n === 1 ? 'objednávka' : (n >= 2 && n <= 4 ? 'objednávky' : 'objednávok'));
+    const nazovSluzby = (kluc) => SLUZBY[kluc] || SLUZBY.ine || 'Iné';
+
+    /** Farebný krúžok služby: „W", „B", „f", pri Iné ikona obchodu. */
+    function znak(sluzba) {
+        const el = document.createElement('span');
+        el.className = 'objednavka-znak';
+        el.dataset.sluzba = sluzba;
+        el.setAttribute('aria-hidden', 'true');
+        if (sluzba === 'ine' || !SLUZBY[sluzba]) el.innerHTML = '<i class="bi bi-shop"></i>';
+        else el.textContent = nazovSluzby(sluzba).charAt(0);
+        return el;
+    }
+
+    /** Hlavný názov objednávky: reštaurácia, inak prvý riadok toho, čo sme mali. */
+    const nadpisPolozky = (o) => o.restauracia || (o.jedlo || '').split('\n')[0];
+
+    /* ── Komunikácia so serverom ── */
+    async function call(action, params, opts = {}) {
+        const formData = params instanceof FormData ? params : new FormData();
+        if (!(params instanceof FormData)) Object.entries(params || {}).forEach(([k, v]) => formData.append(k, v));
+        formData.set('action', action);
+        formData.set('csrf_token', csrfToken());
+        try {
+            const res = await fetch('index.php', { method: 'POST', body: formData });
+            // Vypršané prihlásenie: server presmeruje na prihlasovaciu stránku namiesto JSON.
+            if (!(res.headers.get('Content-Type') || '').includes('application/json')) {
+                if (!opts.ticho) {
+                    showToast('Prihlásenie vypršalo. Obnov stránku a skús to znova.', true,
+                        { label: 'Obnoviť stránku', onClick: () => location.reload() });
+                }
+                return { success: false, error: '' };
+            }
+            const data = await res.json();
+            if (Array.isArray(data.polozky)) {
+                polozky = data.polozky;
+                vykresli();
+            }
+            return data;
+        } catch (err) {
+            if (!opts.ticho) showToast('Chyba pripojenia k serveru.', true);
+            return { success: false, error: '' };
+        }
+    }
+
+    /* ── Zoznam ── */
+    function vyfiltrovane() {
+        const hladane = normalizuj(hladajEl.value).trim();
+        return polozky.filter((o) => (!filterSluzba || o.sluzba === filterSluzba)
+            && (!hladane || normalizuj(o.restauracia + ' ' + o.jedlo).includes(hladane)));
+    }
+
+    function vykresliNaposledy(zobrazene) {
+        const hladane = hladajEl.value.trim();
+        if (!polozky.length) {
+            naposledyEl.classList.add('d-none');
+            return;
+        }
+        naposledyEl.classList.remove('d-none');
+        naposledyEl.replaceChildren();
+
+        const ikona = document.createElement('span');
+        ikona.className = 'objednavky-naposledy-ikona';
+        ikona.setAttribute('aria-hidden', 'true');
+        ikona.innerHTML = '<i class="bi bi-clock-history"></i>';
+        const text = document.createElement('div');
+        text.className = 'min-w-0';
+        const popis = document.createElement('div');
+        popis.className = 'objednavky-naposledy-popis';
+        popis.textContent = hladane ? 'Naposledy „' + hladane + '“'
+            : filterSluzba ? 'Naposledy cez ' + nazovSluzby(filterSluzba) : 'Naposledy objednané';
+        const kedy = document.createElement('div');
+        kedy.className = 'objednavky-naposledy-kedy';
+        const co = document.createElement('div');
+        co.className = 'objednavky-naposledy-co';
+
+        const prva = zobrazene[0];
+        if (prva) {
+            kedy.textContent = predKolko(prva.datum);
+            co.textContent = [nadpisPolozky(prva), nazovSluzby(prva.sluzba), denADatum(prva.datum)].filter(Boolean).join(' · ');
+        } else {
+            kedy.textContent = 'Nič sme nenašli';
+            co.textContent = 'Skús iné slovo alebo ťukni na Všetko.';
+        }
+        text.append(popis, kedy, co);
+        naposledyEl.append(ikona, text);
+    }
+
+    function riadok(o) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'objednavka';
+        btn.dataset.id = o.id;
+
+        const text = document.createElement('span');
+        text.className = 'objednavka-text';
+        const nazov = document.createElement('span');
+        nazov.className = 'objednavka-nazov';
+        nazov.textContent = nadpisPolozky(o);
+        text.appendChild(nazov);
+
+        // Čo sme mali (ak nie je už v nadpise namiesto reštaurácie)
+        if (o.restauracia && o.jedlo) {
+            const jedlo = document.createElement('span');
+            jedlo.className = 'objednavka-jedlo';
+            jedlo.textContent = o.jedlo;
+            text.appendChild(jedlo);
+        }
+
+        const meta = document.createElement('span');
+        meta.className = 'objednavka-meta';
+        meta.textContent = [denADatum(o.datum), predKolko(o.datum), nazovSluzby(o.sluzba),
+            o.cena !== null ? formatCena(o.cena) : '', o.pridal].filter(Boolean).join(' · ');
+        text.appendChild(meta);
+
+        const sipka = document.createElement('i');
+        sipka.className = 'bi bi-chevron-right objednavka-sipka';
+        sipka.setAttribute('aria-hidden', 'true');
+
+        btn.append(znak(o.sluzba), text, sipka);
+        btn.setAttribute('aria-label', 'Upraviť: ' + meta.textContent.split(' · ')[0] + ', ' + nazov.textContent);
+        btn.addEventListener('click', () => {
+            if (OfflineRezim.jeAktivny()) {
+                showToast('Bez internetu sa objednávka nedá upraviť. Teraz si ju môžeš len pozrieť.', true);
+                return;
+            }
+            otvorFormular(o);
+        });
+        return btn;
+    }
+
+    function vykresli() {
+        const zobrazene = vyfiltrovane();
+        vykresliNaposledy(zobrazene);
+        zoznamEl.replaceChildren();
+
+        if (!polozky.length) {
+            const prazdne = document.createElement('div');
+            prazdne.className = 'objednavky-prazdne';
+            prazdne.innerHTML = '<i class="bi bi-bag" aria-hidden="true"></i>' +
+                '<p>Zatiaľ tu nič nie je.<br>Keď si niečo objednáte, zapíš to tlačidlom <b>Pridať objednávku</b>.</p>';
+            zoznamEl.appendChild(prazdne);
+            return;
+        }
+
+        // Po mesiacoch, pri mesiaci počet objednávok a súčet cien (ak sú zapísané).
+        const mesiace = [];
+        zobrazene.forEach((o) => {
+            const kluc = o.datum.slice(0, 7);
+            let mesiac = mesiace[mesiace.length - 1];
+            if (!mesiac || mesiac.kluc !== kluc) {
+                mesiac = { kluc, polozky: [] };
+                mesiace.push(mesiac);
+            }
+            mesiac.polozky.push(o);
+        });
+        mesiace.forEach((mesiac) => {
+            const [rok, m] = mesiac.kluc.split('-').map(Number);
+            const sucet = mesiac.polozky.reduce((s, o) => s + (o.cena || 0), 0);
+            const nadpis = document.createElement('div');
+            nadpis.className = 'objednavky-mesiac';
+            nadpis.textContent = MESIACE[m - 1] + ' ' + rok + ' · ' + pocetObjednavok(mesiac.polozky.length)
+                + (sucet > 0 ? ' · ' + formatCena(sucet) : '');
+            zoznamEl.appendChild(nadpis);
+            mesiac.polozky.forEach((o) => zoznamEl.appendChild(riadok(o)));
+        });
+    }
+
+    hladajEl.addEventListener('input', vykresli);
+    cipy.forEach((cip) => cip.addEventListener('click', () => {
+        filterSluzba = cip.dataset.sluzba;
+        cipy.forEach((c) => {
+            const aktivny = c === cip;
+            c.classList.toggle('is-active', aktivny);
+            c.setAttribute('aria-pressed', aktivny ? 'true' : 'false');
+        });
+        vykresli();
+    }));
+
+    /* ── Prepínanie medzi zoznamom a formulárom ── */
+    function ukazCast(nazov) {
+        modalEl.querySelectorAll('.objednavky-cast').forEach((cast) => cast.classList.toggle('d-none', cast.dataset.cast !== nazov));
+        modalEl.querySelector('.modal-dialog').classList.toggle('je-formular', nazov === 'formular');
+    }
+
+    function otvorFormular(o = null) {
+        upravovana = o;
+        form.reset();
+        chybaEl.classList.add('d-none');
+        form.objednavka_id.value = o ? o.id : '';
+        $('objednavkaNadpis').textContent = o ? 'Upraviť objednávku' : 'Nová objednávka';
+        // Nová objednávka: služba podľa poslednej objednávky (väčšinou sa objednáva z tej istej).
+        const sluzba = o ? o.sluzba : (polozky[0]?.sluzba || 'wolt');
+        const radio = form.querySelector('input[name="sluzba"][value="' + sluzba + '"]')
+            || form.querySelector('input[name="sluzba"][value="ine"]');
+        if (radio) radio.checked = true;
+        form.restauracia.value = o ? o.restauracia : '';
+        form.jedlo.value = o ? o.jedlo : '';
+        form.datum.value = o ? o.datum : todayISO();
+        form.datum.max = todayISO();
+        form.cena.value = o && o.cena !== null ? String(o.cena.toFixed(2)).replace('.', ',') : '';
+        zmazatBtn.classList.toggle('d-none', !(o && o.mozeZmazat));
+        vykresliTipy();
+        ukazCast('formular');
+        form.querySelector('.modal-body').scrollTop = 0;
+        // Na PC rovno do poľa reštaurácie; na telefóne nie, klávesnica by zakryla polovicu okna.
+        if (!jeTelefon()) form.restauracia.focus();
+    }
+
+    function spatNaZoznam() {
+        upravovana = null;
+        ukazCast('zoznam');
+    }
+
+    /** Reštaurácie, z ktorých sa už objednávalo (najnovšie prvé), zúžené podľa napísaného textu. */
+    function vykresliTipy() {
+        const napisane = normalizuj(form.restauracia.value).trim();
+        const videne = new Set();
+        const tipy = [];
+        for (const o of polozky) {
+            const kluc = normalizuj(o.restauracia);
+            if (!kluc || videne.has(kluc)) continue;
+            videne.add(kluc);
+            if (kluc === napisane || (napisane && !kluc.includes(napisane))) continue;
+            tipy.push(o);
+            if (tipy.length === 6) break;
+        }
+        tipyEl.replaceChildren(...tipy.map((o) => {
+            const tip = document.createElement('button');
+            tip.type = 'button';
+            tip.className = 'objednavky-tip';
+            tip.append(znak(o.sluzba), document.createTextNode(o.restauracia));
+            tip.addEventListener('click', () => {
+                form.restauracia.value = o.restauracia;
+                const radio = form.querySelector('input[name="sluzba"][value="' + o.sluzba + '"]');
+                if (radio) radio.checked = true;
+                vykresliTipy();
+                if (!form.jedlo.value) form.jedlo.focus();
+            });
+            return tip;
+        }));
+        tipyEl.classList.toggle('d-none', tipy.length === 0);
+    }
+    form.restauracia.addEventListener('input', vykresliTipy);
+
+    /** Chyba je na začiatku formulára — posunieme sa hore, aby ju bolo vidno. */
+    function ukazChybu(text, pole = null) {
+        chybaEl.textContent = text;
+        chybaEl.classList.remove('d-none');
+        form.querySelector('.modal-body').scrollTop = 0;
+        if (pole) pole.focus({ preventScroll: true });
+    }
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        chybaEl.classList.add('d-none');
+        if (!form.restauracia.value.trim() && !form.jedlo.value.trim()) {
+            ukazChybu('Napíš reštauráciu alebo čo ste mali.', form.restauracia);
+            return;
+        }
+        if (!form.datum.value) {
+            ukazChybu('Vyber, kedy ste jedlo mali.', form.datum);
+            return;
+        }
+        const ulozitBtn = $('objednavkaUlozit');
+        ulozitBtn.disabled = true;
+        const nova = !upravovana;
+        const data = await call('objednavka_ulozit', new FormData(form));
+        ulozitBtn.disabled = false;
+        if (data.success) {
+            spatNaZoznam();
+            showToast(nova ? 'Objednávka je zapísaná.' : 'Objednávka je upravená.');
+        } else if (data.error) {
+            ukazChybu(data.error);
+        }
+    });
+
+    zmazatBtn.addEventListener('click', async () => {
+        if (!upravovana || !confirm('Naozaj zmazať túto objednávku?')) return;
+        zmazatBtn.disabled = true;
+        const data = await call('objednavka_zmazat', { objednavka_id: upravovana.id });
+        zmazatBtn.disabled = false;
+        if (data.success) {
+            spatNaZoznam();
+            showToast('Objednávka je zmazaná.');
+        } else if (data.error) {
+            ukazChybu(data.error);
+        }
+    });
+
+    $('objednavkaSpat').addEventListener('click', spatNaZoznam);
+    $('objednavkaZrusit').addEventListener('click', spatNaZoznam);
+    $('objednavkyPridat').addEventListener('click', () => otvorFormular());
+    // Po zatvorení okna sa nabudúce otvorí znova zoznam.
+    modalEl.addEventListener('hidden.bs.modal', spatNaZoznam);
+
+    function openModal() {
+        const show = () => {
+            vykresli();
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            // Čerstvý zoznam zo servera (zmeny od ostatných). Bez internetu ostane ten zo stránky.
+            if (!OfflineRezim.jeAktivny() && navigator.onLine !== false) call('objednavky_get', null, { ticho: true });
+        };
+        // Dve okná naraz Bootstrap nezvláda — najprv zavrieme otvorené (napr. Viac na telefóne).
+        const ine = Array.from(document.querySelectorAll('.modal.show')).find((el) => el !== modalEl);
+        if (ine) {
+            ine.addEventListener('hidden.bs.modal', show, { once: true });
+            bootstrap.Modal.getInstance(ine)?.hide();
+        } else {
+            show();
+        }
+    }
+
+    vykresli();
+    return { open: openModal };
+})();
+
+function openObjednavkyModal() {
+    if (objednavky) objednavky.open();
+}
+
+/* ========================================================================
    Fotky vo formulári receptu (galéria) — doterajšie fotky ako miniatúry,
    admin ich môže jednotlivo mazať; nová fotka sa pri uložení pridá
    k ostatným s dátumom z poľa „Dátum novej fotky".
@@ -2539,6 +2920,7 @@ window.aiRecept = (function initAiRecept() {
 
     const viacEl = document.getElementById('viacModal');
     const shoppingEl = document.getElementById('shoppingModal');
+    const objednavkyEl = document.getElementById('objednavkyModal'); // otvára sa z okna Viac
 
     /** Zavrie otvorené okno (ak nejaké je) a až potom spustí akciu. */
     function poZatvoreniOkien(akcia) {
@@ -2565,7 +2947,8 @@ window.aiRecept = (function initAiRecept() {
         const otvorene = Array.from(document.querySelectorAll('.modal.show, .modal.je-otvarane'));
         document.body.classList.toggle('lista-skryta', otvorene.some((el) => !el.classList.contains('modal-s-listou')));
         const zalozka = otvorene.find((el) => el.classList.contains('modal-s-listou'));
-        oznacPolozku(zalozka === shoppingEl ? 'nakup' : zalozka === viacEl ? 'viac' : 'recepty');
+        oznacPolozku(zalozka === shoppingEl ? 'nakup'
+            : (zalozka === viacEl || (zalozka && zalozka === objednavkyEl)) ? 'viac' : 'recepty');
     }
     document.addEventListener('show.bs.modal', (e) => {
         e.target.classList.add('je-otvarane');
@@ -2647,13 +3030,14 @@ window.aiRecept = (function initAiRecept() {
     }
 
     // ── Príchod zo Správy (verzia 2.1): spodná lišta a bočná ponuka v admin/ vedú na
-    //    index.php?otvor=pridat | nakup | viac a tu sa otvorí to isté okno ako z lišty. ──
+    //    index.php?otvor=pridat | nakup | viac a tu sa otvorí to isté okno ako z lišty.
+    //    Od verzie 2.2 aj ?otvor=objednavky (Objednané jedlo z bočnej ponuky Správy). ──
     function otvorZAdresy() {
         const otvor = new URLSearchParams(location.search).get('otvor');
         if (!otvor) return;
         history.replaceState(null, '', location.pathname);
-        // Bez internetu (uložená kópia stránky) sa pridať ani nakupovať nedá.
-        if (document.documentElement.hasAttribute('data-offline') && otvor !== 'viac') return;
+        // Bez internetu (uložená kópia stránky) sa pridať ani nakupovať nedá (objednávky si pozrieť dá).
+        if (document.documentElement.hasAttribute('data-offline') && otvor !== 'viac' && otvor !== 'objednavky') return;
         const telefon = window.matchMedia('(max-width: 767.98px)').matches;
         if (otvor === 'pridat') {
             // Na telefóne ako tlačidlo Pridať v lište (recept z fotky, ak je zapnutý), na PC formulár.
@@ -2663,6 +3047,8 @@ window.aiRecept = (function initAiRecept() {
             openShoppingModal();
         } else if (otvor === 'viac' && telefon && viacEl) {
             bootstrap.Modal.getOrCreateInstance(viacEl).show();
+        } else if (otvor === 'objednavky' && objednavkyEl) {
+            openObjednavkyModal();
         }
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', otvorZAdresy);

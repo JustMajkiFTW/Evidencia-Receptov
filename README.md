@@ -9,6 +9,7 @@ Rodinná webová appka na recepty. Beží v prehliadači a dá sa pridať na plo
 - **Prepočet porcií** s prevodom jednotiek (2000 g → 2 kg, 0,5 PL → 1½ ČL).
 - **Spoločný nákupný zoznam.** Zlúči suroviny z viacerých receptov, dá sa odškrtávať a poslať do Google Keep. Zmeny od ostatných sa ukážu do pár sekúnd.
 - **Uvarené, hodnotenie a história.** Pri recepte je vidno, kedy sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodil zopakovať.
+- **Objednané jedlo** (Wolt, Bolt Food, foodora a iné) zvlášť od receptov: kedy sme naposledy mali objednané jedlo, z akej reštaurácie a čo to bolo. Hľadanie, filter podľa služby, objednávky po mesiacoch so súčtom cien. Na PC v bočnej ponuke, na telefóne v okne Viac.
 - **Upozornenia do telefónu** na nový recept, nové hodnotenie a dlho nevarené recepty.
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty bez internetu** (len na čítanie).
@@ -138,7 +139,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `login.php`, `logout.php` | Prihlásenie a odhlásenie. |
 | `install.php` | Sprievodca prvou inštaláciou, potom sa maže. |
 | `cron.php` | Denné pripomienky, chránené kľúčom `CRON_KEY`. |
-| `script.js` | Logika hlavnej stránky v prehliadači, aj rozloženie pre telefón a PC. Adresa `index.php?otvor=pridat`, `nakup` alebo `viac` otvorí príslušné okno (odkazy zo Správy). |
+| `script.js` | Logika hlavnej stránky v prehliadači, aj rozloženie pre telefón a PC. Adresa `index.php?otvor=pridat`, `nakup`, `viac` alebo `objednavky` otvorí príslušné okno (odkazy zo Správy). |
 | `suroviny.js` | Výber surovín, kľúč suroviny, návrh pri preklepe a prepočet jednotiek. |
 | `theme.js`, `webauthn-client.js`, `style.css` | Motív a prepnutie na HTTPS, biometria v prehliadači, štýly. |
 | `sw.js`, `manifest.json`, `offline.html` | PWA: cache, kópia receptov na čítanie bez internetu, príjem upozornení. |
@@ -147,6 +148,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `includes/auth.php` | Prihlásenie, „Zostať prihlásený", brzda proti hádaniu hesla. |
 | `includes/functions.php` | Recepty, suroviny, porcie, nákup, fotky, hodnotenia, upozornenia. |
 | `includes/webpush.php` | Odosielanie upozornení (šifrovanie a podpis cez openssl a curl). |
+| `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok, kto ich môže zmazať. |
 | `includes/ai.php` | Recept z fotky: volanie AI služieb, kontrola odpovede, párovanie surovín, denný limit. |
 | `includes/sprava.php` | Spoločné rozloženie stránok Správy: bočná ponuka na PC, tlačidlá častí a spodná lišta na telefóne. |
 | `webauthn/` | Serverová časť biometrie. |
@@ -164,12 +166,14 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 | Recepty | `recipes`, `recipe_logs` (história), `recipe_ratings`, `recipe_photos` (galéria), `kategorie_receptov` |
 | Suroviny a nákup | `suroviny`, `recept_suroviny`, `recept_suroviny_zaloha`, `nakupny_zoznam` |
 | Recept z fotky | `ai_rozpoznania` (denný limit) |
+| Objednané jedlo | `objednane_jedla` (Wolt, Bolt Food…, s receptami nesúvisí) |
 
 | Migrácia | Čo pridá |
 |---|---|
 | `migracia-1.1.sql` | Tabuľku `recipe_photos` a prenesie do nej doterajšie fotky. |
 | `migracia-1.5.sql` | Tabuľku `kategorie_receptov` s doterajšími siedmimi kategóriami. |
 | `migracia-1.8.sql` | Tabuľku `ai_rozpoznania`. |
+| `migracia-2.2.sql` | Tabuľku `objednane_jedla`. |
 
 ### Pravidlá pre novú verziu
 
@@ -209,7 +213,7 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou alebo appka nebeží na HTTPS. |
 | Po nahratí novej verzie starý vzhľad | V `sw.js` nebol zvýšený `CACHE_NAME`. |
 | Bez internetu sa ukáže „Si offline" | Appka sa v zariadení ešte neotvorila s internetom po prihlásení. |
-| V logu `FOTKY`, `KATEGÓRIE`, `SUROVINY`… | V databáze chýba tabuľka, naimportuj migráciu. |
+| V logu `FOTKY`, `KATEGÓRIE`, `SUROVINY`, `OBJEDNAVKY`… | V databáze chýba tabuľka, naimportuj migráciu. |
 
 ## Zálohovanie
 
@@ -219,6 +223,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.2** Objednané jedlo: zvlášť od receptov sa dá zapísať jedlo z Wolt, Bolt Food, foodora a podobne (kedy, odkiaľ, reštaurácia, čo sme mali, nepovinne cena). Hore je vidno, kedy sme naposledy objednávali a čo, zoznam sa dá prehľadávať a filtrovať podľa služby a pozrieť aj bez internetu. Na PC v bočnej ponuke pod Receptami, na telefóne v okne Viac. Zapísať a upraviť môže každý, zmazať ten, kto objednávku zapísal, alebo admin. Migrácia `migracia-2.2.sql`.
 - **2.1** Správa v rovnakom vzhľade ako appka: na PC bočná ponuka s časťami Správy, na telefóne veľké tlačidlá častí a spodná lišta. Kategórie receptov majú vlastnú stránku, nové heslo sa zadáva priamo pri používateľovi. Databáza sa nemení.
 - **2.0.2** Rýchle dvojité ťuknutie (napr. pri pridávaní receptu) už na telefóne nepriblíži stránku. Priblíženie dvoma prstami ostáva.
 - **2.0.1** Obsah na PC sa roztiahne na celú šírku obrazovky, na veľkom monitore je viac stĺpcov kariet.

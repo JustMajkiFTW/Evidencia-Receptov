@@ -242,6 +242,25 @@ CREATE TABLE IF NOT EXISTS `ai_rozpoznania` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------------------------------------------------
+-- Objednané jedlo (Wolt, Bolt Food, foodora…)
+-- ----------------------------------------------------------------------
+
+-- Objednané jedlo: jeden riadok = jedna objednávka. S receptami nesúvisí.
+CREATE TABLE IF NOT EXISTS `objednane_jedla` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `datum` date NOT NULL,                        -- kedy sme jedlo mali
+  `sluzba` varchar(20) NOT NULL DEFAULT 'ine',  -- wolt | bolt | foodora | ine
+  `restauracia` varchar(150) DEFAULT NULL,
+  `jedlo` text DEFAULT NULL,                    -- čo sme mali (voľný text)
+  `cena` decimal(8,2) DEFAULT NULL,             -- spolu v eurách, nepovinné
+  `pridal` int(11) DEFAULT NULL,                -- users.id, kto objednávku zapísal
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_oj_datum` (`datum`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ----------------------------------------------------------------------
 -- Základný zoznam surovín (418 položiek v 14 kategóriách)
 -- ----------------------------------------------------------------------
 

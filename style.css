@@ -2315,3 +2315,202 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
     .prevod-edit .surovina-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .prevod-edit .surovina-fields .sur-poznamka { grid-column: 1 / -1; }
 }
+
+/* ============================================================
+   Verzia 2.2 — Objednané jedlo (okno #objednavkyModal)
+   Wolt, Bolt Food… zvlášť od receptov. V okne sú dve časti
+   (zoznam a formulár), riadky a tlačidlá sú veľké ako v Nákupe.
+   Farebné krúžky služieb (W, B, f) nie sú logá, len rozlíšenie.
+   ============================================================ */
+.objednavky-cast,
+.objednavky-cast > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.objednavky-cast .modal-body { overflow-y: auto; }
+
+/* ── Naposledy objednané ── */
+.objednavky-naposledy {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.1rem;
+    margin-bottom: 1rem;
+    border-radius: 18px;
+    background: var(--app-accent-soft);
+    border: 1px solid rgba(245, 158, 11, .35);
+}
+.objednavky-naposledy-ikona {
+    flex: none;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--app-accent);
+    color: #1c1917;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.objednavky-naposledy-popis { font-size: .95rem; color: var(--app-muted-text); overflow-wrap: anywhere; }
+.objednavky-naposledy-kedy { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+.objednavky-naposledy-co { font-size: 1rem; overflow-wrap: anywhere; }
+
+/* ── Hľadanie a filter podľa služby ── */
+.objednavky-hladanie { position: relative; margin-bottom: .75rem; }
+.objednavky-hladanie > .bi {
+    position: absolute;
+    left: 1.05rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.1rem;
+    color: var(--app-muted-text);
+    pointer-events: none;
+}
+.objednavky-hladanie .form-control { min-height: 52px; padding-left: 2.8rem; border-radius: 26px; font-size: 1.05rem; }
+.objednavky-cipy {
+    display: flex;
+    gap: .5rem;
+    margin-bottom: .25rem;
+    padding-bottom: .25rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+.objednavky-cipy::-webkit-scrollbar { display: none; }
+.objednavky-cip {
+    flex: none;
+    min-height: 46px;
+    padding: 0 1.15rem;
+    border-radius: 23px;
+    border: 1px solid var(--app-border);
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-size: 1rem;
+    white-space: nowrap;
+}
+.objednavky-cip:hover, .objednavky-cip:focus-visible { border-color: var(--app-accent); }
+.objednavky-cip.is-active { background: var(--app-accent); border-color: var(--app-accent); color: #1c1917; font-weight: 600; }
+
+/* ── Zoznam po mesiacoch ── */
+.objednavky-mesiac {
+    margin: 1.25rem 0 .4rem;
+    font-size: .85rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--app-muted-text);
+}
+.objednavky-mesiac:first-child { margin-top: .6rem; }
+.objednavka {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    width: 100%;
+    min-height: 72px;
+    margin-bottom: .5rem;
+    padding: .75rem .9rem;
+    border: 1px solid var(--app-border);
+    border-radius: 16px;
+    background: var(--app-plocha);
+    color: var(--app-text);
+    text-align: left;
+}
+.objednavka:hover, .objednavka:focus-visible { border-color: var(--app-accent); }
+.objednavka-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+.objednavka-nazov { font-size: 1.1rem; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.objednavka-jedlo {
+    font-size: 1rem;
+    line-height: 1.35;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.objednavka-meta { font-size: .9rem; color: var(--app-muted-text); }
+.objednavka-sipka { flex: none; color: var(--app-muted-text); }
+.objednavky-prazdne { padding: 2.5rem 1rem; text-align: center; font-size: 1.05rem; color: var(--app-muted-text); }
+.objednavky-prazdne > .bi { display: block; margin-bottom: .5rem; font-size: 2.5rem; color: var(--app-accent); }
+
+/* ── Krúžok služby ── */
+.objednavka-znak {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--app-jemna);
+    color: var(--app-muted-text);
+    font-size: 1.2rem;
+    font-weight: 800;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.objednavka-znak[data-sluzba="wolt"] { background: #009de0; color: #fff; }
+.objednavka-znak[data-sluzba="bolt"] { background: #34d186; color: #0b2e1c; }
+.objednavka-znak[data-sluzba="foodora"] { background: #df1b6c; color: #fff; }
+
+/* ── Formulár ── */
+.objednavky-spat {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    margin-right: .6rem;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--app-border);
+    color: var(--app-text);
+    font-size: 1.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.objednavky-spat:hover, .objednavky-spat:focus-visible { color: var(--app-text); border-color: var(--app-accent); }
+.objednavky-sluzby { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+@media (min-width: 576px) {
+    .objednavky-sluzby { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.objednavky-sluzba {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    min-height: 56px;
+    margin: 0;
+    padding: .4rem .75rem;
+    border: 2px solid var(--app-border);
+    border-radius: 16px;
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-size: 1.05rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.objednavky-sluzba .objednavka-znak { width: 34px; height: 34px; font-size: 1rem; }
+.btn-check:checked + .objednavky-sluzba { border-color: var(--app-accent); background: var(--app-accent-soft); }
+.btn-check:focus-visible + .objednavky-sluzba { outline: 3px solid var(--app-accent-soft); outline-offset: 2px; }
+.objednavky-tipy { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
+.objednavky-tip {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    max-width: 100%;
+    min-height: 44px;
+    padding: .25rem .9rem .25rem .3rem;
+    border: 1px solid var(--app-border);
+    border-radius: 22px;
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-size: 1rem;
+    text-align: left;
+}
+.objednavky-tip .objednavka-znak { width: 32px; height: 32px; font-size: .9rem; }
+.objednavky-tip:hover, .objednavky-tip:focus-visible { border-color: var(--app-accent); }
+#objednavkyModal .modal-footer > .btn { min-height: 48px; }
+#objednavkaZmazat { margin-right: auto; }
+
+@media (max-width: 767.98px) {
+    #objednavkyModal .modal-title { font-size: 1.6rem; font-weight: 700; }
+    #objednavkyModal .modal-footer { padding: .75rem 1rem; }
+    #objednavkyModal .modal-footer > .btn { flex: 1 1 0; min-height: 54px; padding: 0 .5rem; white-space: nowrap; }
+    #objednavkaZmazat { margin-right: 0; }
+}

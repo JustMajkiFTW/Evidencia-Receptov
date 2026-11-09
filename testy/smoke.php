@@ -2,7 +2,7 @@
 /**
  * smoke.php — prejde appku tak, ako by ju používal človek: prihlási sa, pridá
  * recept s fotkou, upraví ho, zapíše varenie, ohodnotí, použije nákupný zoznam,
- * zmaže recept a odhlási sa. Každý krok overí podľa odpovede servera.
+ * zapíše objednané jedlo, zmaže recept a odhlási sa. Každý krok overí podľa odpovede servera.
  *
  * Spúšťa ho testy/spusti-testy.sh nad bežiacou appkou (vstavaný server PHP):
  *   php testy/smoke.php ADRESA MENO HESLO REZIM CRON_KEY
@@ -432,6 +432,80 @@ if ($plny) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* 5a. Objednané jedlo (verzia 2.2, tabuľka z migracia-2.2.sql)            */
+/* ---------------------------------------------------------------------- */
+echo "\nObjednané jedlo\n";
+/** Objednávky z odpovede akcie alebo zo stránky (window.APP_OBJEDNAVKY). */
+$objednavka = function (array $polozky, int $id): ?array {
+    foreach ($polozky as $polozka) {
+        if ((int) ($polozka['id'] ?? 0) === $id) {
+            return $polozka;
+        }
+    }
+    return null;
+};
+$stranka = $p->get('index.php')->telo;
+$o = akcia($p, $csrf, 'objednavky_get');
+if ($plny) {
+    over(str_contains($stranka, 'id="objednavkyModal"') && str_contains($stranka, 'openObjednavkyModal()'),
+        'Stránka má okno Objednané jedlo a odkaz naň v ponuke');
+    over(uspech($o) && is_array($o->json()['polozky'] ?? null), 'Objednávky sa načítajú', $o->popis());
+
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['sluzba' => 'wolt', 'restauracia' => "  KFC $znacka  ", 'jedlo' => "Bucket\nhranolky",
+        'datum' => $vcera, 'cena' => '24,90 €']);
+    $kfcId = (int) ($o->json()['id'] ?? 0);
+    $kfc = $objednavka($o->json()['polozky'] ?? [], $kfcId);
+    over(uspech($o) && $kfc !== null, 'Objednávka sa zapíše', $o->popis());
+    over(($kfc['restauracia'] ?? '') === "KFC $znacka" && ($kfc['cena'] ?? null) === 24.9 && ($kfc['datum'] ?? '') === $vcera
+        && ($kfc['sluzba'] ?? '') === 'wolt' && ($kfc['jedlo'] ?? '') === "Bucket\nhranolky" && ($kfc['mozeZmazat'] ?? false) === true
+        && ($kfc['pridal'] ?? '') === 'Testovací Admin',
+        'Uloží sa reštaurácia (orezaná), jedlo, dátum, cena „24,90 €" aj kto ju zapísal', json_encode($kfc, JSON_UNESCAPED_UNICODE));
+
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['sluzba' => 'neznama', 'jedlo' => "Pizza $znacka", 'datum' => '']);
+    $pizzaId = (int) ($o->json()['id'] ?? 0);
+    $polozky = $o->json()['polozky'] ?? [];
+    $pizza = $objednavka($polozky, $pizzaId);
+    over(uspech($o) && ($pizza['datum'] ?? '') === $dnes && ($pizza['sluzba'] ?? '') === 'ine'
+        && array_key_exists('cena', $pizza ?? []) && $pizza['cena'] === null,
+        'Bez reštaurácie a dátumu sa uloží na dnes, neznáma služba ako Iné', json_encode($pizza, JSON_UNESCAPED_UNICODE));
+    over((int) ($polozky[0]['id'] ?? 0) === $pizzaId, 'Najnovšia objednávka je v zozname prvá');
+
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['sluzba' => 'bolt', 'restauracia' => ' ', 'jedlo' => '']);
+    over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'reštauráciu'), 'Prázdna objednávka sa odmietne', $o->popis());
+    $zajtra = (new DateTime('+1 day', $tz))->format('Y-m-d');
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['restauracia' => 'Budúcnosť', 'datum' => $zajtra]);
+    over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'Dátum'), 'Dátum v budúcnosti sa odmietne', $o->popis());
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['restauracia' => 'Drahá', 'cena' => 'veľa']);
+    over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'Cena'), 'Cena, ktorá nie je číslo, sa odmietne', $o->popis());
+
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['objednavka_id' => $kfcId, 'sluzba' => 'foodora', 'restauracia' => "KFC $znacka",
+        'jedlo' => 'Bucket', 'datum' => $vcera, 'cena' => '']);
+    $kfc = $objednavka($o->json()['polozky'] ?? [], $kfcId);
+    over(uspech($o) && ($kfc['sluzba'] ?? '') === 'foodora' && ($kfc['jedlo'] ?? '') === 'Bucket' && array_key_exists('cena', $kfc ?? [])
+        && $kfc['cena'] === null, 'Objednávka sa dá upraviť (aj zmazať cenu)', json_encode($kfc, JSON_UNESCAPED_UNICODE));
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['objednavka_id' => 999999, 'restauracia' => 'Nikde']);
+    over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'neexistuje'), 'Úprava neexistujúcej objednávky sa odmietne', $o->popis());
+
+    $stranka = $p->get('index.php')->telo;
+    $zoStranky = preg_match('/window\.APP_OBJEDNAVKY = (.*?);\n/', $stranka, $m) ? json_decode($m[1], true) : null;
+    over(is_array($zoStranky) && $objednavka($zoStranky, $kfcId) !== null, 'Objednávky sú priamo v stránke (pre pozretie bez internetu)');
+
+    $o = akcia($p, $csrf, 'objednavka_zmazat', ['objednavka_id' => $kfcId]);
+    over(uspech($o) && $objednavka($o->json()['polozky'] ?? [], $kfcId) === null, 'Objednávka sa dá zmazať', $o->popis());
+    akcia($p, $csrf, 'objednavka_zmazat', ['objednavka_id' => $pizzaId]);
+    $o = akcia($p, $csrf, 'objednavka_zmazat', ['objednavka_id' => $kfcId]);
+    over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Druhé zmazanie tej istej objednávky sa odmietne a nespadne', $o->popis());
+    $o = $p->post('index.php', ['action' => 'objednavka_ulozit', 'csrf_token' => 'zly', 'restauracia' => 'Bez tokenu']);
+    over($o->kod === 403, 'Zápis objednávky s neplatným tokenom sa odmietne', $o->popis());
+} else {
+    over(!str_contains($stranka, 'id="objednavkyModal"') && !str_contains($stranka, 'openObjednavkyModal()'),
+        'Bez migrácie sa Objednané jedlo v ponuke neukáže');
+    over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Bez migrácie načítanie objednávok nespadne', $o->popis());
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['restauracia' => "KFC $znacka"]);
+    over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Bez migrácie sa objednávka nezapíše, appka nespadne', $o->popis());
+}
+
+/* ---------------------------------------------------------------------- */
 /* 5b. Recept z fotky (AI, verzia 1.8) — test nemá kľúč k AI, funkcia musí  */
 /*     byť vypnutá, nič neukázať a pri pokuse nespadnúť.                     */
 /* ---------------------------------------------------------------------- */
@@ -672,6 +746,8 @@ over($o->kod === 200 && bez_chyby($o), 'Odkaz z upozornenia (index.php?recept=�
 
 $o = $p->get('admin/index.php');
 over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Používatelia'), 'Správa používateľov sa otvorí', $o->popis());
+over(str_contains($o->telo, 'index.php?otvor=objednavky') === $plny, $plny
+    ? 'Bočná ponuka Správy vedie aj na Objednané jedlo' : 'Bez migrácie Správa Objednané jedlo neponúka');
 $o = $p->get('admin/prevod-surovin.php');
 over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Prevod surovín'), 'Prevod surovín sa otvorí', $o->popis());
 $o = (new Prehliadac($adresa))->get('admin/kategorie.php');

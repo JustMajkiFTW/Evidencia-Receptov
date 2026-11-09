@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/ai.php';
+require_once __DIR__ . '/includes/objednavky.php';
 // ?recept=ID (odkaz z upozornenia) otvorí náhľad daného receptu. Ak treba najprv
 // prihlásenie, číslo receptu sa prenesie cez login.php a vráti späť sem.
 $openRecipeId = (isset($_GET['recept']) && ctype_digit((string) $_GET['recept'])) ? (int) $_GET['recept'] : 0;
@@ -31,7 +32,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? null;
 /* ------------------------------------------------------------------ */
 if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recipe', 'delete_photo', 'get_logs', 'rate_recipe', 'save_push_subscription',
         'shopping_get', 'shopping_add_recipe', 'shopping_add_item', 'shopping_toggle', 'shopping_delete', 'shopping_clear',
-        'ai_rozpoznaj'], true)
+        'ai_rozpoznaj', 'objednavky_get', 'objednavka_ulozit', 'objednavka_zmazat'], true)
         && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -228,6 +229,24 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
             // Každá akcia vráti aj čerstvý zoznam — klient ho len prekreslí.
             $result['items'] = get_shopping_list($pdo);
             break;
+
+        /* ---------------- Objednané jedlo (includes/objednavky.php) ---------------- */
+        case 'objednavky_get':
+        case 'objednavka_ulozit':
+        case 'objednavka_zmazat':
+            if (!objednavky_available($pdo)) {
+                $result = ['success' => false, 'error' => 'Objednané jedlo ešte nie je v databáze pripravené.'];
+                break;
+            }
+            $result = ['success' => true];
+            if ($action === 'objednavka_ulozit') {
+                $result = save_objednavka($pdo, (int) ($_POST['objednavka_id'] ?? 0), $userId, $_POST);
+            } elseif ($action === 'objednavka_zmazat') {
+                $result = delete_objednavka($pdo, (int) ($_POST['objednavka_id'] ?? 0), $userId, is_admin());
+            }
+            // Každá akcia vráti aj čerstvý zoznam — klient ho len prekreslí.
+            $result['polozky'] = get_objednavky($pdo, $userId, is_admin());
+            break;
     }
 
     echo json_encode($result);
@@ -259,6 +278,9 @@ $recipeSuroviny = get_all_recipe_suroviny($pdo);
 $photosEnabled = recipes_have_photos($pdo);
 $recipePhotos = get_recipe_photos($pdo);
 $recipeCategories = get_recipe_categories($pdo); // z tabuľky kategorie_receptov, bez migrácie základný zoznam
+// Objednané jedlo (verzia 2.2): bez sql/migracia-2.2.sql sa ponuka ani okno neukážu.
+$objednavkyEnabled = objednavky_available($pdo);
+$objednavky = $objednavkyEnabled ? get_objednavky($pdo, $currentUserId, is_admin()) : [];
 // Recept z fotky: zapnuté, keď je v .env kľúč aspoň k jednej AI službe (includes/ai.php).
 $aiEnabled = ai_dostupne() && $currentUserId !== null;
 $aiZostava = $aiEnabled ? ai_zostava($pdo, $currentUserId) : null;
@@ -304,7 +326,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=33">
+    <link rel="stylesheet" href="style.css?v=34">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -333,6 +355,11 @@ header('X-Recepty-Offline: 1');
             onclick="window.scrollTo({ top: 0, behavior: 'smooth' })">
         <i class="bi bi-journal-text" aria-hidden="true"></i><span class="app-bocna-text">Recepty</span>
     </button>
+    <?php if ($objednavkyEnabled): ?>
+    <button type="button" class="app-bocna-polozka" id="bocnaObjednavky" onclick="openObjednavkyModal()">
+        <i class="bi bi-bag" aria-hidden="true"></i><span class="app-bocna-text">Objednané jedlo<small>Wolt, Bolt Food…</small></span>
+    </button>
+    <?php endif; ?>
     <?php if ($shoppingEnabled): ?>
     <button type="button" class="app-bocna-polozka" onclick="openShoppingModal()" data-vyzaduje-siet>
         <i class="bi bi-cart3" aria-hidden="true"></i><span class="app-bocna-text">Nákupný zoznam</span>
@@ -1118,6 +1145,107 @@ header('X-Recepty-Offline: 1');
     </div>
 </div>
 <?php endif; ?>
+<?php if ($objednavkyEnabled): ?>
+<!-- ================= MODAL: Objednané jedlo (verzia 2.2) =================
+     Jedlo z Wolt, Bolt Food… zvlášť od receptov. V jednom okne sú dve časti:
+     zoznam (kedy naposledy, hľadanie, objednávky po mesiacoch) a formulár na
+     pridanie alebo úpravu (script.js objednavky). Na PC sa otvára z bočnej
+     ponuky, na telefóne z okna Viac a spodná lišta ostáva viditeľná. -->
+<div class="modal fade modal-s-listou" id="objednavkyModal" tabindex="-1" aria-hidden="true" aria-labelledby="objednavkyTitle">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg modal-fullscreen-md-down">
+        <div class="modal-content">
+            <section class="objednavky-cast" data-cast="zoznam">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="objednavkyTitle"><i class="bi bi-bag me-2" aria-hidden="true"></i>Objednané jedlo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="objednavky-naposledy d-none" id="objednavkyNaposledy" aria-live="polite"></div>
+                    <div class="objednavky-hladanie">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <input type="search" id="objednavkyHladaj" class="form-control" autocomplete="off" maxlength="100" enterkeyhint="search"
+                               placeholder="Hľadaj jedlo alebo reštauráciu…" aria-label="Hľadať v objednanom jedle">
+                    </div>
+                    <div class="objednavky-cipy" role="group" aria-label="Odkiaľ bolo jedlo">
+                        <button type="button" class="objednavky-cip is-active" data-sluzba="" aria-pressed="true">Všetko</button>
+                        <?php foreach (OBJEDNAVKY_SLUZBY as $kluc => $nazov): ?>
+                            <button type="button" class="objednavky-cip" data-sluzba="<?= htmlspecialchars($kluc) ?>" aria-pressed="false"><?= htmlspecialchars($nazov) ?></button>
+                        <?php endforeach; ?>
+                    </div>
+                    <div id="objednavkyZoznam" class="objednavky-zoznam"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary fw-semibold" id="objednavkyPridat" data-vyzaduje-siet>
+                        <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Pridať objednávku
+                    </button>
+                </div>
+            </section>
+
+            <section class="objednavky-cast d-none" data-cast="formular">
+                <form id="objednavkaForm" novalidate>
+                    <div class="modal-header">
+                        <button type="button" class="btn objednavky-spat" id="objednavkaSpat" aria-label="Späť na zoznam">
+                            <i class="bi bi-arrow-left" aria-hidden="true"></i>
+                        </button>
+                        <h5 class="modal-title" id="objednavkaNadpis">Nová objednávka</h5>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="objednavka_id" value="">
+                        <!-- Chyba je hore, aby ju bolo vidno aj na telefóne s klávesnicou -->
+                        <div class="alert alert-danger py-2 d-none" id="objednavkaChyba" role="alert"></div>
+                        <fieldset class="mb-3">
+                            <legend class="form-label small text-secondary">Odkiaľ</legend>
+                            <div class="objednavky-sluzby">
+                                <?php foreach (OBJEDNAVKY_SLUZBY as $kluc => $nazov): ?>
+                                    <input type="radio" class="btn-check" name="sluzba" id="objednavkaSluzba-<?= htmlspecialchars($kluc) ?>"
+                                           value="<?= htmlspecialchars($kluc) ?>" autocomplete="off"<?= $kluc === 'wolt' ? ' checked' : '' ?>>
+                                    <label class="objednavky-sluzba" for="objednavkaSluzba-<?= htmlspecialchars($kluc) ?>">
+                                        <span class="objednavka-znak" data-sluzba="<?= htmlspecialchars($kluc) ?>" aria-hidden="true"><?= $kluc === 'ine' ? '<i class="bi bi-shop"></i>' : htmlspecialchars(mb_substr($nazov, 0, 1)) ?></span><?= htmlspecialchars($nazov) ?>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                        </fieldset>
+                        <div class="mb-3">
+                            <label class="form-label small text-secondary" for="objednavkaRestauracia">Reštaurácia</label>
+                            <input type="text" name="restauracia" id="objednavkaRestauracia" class="form-control" maxlength="<?= OBJEDNAVKA_RESTAURACIA_MAX ?>"
+                                   autocomplete="off" placeholder="napr. Pizzeria Mamma">
+                            <!-- Reštaurácie, z ktorých sa už objednávalo — ťuknutím sa vyplnia (script.js) -->
+                            <div class="objednavky-tipy d-none" id="objednavkaTipy" role="group" aria-label="Reštaurácie, z ktorých ste už objednávali"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small text-secondary" for="objednavkaJedlo">Čo sme mali</label>
+                            <textarea name="jedlo" id="objednavkaJedlo" class="form-control" rows="3" maxlength="<?= OBJEDNAVKA_JEDLO_MAX ?>"
+                                      placeholder="napr. 2× pizza šunková, hranolky, kofola"></textarea>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-7">
+                                <label class="form-label small text-secondary" for="objednavkaDatum">Kedy</label>
+                                <input type="date" name="datum" id="objednavkaDatum" class="form-control" max="<?= app_today() ?>" required>
+                            </div>
+                            <div class="col-5">
+                                <label class="form-label small text-secondary" for="objednavkaCena">Cena <span class="opacity-50">(nepovinné)</span></label>
+                                <div class="input-group">
+                                    <input type="text" name="cena" id="objednavkaCena" class="form-control" inputmode="decimal" maxlength="10" placeholder="24,90">
+                                    <span class="input-group-text">€</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-danger d-none" id="objednavkaZmazat" data-vyzaduje-siet>
+                            <i class="bi bi-trash me-1" aria-hidden="true"></i>Zmazať
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="objednavkaZrusit">Zrušiť</button>
+                        <button type="submit" class="btn btn-primary fw-semibold" id="objednavkaUlozit" data-vyzaduje-siet>
+                            <i class="bi bi-check2 me-1" aria-hidden="true"></i>Uložiť
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <!-- ================= Spodná lišta (len telefón, verzia 1.7) =================
      Tie isté akcie ako horná lišta na PC. Nákup a Viac sa otvárajú nad receptami
      a lišta ostáva viditeľná, ostatné okná (recept, formulár) ju zakryjú. -->
@@ -1154,6 +1282,15 @@ header('X-Recepty-Offline: 1');
                         <span class="badge <?= $user['role'] === 'admin' ? 'text-bg-warning' : 'text-bg-primary' ?>"><?= htmlspecialchars($user['role']) ?></span>
                     </div>
                 </div>
+                <?php if ($objednavkyEnabled): ?>
+                <div class="viac-zoznam">
+                    <button type="button" class="viac-riadok" onclick="openObjednavkyModal()">
+                        <i class="bi bi-bag viac-ikona" aria-hidden="true"></i>
+                        <span class="viac-text">Objednané jedlo<small>Wolt, Bolt Food… kedy a čo sme mali</small></span>
+                        <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <?php endif; ?>
                 <div class="viac-zoznam">
                     <label class="viac-riadok" for="viacTemaPrepinac">
                         <i class="bi bi-moon-stars viac-ikona" aria-hidden="true"></i>
@@ -1370,9 +1507,12 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_JEDNOTKY = <?= json_encode(SUROVINA_JEDNOTKY, JSON_UNESCAPED_UNICODE) ?>;
     window.APP_IS_ADMIN = <?= is_admin() ? 'true' : 'false' ?>;
     window.APP_AI = <?= $aiEnabled ? 'true' : 'false' ?>; // recept z fotky (includes/ai.php)
+    // Objednané jedlo (includes/objednavky.php): zoznam je priamo v stránke, takže ho vidno aj bez internetu.
+    window.APP_OBJEDNAVKY = <?= json_encode($objednavky, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+    window.APP_OBJEDNAVKY_SLUZBY = <?= json_encode(OBJEDNAVKY_SLUZBY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=33"></script>
+<script src="script.js?v=34"></script>
 </body>
 </html>
 <?php

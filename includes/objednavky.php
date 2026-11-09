@@ -1,0 +1,171 @@
+<?php
+/**
+ * objednavky.php — Objednané jedlo (verzia 2.2).
+ *
+ * Zvlášť od receptov: jedlo objednané cez Wolt, Bolt Food, foodora a podobne.
+ * Pri každej objednávke je dátum, odkiaľ sa objednávalo, reštaurácia, čo sme
+ * mali a nepovinne cena. V appke slúži hlavne na otázku „kedy sme naposledy
+ * mali objednané jedlo a čo to bolo".
+ *
+ * Tabuľka objednane_jedla pribudla v sql/migracia-2.2.sql. Kým migrácia nie je
+ * naimportovaná, objednavky_available() vráti false a appka beží ďalej bez tejto
+ * časti (ponuka sa neukáže, akcie vrátia vysvetlenie).
+ *
+ * Objednávky pridáva a upravuje každý prihlásený, zmazať ju môže ten, kto ju
+ * zapísal, alebo admin.
+ *
+ * Očakáva, že functions.php je už načítaný (app_today, parse_app_date, debug_log).
+ */
+
+/** Odkiaľ bolo jedlo: kľúč uložený v databáze => názov na obrazovke. Poradie = poradie tlačidiel. */
+const OBJEDNAVKY_SLUZBY = [
+    'wolt'    => 'Wolt',
+    'bolt'    => 'Bolt Food',
+    'foodora' => 'foodora',
+    'ine'     => 'Iné',
+];
+
+const OBJEDNAVKA_RESTAURACIA_MAX = 150; // ako stĺpec objednane_jedla.restauracia
+const OBJEDNAVKA_JEDLO_MAX = 1000;
+const OBJEDNAVKA_CENA_MAX = 9999.99;
+
+/** Existuje už tabuľka objednane_jedla? Bez nej appka beží ďalej, len bez Objednaného jedla. */
+function objednavky_available(PDO $pdo): bool
+{
+    static $available = null;
+    if ($available === null) {
+        try {
+            $pdo->query('SELECT 1 FROM objednane_jedla LIMIT 1');
+            $available = true;
+        } catch (Throwable $e) {
+            debug_log('OBJEDNAVKY: chýba tabuľka objednane_jedla, spusti sql/migracia-2.2.sql (' . $e->getMessage() . ')');
+            $available = false;
+        }
+    }
+    return $available;
+}
+
+/**
+ * Cena z formulára: „24,90", „24.90", „24,90 €", „ 7 " → float. Prázdne = null.
+ * Návrat: ['ok' => bool, 'cena' => ?float]
+ */
+function parse_objednavka_cena($value): array
+{
+    $text = trim(str_replace(['€', ' ', "\u{00A0}"], '', (string) ($value ?? '')));
+    if ($text === '') {
+        return ['ok' => true, 'cena' => null];
+    }
+    $text = str_replace(',', '.', $text);
+    if (!preg_match('/^\d{1,4}(\.\d{1,2})?$/', $text)) {
+        return ['ok' => false, 'cena' => null];
+    }
+    $cena = round((float) $text, 2);
+    return ['ok' => $cena <= OBJEDNAVKA_CENA_MAX, 'cena' => $cena];
+}
+
+/** Text z formulára orezaný na najviac $max znakov; prázdny = null. */
+function objednavka_text($value, int $max): ?string
+{
+    // Viac medzier za sebou → jedna, riadky ostávajú. Neplatné UTF-8 (preg_replace vráti null) = prázdne.
+    $text = trim(preg_replace('/[ \t]+/u', ' ', str_replace("\r\n", "\n", (string) ($value ?? ''))) ?? '');
+    if ($text === '') {
+        return null;
+    }
+    return mb_substr($text, 0, $max);
+}
+
+/**
+ * Všetky objednávky od najnovšej. Každá má aj meno toho, kto ju zapísal, a či ju
+ * aktuálny používateľ môže zmazať (autor alebo admin).
+ */
+function get_objednavky(PDO $pdo, ?int $userId, bool $jeAdmin): array
+{
+    if (!objednavky_available($pdo)) {
+        return [];
+    }
+    $rows = $pdo->query(
+        "SELECT o.id, o.datum, o.sluzba, o.restauracia, o.jedlo, o.cena, o.pridal,
+                COALESCE(NULLIF(TRIM(u.full_name), ''), u.username) AS pridal_meno
+         FROM objednane_jedla o
+         LEFT JOIN users u ON u.id = o.pridal
+         ORDER BY o.datum DESC, o.id DESC"
+    )->fetchAll(PDO::FETCH_ASSOC);
+
+    return array_map(static fn(array $r): array => [
+        'id'          => (int) $r['id'],
+        'datum'       => $r['datum'],
+        'sluzba'      => isset(OBJEDNAVKY_SLUZBY[$r['sluzba']]) ? $r['sluzba'] : 'ine',
+        'restauracia' => $r['restauracia'] ?? '',
+        'jedlo'       => $r['jedlo'] ?? '',
+        'cena'        => $r['cena'] !== null ? (float) $r['cena'] : null,
+        'pridal'      => $r['pridal_meno'] ?? '',
+        'mozeZmazat'  => $jeAdmin || ($userId !== null && (int) $r['pridal'] === $userId),
+    ], $rows);
+}
+
+/**
+ * Pridá novú objednávku ($id = 0) alebo upraví existujúcu.
+ * Návrat: ['success' => bool, 'error' => ?string, 'id' => int]
+ */
+function save_objednavka(PDO $pdo, int $id, int $userId, array $vstup): array
+{
+    if (!objednavky_available($pdo)) {
+        return ['success' => false, 'error' => 'Objednané jedlo ešte nie je v databáze pripravené (sql/migracia-2.2.sql).'];
+    }
+
+    $restauracia = objednavka_text($vstup['restauracia'] ?? null, OBJEDNAVKA_RESTAURACIA_MAX);
+    $jedlo = objednavka_text($vstup['jedlo'] ?? null, OBJEDNAVKA_JEDLO_MAX);
+    if ($restauracia === null && $jedlo === null) {
+        return ['success' => false, 'error' => 'Napíš reštauráciu alebo čo ste mali.'];
+    }
+
+    $datumText = trim((string) ($vstup['datum'] ?? ''));
+    $datum = $datumText === '' ? app_today() : parse_app_date($datumText);
+    if ($datum === null) {
+        return ['success' => false, 'error' => 'Dátum nesedí. Vyber deň, keď ste jedlo mali (nie v budúcnosti).'];
+    }
+
+    $cena = parse_objednavka_cena($vstup['cena'] ?? null);
+    if (!$cena['ok']) {
+        return ['success' => false, 'error' => 'Cena musí byť číslo v eurách, napr. 24,90.'];
+    }
+
+    $sluzba = (string) ($vstup['sluzba'] ?? '');
+    if (!isset(OBJEDNAVKY_SLUZBY[$sluzba])) {
+        $sluzba = 'ine';
+    }
+
+    if ($id > 0) {
+        $existuje = $pdo->prepare('SELECT 1 FROM objednane_jedla WHERE id = ?');
+        $existuje->execute([$id]);
+        if (!$existuje->fetchColumn()) {
+            return ['success' => false, 'error' => 'Táto objednávka už neexistuje (niekto ju medzitým zmazal).'];
+        }
+        $stmt = $pdo->prepare('UPDATE objednane_jedla SET datum = ?, sluzba = ?, restauracia = ?, jedlo = ?, cena = ? WHERE id = ?');
+        $stmt->execute([$datum, $sluzba, $restauracia, $jedlo, $cena['cena'], $id]);
+        return ['success' => true, 'error' => null, 'id' => $id];
+    }
+
+    $stmt = $pdo->prepare('INSERT INTO objednane_jedla (datum, sluzba, restauracia, jedlo, cena, pridal) VALUES (?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$datum, $sluzba, $restauracia, $jedlo, $cena['cena'], $userId]);
+    return ['success' => true, 'error' => null, 'id' => (int) $pdo->lastInsertId()];
+}
+
+/** Zmaže objednávku — len ten, kto ju zapísal, alebo admin (kontrola na serveri, nie len skrytým tlačidlom). */
+function delete_objednavka(PDO $pdo, int $id, int $userId, bool $jeAdmin): array
+{
+    if (!objednavky_available($pdo)) {
+        return ['success' => false, 'error' => 'Objednané jedlo ešte nie je v databáze pripravené (sql/migracia-2.2.sql).'];
+    }
+    $stmt = $pdo->prepare('SELECT pridal FROM objednane_jedla WHERE id = ?');
+    $stmt->execute([$id]);
+    $pridal = $stmt->fetchColumn();
+    if ($pridal === false) {
+        return ['success' => false, 'error' => 'Táto objednávka už neexistuje.'];
+    }
+    if (!$jeAdmin && (int) $pridal !== $userId) {
+        return ['success' => false, 'error' => 'Zmazať ju môže len ten, kto ju zapísal, alebo admin.'];
+    }
+    $pdo->prepare('DELETE FROM objednane_jedla WHERE id = ?')->execute([$id]);
+    return ['success' => true, 'error' => null];
+}

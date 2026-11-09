@@ -9,6 +9,7 @@
  *  - Telefón: veľký nadpis, štyri tlačidlá s časťami Správy a spodná lišta
  *    (Recepty, Pridať, Nákup, Viac). Lišta vedie späť do appky, kde sa cez
  *    ?otvor=… otvorí to isté okno ako z lišty na stránke receptov (script.js).
+ *    Objednané jedlo (2.2) je na PC v bočnej ponuke, na telefóne v okne Viac.
  *
  * Použitie na stránke v admin/:
  *   sprava_zaciatok($pdo, 'suroviny', 'Suroviny');   // od <!DOCTYPE> po začiatok obsahu
@@ -18,6 +19,7 @@
  */
 
 require_once __DIR__ . '/ai.php';
+require_once __DIR__ . '/objednavky.php';
 
 /** Časti Správy: kľúč => [súbor v admin/, ikona, názov v ponuke, krátky názov na telefóne]. */
 const SPRAVA_CASTI = [
@@ -52,6 +54,7 @@ function sprava_udaje(PDO $pdo): array
         'nakupPocet'    => $nakup ? shopping_open_count($pdo) : 0,
         'bezKategorie'  => suroviny_available($pdo) ? count(get_suroviny_for_admin($pdo, '', 1000)) : 0,
         'ai'            => ai_dostupne(),
+        'objednavky'    => objednavky_available($pdo),
     ];
     return $udaje;
 }
@@ -84,7 +87,7 @@ function sprava_zaciatok(PDO $pdo, string $aktivna, string $nadpis): void
     <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=33">
+    <link rel="stylesheet" href="../style.css?v=34">
 </head>
 <body class="ma-spodnu-listu sprava">
 
@@ -101,6 +104,11 @@ function sprava_zaciatok(PDO $pdo, string $aktivna, string $nadpis): void
     <a href="../index.php" class="app-bocna-polozka">
         <i class="bi bi-journal-text" aria-hidden="true"></i><span class="app-bocna-text">Recepty</span>
     </a>
+    <?php if ($u['objednavky']): ?>
+    <a href="../index.php?otvor=objednavky" class="app-bocna-polozka">
+        <i class="bi bi-bag" aria-hidden="true"></i><span class="app-bocna-text">Objednané jedlo<small>Wolt, Bolt Food…</small></span>
+    </a>
+    <?php endif; ?>
     <?php if ($u['nakup']): ?>
     <a href="../index.php?otvor=nakup" class="app-bocna-polozka">
         <i class="bi bi-cart3" aria-hidden="true"></i><span class="app-bocna-text">Nákupný zoznam</span>
