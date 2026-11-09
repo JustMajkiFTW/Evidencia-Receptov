@@ -9,6 +9,7 @@
  */
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/sprava.php';
 require_admin();
 
 /* ------------------------------------------------------------------ */
@@ -310,59 +311,36 @@ if ($ready) {
 }
 
 $csrfToken = csrf_token();
+sprava_zaciatok($pdo, 'prevod', 'Prevod surovín');
 ?>
-<!DOCTYPE html>
-<html lang="sk">
-<head>
-    <meta charset="UTF-8">
-    <script src="../theme.js"></script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prevod surovín — Evidencia receptov</title>
-    <link rel="manifest" href="../manifest.json?v=4">
-    <meta name="theme-color" content="#f59e0b">
-    <link rel="icon" type="image/png" sizes="192x192" href="../app-icons/icon-192.png?v=4">
-    <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=32">
-</head>
-<body class="p-3 p-md-4">
-<div class="container" style="max-width:760px;">
-    <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
-        <h1 class="h4 mb-0"><i class="bi bi-arrow-left-right me-2"></i>Prevod surovín</h1>
-        <div class="d-flex gap-2">
-            <button id="themeToggle" type="button" class="btn btn-outline-secondary btn-sm" title="Zmeniť motív" aria-label="Zmeniť motív">
-                <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
-            </button>
-            <a href="index.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-people-fill me-1"></i>Používatelia</a>
-            <a href="../index.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Späť</a>
-        </div>
-    </div>
-
     <?php if ($flash): ?>
         <div class="alert alert-<?= htmlspecialchars($flash[0]) ?>"><?= htmlspecialchars($flash[1]) ?></div>
     <?php endif; ?>
 
     <?php if (!$ready): ?>
-        <div class="alert alert-warning">
-            V databáze chýbajú tabuľky pre suroviny. Najprv v phpMyAdmine spusti súbor
-            <code>migracia_suroviny.sql</code> a potom túto stránku obnov.
+        <div class="sprava-upozornenie">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            <div>V databáze chýbajú tabuľky pre suroviny. Najprv v phpMyAdmine naimportuj
+                <code>sql/instalacia.sql</code> a potom túto stránku obnov.</div>
         </div>
     <?php else: ?>
 
-    <p class="text-secondary">
-        Každý riadok starého textu sa stane surovinou zo zoznamu, alebo ostane v poznámkach receptu.
-        Skontroluj návrhy, uprav čo nesedí a recept ulož. Pôvodný text sa zálohuje, prevod sa dá vrátiť späť.
+    <p class="sprava-popis">
+        Jednorazový prevod receptov zo starej verzie, kde boli suroviny len ako text. Každý riadok starého textu
+        sa stane surovinou zo zoznamu, alebo ostane v poznámkach receptu. Skontroluj návrhy, uprav čo nesedí
+        a recept ulož. Pôvodný text sa zálohuje, prevod sa dá vrátiť späť.
     </p>
-    <p class="fw-semibold" id="pendingCount" data-count="<?= count($pending) ?>">
+    <div class="prevod-stav<?= $pending ? '' : ' je-hotovo' ?>" id="pendingCount" data-count="<?= count($pending) ?>">
         <?= $pending ? 'Zostáva previesť: ' . count($pending) : 'Všetky recepty sú prevedené.' ?>
-    </p>
-    <p class="text-success small" id="prevodStatus" role="status"></p>
+    </div>
+    <p class="prevod-ulozene" id="prevodStatus" role="status"></p>
 
+    <div class="sprava-zoznam prevod-zoznam">
     <?php foreach ($pending as $recipe): ?>
-        <div class="card mb-3 prevod-card" data-recipe-id="<?= $recipe['id'] ?>">
-            <div class="card-header fw-semibold"><?= htmlspecialchars($recipe['name']) ?></div>
-            <div class="card-body py-2">
+        <section class="sprava-polozka prevod-card" data-recipe-id="<?= $recipe['id'] ?>">
+            <h2 class="prevod-recept"><?= htmlspecialchars($recipe['name']) ?></h2>
+            <div class="prevod-legenda">Zapnuté = surovina zo zoznamu, vypnuté = riadok ostane v poznámkach.</div>
+            <div class="prevod-riadky">
                 <?php foreach ($recipe['lines'] as $i => $line):
                     $switchId = 'on-' . $recipe['id'] . '-' . $i; ?>
                     <div class="prevod-line<?= $line['zapnute'] ? '' : ' is-off' ?>"
@@ -373,11 +351,11 @@ $csrfToken = csrf_token();
                                    title="Zapnuté = surovina, vypnuté = ostane v poznámkach">
                             <label class="visually-hidden" for="<?= $switchId ?>">Použiť ako surovinu: <?= htmlspecialchars($line['original']) ?></label>
                         </div>
-                        <div class="prevod-original"><?= htmlspecialchars($line['original']) ?></div>
+                        <label class="prevod-original" for="<?= $switchId ?>"><?= htmlspecialchars($line['original']) ?></label>
                         <div class="prevod-edit">
                             <div class="prevod-name">
                                 <div class="surovina-combo">
-                                    <input type="text" class="form-control form-control-sm prevod-nazov" autocomplete="off"
+                                    <input type="text" class="form-control prevod-nazov" autocomplete="off"
                                            maxlength="100" value="<?= htmlspecialchars($line['nazov']) ?>"
                                            aria-label="Surovina pre riadok: <?= htmlspecialchars($line['original']) ?>">
                                 </div>
@@ -387,40 +365,44 @@ $csrfToken = csrf_token();
                     </div>
                 <?php endforeach; ?>
             </div>
-            <div class="card-footer d-flex flex-wrap align-items-center gap-2">
-                <button type="button" class="btn btn-primary btn-sm fw-semibold prevod-save">
-                    <i class="bi bi-check2 me-1"></i>Uložiť recept
+            <div class="prevod-paticka">
+                <button type="button" class="btn sprava-tlacidlo sprava-hlavne prevod-save">
+                    <i class="bi bi-check2" aria-hidden="true"></i>Uložiť recept
                 </button>
-                <span class="small text-danger prevod-error" role="alert"></span>
+                <span class="prevod-error" role="alert"></span>
             </div>
-        </div>
+        </section>
     <?php endforeach; ?>
+    </div>
 
     <?php if ($converted): ?>
         <?php /* Hotové recepty sú schované — rozbalia sa len vtedy, keď treba prevod vrátiť späť. */ ?>
-        <details class="mt-4 mb-4">
-        <summary class="text-secondary small">Už prevedené recepty (<?= count($converted) ?>) — rozbaľ, ak chceš niektorý prevod vrátiť späť</summary>
-        <ul class="list-group mt-2">
-            <?php foreach ($converted as $c): ?>
-                <li class="list-group-item d-flex align-items-center justify-content-between gap-2">
-                    <span><?= htmlspecialchars($c['name']) ?>
-                        <span class="text-secondary small">· surovín: <?= (int) $c['pocet'] ?></span></span>
-                    <form method="post" onsubmit="return confirm('Vrátiť prevod tohto receptu? Suroviny zo zoznamu sa odstránia a vráti sa pôvodný text.');">
-                        <input type="hidden" name="action" value="undo">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                        <input type="hidden" name="recipe_id" value="<?= (int) $c['id'] ?>">
-                        <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
-                            <i class="bi bi-arrow-counterclockwise me-1"></i>Vrátiť späť
-                        </button>
-                    </form>
-                </li>
-            <?php endforeach; ?>
-        </ul>
+        <details class="sprava-rozbal prevod-hotove">
+            <summary class="btn sprava-tlacidlo sprava-vedlajsie">
+                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>Už prevedené recepty (<?= count($converted) ?>)
+            </summary>
+            <p class="sprava-popis mt-3 mb-2">Ak sa prevod nepodaril, vráť ho späť. Recept dostane znova pôvodný text.</p>
+            <ul class="sprava-zoznam">
+                <?php foreach ($converted as $c): ?>
+                    <li class="sprava-polozka prevod-hotovy">
+                        <span class="min-w-0"><?= htmlspecialchars($c['name']) ?>
+                            <span class="prevod-hotovy-pocet">· surovín: <?= (int) $c['pocet'] ?></span></span>
+                        <form method="post" onsubmit="return confirm('Vrátiť prevod tohto receptu? Suroviny zo zoznamu sa odstránia a vráti sa pôvodný text.');">
+                            <input type="hidden" name="action" value="undo">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                            <input type="hidden" name="recipe_id" value="<?= (int) $c['id'] ?>">
+                            <button type="submit" class="btn sprava-tlacidlo sprava-vedlajsie">
+                                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>Vrátiť späť
+                            </button>
+                        </form>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
         </details>
     <?php endif; ?>
 
     <?php endif; ?>
-</div>
+<?php sprava_koniec($pdo); ?>
 
 <?php if ($ready): ?>
 <script src="../suroviny.js?v=31"></script>
@@ -528,7 +510,7 @@ $csrfToken = csrf_token();
                 document.querySelectorAll('.prevod-line').forEach((el) => el._updateBadge && el._updateBadge());
 
                 // Hotový recept zo stránky zmizne, ostane len krátke potvrdenie hore.
-                const name = card.querySelector('.card-header').textContent.trim();
+                const name = card.querySelector('.prevod-recept').textContent.trim();
                 card.remove();
                 statusEl.textContent = 'Uložené: ' + name + ' · surovín: ' + (data.suroviny || []).length
                     + (notes.length ? ' · riadkov v poznámkach: ' + notes.length : '');
@@ -536,6 +518,7 @@ $csrfToken = csrf_token();
                 const left = Math.max(0, Number(countEl.dataset.count) - 1);
                 countEl.dataset.count = left;
                 countEl.textContent = left ? 'Zostáva previesť: ' + left : 'Všetky recepty sú prevedené.';
+                countEl.classList.toggle('je-hotovo', !left);
             } catch (err) {
                 errorEl.textContent = 'Chyba pripojenia k serveru. Skús to znova.';
                 saveBtn.disabled = false;

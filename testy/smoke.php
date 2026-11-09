@@ -205,7 +205,7 @@ function testovacia_fotka(string $farba): CURLFile
     return new CURLFile($subor, 'image/jpeg', 'fotka.jpg');
 }
 
-/** Kategórie zo správy (admin/index.php): [id => názov] v poradí na stránke. */
+/** Kategórie zo správy (admin/kategorie.php): [id => názov] v poradí na stránke. */
 function kategorie_zo_spravy(string $html): array
 {
     preg_match_all('/name="kategoria_id" value="(\d+)">\s*<input type="text" name="nazov"[^>]*value="([^"]*)"/', $html, $zhody, PREG_SET_ORDER);
@@ -216,7 +216,7 @@ function kategorie_zo_spravy(string $html): array
     return $kategorie;
 }
 
-/** Hláška správy (zelená alebo červená) z admin/index.php. */
+/** Hláška správy (zelená alebo červená) zo stránok v admin/. */
 function hlaska_spravy(string $html): string
 {
     return preg_match('/class="alert alert-(?:success|danger)">([^<]*)</', $html, $m) ? html_entity_decode($m[1], ENT_QUOTES) : '';
@@ -523,10 +523,13 @@ $fit = recepty_zo_stranky($o->telo)[$fitId] ?? null;
 over(($fit['category'] ?? '') === 'Fit' && ($fit['categoryLabel'] ?? '') === 'Nízko kal. / Fit',
     'Recept má uložený kľúč kategórie a ukazuje jej názov', json_encode($fit, JSON_UNESCAPED_UNICODE));
 
+// Od verzie 2.1 majú kategórie vlastnú stránku Správy (predtým boli v admin/index.php).
 $o = $p->get('admin/index.php');
-over($o->kod === 200 && str_contains($o->telo, 'Kategórie receptov'), 'Správa obsahuje časť Kategórie receptov', $o->popis());
+over(str_contains($o->telo, 'href="kategorie.php"'), 'Zo Správy vedie odkaz na Kategórie receptov');
+$o = $p->get('admin/kategorie.php');
+over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Kategórie receptov'), 'Správa kategórií receptov sa otvorí', $o->popis());
 $adminCsrf = (string) csrf_zo_stranky($o->telo);
-$sprava = fn(array $polia) => $p->post('admin/index.php', $polia + ['csrf_token' => $adminCsrf]);
+$sprava = fn(array $polia) => $p->post('admin/kategorie.php', $polia + ['csrf_token' => $adminCsrf]);
 
 // Tabuľka kategórií je od verzie 1.5 — staršia databáza bez migrácie ju nemá.
 if ($plny || str_contains($o->telo, 'value="kategoria_pridat"')) {
@@ -668,7 +671,11 @@ $o = $p->get("index.php?recept=$receptId");
 over($o->kod === 200 && bez_chyby($o), 'Odkaz z upozornenia (index.php?recept=…) sa otvorí', $o->popis());
 
 $o = $p->get('admin/index.php');
-over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Používatelia'), 'Správa používateľov a kategórií sa otvorí', $o->popis());
+over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Používatelia'), 'Správa používateľov sa otvorí', $o->popis());
+$o = $p->get('admin/prevod-surovin.php');
+over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Prevod surovín'), 'Prevod surovín sa otvorí', $o->popis());
+$o = (new Prehliadac($adresa))->get('admin/kategorie.php');
+over(in_array($o->kod, [301, 302, 303], true), 'Správa kategórií bez prihlásenia presmeruje na prihlásenie', $o->popis());
 
 $o = $p->postJson('webauthn/register_options.php', []);
 over($o->kod === 200 && $o->json() !== null && !isset($o->json()['error']), 'Biometria: príprava registrácie (knižnice vo vendor/ fungujú)', $o->popis());

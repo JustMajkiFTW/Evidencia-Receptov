@@ -1,6 +1,11 @@
 <?php
+/**
+ * Správa — Používatelia (len admin): nový účet, nové heslo a zmazanie.
+ * Kategórie receptov sú od verzie 2.1 na vlastnej stránke kategorie.php.
+ */
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/sprava.php';
 require_admin();
 
 $currentUser = current_user();
@@ -65,23 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $message = 'Používateľ zmazaný.';
                 }
             }
-        } elseif (str_starts_with($action, 'kategoria_')) {
-            // Kategórie receptov (len s tabuľkou z migrácie 1.5).
-            $kategoriaId = (int) ($_POST['kategoria_id'] ?? 0);
-            if (!recipe_categories_available($pdo)) {
-                $error = 'Na úpravu kategórií treba najprv naimportovať sql/migracia-1.5.sql.';
-            } elseif ($action === 'kategoria_pridat') {
-                $vysledok = add_recipe_category($pdo, (string) ($_POST['nazov'] ?? ''));
-                if ($vysledok['success']) { $message = 'Kategória pridaná.'; } else { $error = $vysledok['error']; }
-            } elseif ($action === 'kategoria_premenovat') {
-                $vysledok = rename_recipe_category($pdo, $kategoriaId, (string) ($_POST['nazov'] ?? ''));
-                if ($vysledok['success']) { $message = 'Kategória premenovaná.'; } else { $error = $vysledok['error']; }
-            } elseif ($action === 'kategoria_hore' || $action === 'kategoria_dole') {
-                move_recipe_category($pdo, $kategoriaId, $action === 'kategoria_hore' ? -1 : 1);
-            } elseif ($action === 'kategoria_zmazat') {
-                $vysledok = delete_recipe_category($pdo, $kategoriaId);
-                if ($vysledok['success']) { $message = 'Kategória zmazaná.'; } else { $error = $vysledok['error']; }
-            }
         }
     }
 }
@@ -93,217 +81,118 @@ foreach ($pdo->query('SELECT user_id, COUNT(*) c FROM webauthn_credentials GROUP
     $credCounts[$row['user_id']] = (int) $row['c'];
 }
 
-$surovinyBezKategorie = suroviny_available($pdo) ? count(get_suroviny_for_admin($pdo, '', 1000)) : 0;
-$kategorieDostupne = recipe_categories_available($pdo);
-$kategorie = get_recipe_categories($pdo);
-$kategorieZoZoznamu = array_values(array_filter($kategorie, fn($k) => !$k['mimo_zoznamu']));
-$kategorieMimo = array_values(array_filter($kategorie, fn($k) => $k['mimo_zoznamu']));
-
-/** „1 recept", „3 recepty", „7 receptov" */
-function pocet_receptov(int $pocet): string
+/** „bez odtlačku", „odtlačok na 1 zariadení", „odtlačok na 3 zariadeniach" */
+function odtlacok_text(int $pocet): string
 {
-    return $pocet . ' ' . ($pocet === 1 ? 'recept' : ($pocet >= 2 && $pocet <= 4 ? 'recepty' : 'receptov'));
+    return $pocet === 0 ? 'bez odtlačku' : 'odtlačok na ' . $pocet . ' ' . ($pocet === 1 ? 'zariadení' : 'zariadeniach');
+}
+
+/** Iniciály do krúžku: „Eva Čambáliková" → „EČ", „dedo" → „D". */
+function inicialy(string $meno): string
+{
+    $vysledok = '';
+    foreach (preg_split('/\s+/u', trim($meno)) ?: [] as $slovo) {
+        if ($slovo !== '' && mb_strlen($vysledok) < 2) {
+            $vysledok .= mb_strtoupper(mb_substr($slovo, 0, 1));
+        }
+    }
+    return $vysledok;
 }
 
 $csrfToken = csrf_token();
+sprava_zaciatok($pdo, 'pouzivatelia', 'Používatelia');
 ?>
-<!DOCTYPE html>
-<html lang="sk">
-<head>
-    <meta charset="UTF-8">
-    <script src="../theme.js"></script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Správa — Evidencia receptov</title>
-    <link rel="manifest" href="../manifest.json?v=4">
-    <meta name="theme-color" content="#f59e0b">
-    <link rel="icon" type="image/png" sizes="192x192" href="../app-icons/icon-192.png?v=4">
-    <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=32">
-</head>
-<body class="p-3 p-md-4">
-<div class="container" style="max-width:900px;">
-    <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-4">
-        <h1 class="h4 mb-0"><i class="bi bi-gear-fill me-2"></i>Správa: Používatelia a kategórie</h1>
-        <div class="d-flex gap-2">
-            <button id="themeToggle" type="button" class="btn btn-outline-secondary btn-sm" title="Zmeniť motív" aria-label="Zmeniť motív">
-                <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
-            </button>
-            <a href="suroviny.php" class="btn btn-outline-primary btn-sm position-relative"><i class="bi bi-basket-fill me-1"></i>Suroviny<?php if ($surovinyBezKategorie): ?>
-                <span class="badge rounded-pill text-bg-warning ms-1" title="Suroviny bez kategórie"><?= $surovinyBezKategorie ?></span><?php endif; ?></a>
-            <a href="prevod-surovin.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left-right me-1"></i>Prevod surovín</a>
-            <a href="../index.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Späť</a>
-        </div>
-    </div>
-
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-    <div class="card mb-4">
-        <div class="card-header fw-semibold">Pridať nového používateľa</div>
-        <div class="card-body">
-            <form method="post" class="row g-2">
-                <input type="hidden" name="action" value="create_user">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                <div class="col-md-3">
-                    <input type="text" name="username" class="form-control" placeholder="Používateľské meno" required>
-                </div>
-                <div class="col-md-3">
-                    <input type="text" name="full_name" class="form-control" placeholder="Celé meno (nepovinné)">
-                </div>
-                <div class="col-md-2">
-                    <select name="role" class="form-select">
-                        <option value="user">user</option>
-                        <option value="admin">admin</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <input type="text" name="password" class="form-control" placeholder="Heslo (prázdne = vygeneruje sa)">
-                </div>
-                <div class="col-md-2">
-                    <button type="submit" class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Vytvoriť</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="card-header fw-semibold">Existujúci používatelia</div>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-                <thead class="text-nowrap">
-                    <tr>
-                        <th>Meno</th><th>Celé meno</th><th>Rola</th><th>Biometria</th><th>Vytvorený</th><th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                <?php foreach ($users as $u): ?>
-                    <tr>
-                        <td><?= htmlspecialchars($u['username']) ?></td>
-                        <td><?= htmlspecialchars($u['full_name']) ?></td>
-                        <td><span class="badge <?= $u['role'] === 'admin' ? 'text-bg-warning' : 'text-bg-primary' ?>"><?= htmlspecialchars($u['role']) ?></span></td>
-                        <td><?= (int) ($credCounts[$u['id']] ?? 0) ?>×</td>
-                        <td class="small text-secondary"><?= htmlspecialchars($u['created_at']) ?></td>
-                        <td class="text-end">
-                            <div class="d-flex gap-1 justify-content-end">
-                                <form method="post" class="d-flex gap-1" onsubmit="return promptNewPassword(this);">
+    <div class="sprava-mriezka">
+        <section aria-labelledby="pouzivateliaNadpis">
+            <h2 class="sprava-nadpis" id="pouzivateliaNadpis">Účty v appke <span class="sprava-pocet"><?= count($users) ?></span></h2>
+            <ul class="sprava-zoznam">
+                <?php foreach ($users as $u):
+                    $meno = trim((string) $u['full_name']) ?: $u['username'];
+                    $jaSam = (int) $u['id'] === $currentUser['id'];
+                    $vytvoreny = strtotime((string) $u['created_at']); ?>
+                    <li class="sprava-polozka sprava-pouzivatel">
+                        <div class="sprava-pouzivatel-hlava">
+                            <span class="sprava-inicialy" aria-hidden="true"><?= htmlspecialchars(inicialy($meno)) ?></span>
+                            <div class="sprava-pouzivatel-info">
+                                <div class="sprava-pouzivatel-meno">
+                                    <?= htmlspecialchars($meno) ?>
+                                    <span class="sprava-odznak<?= $u['role'] === 'admin' ? ' je-admin' : '' ?>"><?= $u['role'] === 'admin' ? 'Admin' : 'Používateľ' ?></span>
+                                    <?php if ($jaSam): ?><span class="sprava-odznak je-ty">Ty</span><?php endif; ?>
+                                </div>
+                                <div class="sprava-pouzivatel-detail">
+                                    Prihlasovacie meno <strong><?= htmlspecialchars($u['username']) ?></strong>
+                                    · <?= odtlacok_text((int) ($credCounts[$u['id']] ?? 0)) ?><?= $vytvoreny ? ' · od ' . str_replace(' ', "\u{00A0}", date('j. n. Y', $vytvoreny)) : '' ?>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="sprava-akcie">
+                            <details class="sprava-rozbal">
+                                <summary class="btn sprava-tlacidlo sprava-vedlajsie"><i class="bi bi-key" aria-hidden="true"></i>Nové heslo</summary>
+                                <form method="post" class="sprava-rozbal-form">
                                     <input type="hidden" name="action" value="reset_password">
                                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                     <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
-                                    <input type="hidden" name="new_password" class="new-password-input">
-                                    <button type="submit" class="btn btn-outline-secondary btn-sm" title="Nastaviť nové heslo">
-                                        <i class="bi bi-key"></i>
-                                    </button>
+                                    <label class="form-label" for="heslo-<?= (int) $u['id'] ?>">Nové heslo pre <?= htmlspecialchars($meno) ?></label>
+                                    <input type="text" name="new_password" id="heslo-<?= (int) $u['id'] ?>" class="form-control"
+                                           autocomplete="new-password" autocapitalize="none" spellcheck="false"
+                                           placeholder="Prázdne = appka vygeneruje">
+                                    <div class="sprava-pomoc">Používateľ sa odhlási zo všetkých zariadení a prihlási sa novým heslom.</div>
+                                    <button type="submit" class="btn sprava-tlacidlo sprava-hlavne"><i class="bi bi-check-lg" aria-hidden="true"></i>Nastaviť heslo</button>
                                 </form>
-                                <?php if ((int) $u['id'] !== $currentUser['id']): ?>
-                                <form method="post" onsubmit="return confirm('Naozaj zmazať tohto používateľa?');">
-                                    <input type="hidden" name="action" value="delete_user">
-                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                    <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
-                                    <button type="submit" class="btn btn-outline-danger btn-sm" title="Zmazať">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </form>
-                                <?php endif; ?>
-                            </div>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Kategórie receptov: kľúč pri recepte sa nemení, premenovanie mení len zobrazený názov. -->
-    <div class="card mt-4" id="kategorie">
-        <div class="card-header fw-semibold">Kategórie receptov</div>
-        <div class="card-body">
-            <?php if (!$kategorieDostupne): ?>
-                <div class="alert alert-warning mb-3">
-                    Na úpravu kategórií treba v phpMyAdmin naimportovať <code>sql/migracia-1.5.sql</code>.
-                    Dovtedy appka používa základný zoznam nižšie.
-                </div>
-            <?php else: ?>
-                <p class="text-secondary small mb-3">
-                    Premenovanie zmení názov pri všetkých receptoch tejto kategórie. Zmazať sa dá len kategória,
-                    ktorú nepoužíva žiadny recept. Poradie platí pre výber vo formulári aj vo filtri.
-                </p>
-                <form method="post" action="#kategorie" class="d-flex flex-wrap gap-2 mb-3">
-                    <input type="hidden" name="action" value="kategoria_pridat">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                    <input type="text" name="nazov" class="form-control kategoria-nazov" maxlength="<?= KATEGORIA_MAX_DLZKA ?>"
-                           placeholder="Nová kategória, napr. Šaláty" aria-label="Názov novej kategórie" required>
-                    <button type="submit" class="btn btn-primary kategoria-tlacidlo"><i class="bi bi-plus-lg me-1"></i>Pridať kategóriu</button>
-                </form>
-            <?php endif; ?>
-
-            <ul class="list-unstyled mb-0 kategorie-zoznam">
-                <?php foreach ($kategorieZoZoznamu as $i => $k): ?>
-                    <li class="kategoria-riadok">
-                        <?php if ($kategorieDostupne): ?>
-                            <form method="post" action="#kategorie" class="kategoria-premenovat">
-                                <input type="hidden" name="action" value="kategoria_premenovat">
+                            </details>
+                            <?php if (!$jaSam): ?>
+                            <form method="post" onsubmit="return confirm('Naozaj zmazať používateľa <?= htmlspecialchars(addslashes($meno), ENT_QUOTES) ?>?');">
+                                <input type="hidden" name="action" value="delete_user">
                                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                <input type="hidden" name="kategoria_id" value="<?= (int) $k['id'] ?>">
-                                <input type="text" name="nazov" class="form-control kategoria-nazov" maxlength="<?= KATEGORIA_MAX_DLZKA ?>"
-                                       value="<?= htmlspecialchars($k['nazov']) ?>" aria-label="Názov kategórie <?= htmlspecialchars($k['nazov']) ?>" required>
-                                <button type="submit" class="btn btn-outline-primary kategoria-tlacidlo" title="Uložiť nový názov">
-                                    <i class="bi bi-check-lg"></i><span class="ms-1">Uložiť</span>
+                                <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+                                <button type="submit" class="btn sprava-tlacidlo sprava-zmazat" title="Zmazať používateľa">
+                                    <i class="bi bi-trash" aria-hidden="true"></i><span class="sprava-skryt-pc">Zmazať</span>
+                                    <span class="visually-hidden"> používateľa <?= htmlspecialchars($meno) ?></span>
                                 </button>
                             </form>
-                        <?php else: ?>
-                            <span class="kategoria-nazov-text"><?= htmlspecialchars($k['nazov']) ?></span>
-                        <?php endif; ?>
-                        <span class="kategoria-pocet text-secondary"><?= pocet_receptov($k['pocet']) ?></span>
-                        <?php if ($kategorieDostupne): ?>
-                            <div class="kategoria-akcie">
-                                <?php foreach ([['kategoria_hore', 'bi-arrow-up', 'Posunúť vyššie', $i === 0],
-                                                ['kategoria_dole', 'bi-arrow-down', 'Posunúť nižšie', $i === count($kategorieZoZoznamu) - 1]] as [$akcia, $ikona, $popis, $vypnute]): ?>
-                                    <form method="post" action="#kategorie">
-                                        <input type="hidden" name="action" value="<?= $akcia ?>">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                        <input type="hidden" name="kategoria_id" value="<?= (int) $k['id'] ?>">
-                                        <button type="submit" class="btn btn-outline-secondary kategoria-tlacidlo" title="<?= $popis ?>"
-                                                aria-label="<?= $popis ?>: <?= htmlspecialchars($k['nazov']) ?>"<?= $vypnute ? ' disabled' : '' ?>>
-                                            <i class="bi <?= $ikona ?>"></i>
-                                        </button>
-                                    </form>
-                                <?php endforeach; ?>
-                                <form method="post" action="#kategorie"
-                                      onsubmit="return confirm('Naozaj zmazať kategóriu <?= htmlspecialchars(addslashes($k['nazov']), ENT_QUOTES) ?>?');">
-                                    <input type="hidden" name="action" value="kategoria_zmazat">
-                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                    <input type="hidden" name="kategoria_id" value="<?= (int) $k['id'] ?>">
-                                    <button type="submit" class="btn btn-outline-danger kategoria-tlacidlo"
-                                            title="<?= $k['pocet'] > 0 ? 'Používa ju ' . pocet_receptov($k['pocet']) . ', najprv im zmeň kategóriu' : 'Zmazať kategóriu' ?>"
-                                            aria-label="Zmazať kategóriu <?= htmlspecialchars($k['nazov']) ?>"<?= $k['pocet'] > 0 ? ' disabled' : '' ?>>
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </form>
-                            </div>
-                        <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
                     </li>
                 <?php endforeach; ?>
             </ul>
+        </section>
 
-            <?php if ($kategorieMimo): ?>
-                <div class="alert alert-secondary small mt-3 mb-0">
-                    Niektoré recepty majú kategóriu, ktorá v zozname nie je:
-                    <?= htmlspecialchars(implode(', ', array_map(fn($k) => $k['nazov'] . ' (' . pocet_receptov($k['pocet']) . ')', $kategorieMimo))) ?>.
-                    Pridaj ju pod rovnakým názvom, alebo receptom zmeň kategóriu.
+        <section class="sprava-karta" aria-labelledby="novyNadpis">
+            <h2 class="sprava-karta-nadpis" id="novyNadpis"><i class="bi bi-person-plus" aria-hidden="true"></i>Pridať používateľa</h2>
+            <p class="sprava-popis">Verejná registrácia nie je, účty vytváraš tu. Heslo mu potom pošli, appka ho ukáže len raz.</p>
+            <form method="post" class="sprava-formular">
+                <input type="hidden" name="action" value="create_user">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                <div>
+                    <label class="form-label" for="novyMeno">Prihlasovacie meno</label>
+                    <input type="text" name="username" id="novyMeno" class="form-control" required
+                           autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="napr. mama">
                 </div>
-            <?php endif; ?>
-        </div>
+                <div>
+                    <label class="form-label" for="novyCele">Celé meno <span class="sprava-nepovinne">(nepovinné)</span></label>
+                    <input type="text" name="full_name" id="novyCele" class="form-control" autocomplete="off" placeholder="napr. Eva Nováková">
+                </div>
+                <div>
+                    <label class="form-label" for="novyRola">Rola</label>
+                    <select name="role" id="novyRola" class="form-select">
+                        <option value="user">Používateľ</option>
+                        <option value="admin">Admin (aj Správa)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label" for="novyHeslo">Heslo <span class="sprava-nepovinne">(nepovinné)</span></label>
+                    <input type="text" name="password" id="novyHeslo" class="form-control" autocomplete="new-password"
+                           autocapitalize="none" spellcheck="false" placeholder="Prázdne = appka vygeneruje">
+                </div>
+                <button type="submit" class="btn sprava-tlacidlo sprava-hlavne sprava-formular-odoslat">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i>Vytvoriť používateľa
+                </button>
+            </form>
+        </section>
     </div>
-</div>
-<script>
-function promptNewPassword(form) {
-    const pw = prompt('Nové heslo (prázdne = appka vygeneruje náhodné):', '');
-    if (pw === null) return false; // zrušené
-    form.querySelector('.new-password-input').value = pw;
-    return true;
-}
-</script>
+<?php sprava_koniec($pdo); ?>
 </body>
 </html>

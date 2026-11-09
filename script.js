@@ -2645,4 +2645,26 @@ window.aiRecept = (function initAiRecept() {
         });
         zoradenie.addEventListener('change', () => { zoradenieMobil.value = zoradenie.value; });
     }
+
+    // ── Príchod zo Správy (verzia 2.1): spodná lišta a bočná ponuka v admin/ vedú na
+    //    index.php?otvor=pridat | nakup | viac a tu sa otvorí to isté okno ako z lišty. ──
+    function otvorZAdresy() {
+        const otvor = new URLSearchParams(location.search).get('otvor');
+        if (!otvor) return;
+        history.replaceState(null, '', location.pathname);
+        // Bez internetu (uložená kópia stránky) sa pridať ani nakupovať nedá.
+        if (document.documentElement.hasAttribute('data-offline') && otvor !== 'viac') return;
+        const telefon = window.matchMedia('(max-width: 767.98px)').matches;
+        if (otvor === 'pridat') {
+            // Na telefóne ako tlačidlo Pridať v lište (recept z fotky, ak je zapnutý), na PC formulár.
+            if (telefon && window.aiRecept) window.aiRecept.otvor();
+            else openRecipeModal();
+        } else if (otvor === 'nakup' && shoppingEl) {
+            openShoppingModal();
+        } else if (otvor === 'viac' && telefon && viacEl) {
+            bootstrap.Modal.getOrCreateInstance(viacEl).show();
+        }
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', otvorZAdresy);
+    else otvorZAdresy();
 })();

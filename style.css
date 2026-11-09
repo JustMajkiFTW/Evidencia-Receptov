@@ -402,28 +402,6 @@ body {
 .suroviny-view-qty { font-weight: 600; font-variant-numeric: tabular-nums; }
 .suroviny-view-note { color: var(--app-muted); font-size: .875em; }
 
-/* ── Prevodná stránka (admin/prevod-surovin.php) ── */
-.prevod-line {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    column-gap: .6rem;
-    padding: .6rem 0;
-    border-top: 1px solid var(--app-border);
-}
-.prevod-line:first-child { border-top: 0; }
-.prevod-original { color: var(--app-muted); font-size: .875rem; overflow-wrap: anywhere; }
-.prevod-line.is-off .prevod-original { color: var(--app-text); }
-.prevod-line.is-off .prevod-edit { display: none; }
-.prevod-edit { grid-column: 2; display: grid; gap: .35rem; margin-top: .35rem; }
-.prevod-name { display: flex; align-items: center; gap: .5rem; }
-.prevod-name .surovina-combo { flex: 1; min-width: 0; }
-.prevod-name .badge { flex-shrink: 0; }
-.prevod-on:checked { background-color: var(--app-accent); border-color: var(--app-accent); }
-@media (max-width: 575px) {
-    .prevod-edit .surovina-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-    .prevod-edit .surovina-fields .sur-poznamka { grid-column: 1 / -1; }
-}
-
 /* ── Prepočet porcií v náhľade receptu ── */
 .suroviny-view-head {
     display: flex;
@@ -765,58 +743,6 @@ html[data-offline] [data-vyzaduje-siet] {
 }
 html[data-offline] .recipe-card .rating-star { cursor: default; }
 
-/* ============================================================
-   Správa kategórií receptov (admin/index.php) — veľké ovládacie prvky.
-   ============================================================ */
-.kategorie-zoznam { display: flex; flex-direction: column; gap: .75rem; }
-.kategoria-riadok {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: .5rem .75rem;
-    padding: .75rem;
-    border: 1px solid var(--app-border);
-    border-radius: 12px;
-}
-.kategoria-premenovat { display: flex; gap: .5rem; flex: 1 1 260px; min-width: 0; }
-.kategoria-premenovat .kategoria-nazov { flex: 1 1 auto; min-width: 0; }
-.kategoria-nazov { min-height: 48px; font-size: 1.05rem; }
-form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
-.kategoria-nazov-text { flex: 1 1 200px; font-size: 1.05rem; font-weight: 600; }
-.kategoria-pocet { white-space: nowrap; }
-.kategoria-akcie { display: flex; gap: .5rem; margin-left: auto; }
-.kategoria-tlacidlo { min-height: 48px; min-width: 48px; font-size: 1.05rem; white-space: nowrap; flex-shrink: 0; }
-.kategoria-premenovat { align-items: center; }
-@media (max-width: 575px) {
-    .kategoria-premenovat { flex-basis: 100%; }
-    .kategoria-akcie { margin-left: 0; }
-}
-
-/* ============================================================
-   Správa surovín (admin/suroviny.php) — veľké ovládacie prvky.
-   ============================================================ */
-.suroviny-zoznam { display: flex; flex-direction: column; gap: .75rem; }
-.surovina-riadok {
-    display: flex;
-    flex-direction: column;
-    gap: .5rem;
-    padding: .75rem;
-    border: 1px solid var(--app-border);
-    border-radius: 12px;
-}
-.surovina-uprava { display: flex; flex-wrap: wrap; gap: .5rem; }
-.surovina-uprava input[name="nazov"] { flex: 2 1 200px; min-width: 0; }
-.surovina-uprava select { flex: 1 1 200px; min-width: 0; }
-.surovina-pole { min-height: 48px; font-size: 1.05rem; }
-.surovina-tlacidlo { min-height: 48px; min-width: 48px; font-size: 1.05rem; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; }
-.surovina-info { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .5rem; }
-.surovina-info > .text-secondary { padding-top: .75rem; }
-.surovina-akcie { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; }
-.surovina-zlucit > summary { list-style: none; }
-.surovina-zlucit > summary::-webkit-details-marker { display: none; }
-.surovina-zlucit[open] { flex-basis: 100%; }
-.surovina-zlucit-form { margin-top: .5rem; padding: .75rem; border: 1px dashed var(--app-border); border-radius: 10px; }
-
 /* Návrh existujúcej suroviny pri preklepe („Nemysleli ste Paradajky?") */
 .surovina-option.is-podobna { border-left: 3px solid var(--app-accent); }
 .surovina-option-otazka { color: var(--app-muted); }
@@ -913,7 +839,7 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
 .viac-odhlasit:hover, .viac-odhlasit:focus-visible { background: rgba(220, 53, 69, .2); color: var(--bs-danger-text-emphasis); }
 
 @media (max-width: 767.98px) {
-    /* Miesto pre spodnú lištu — len na stránke receptov (login a správa ju nemajú). */
+    /* Miesto pre spodnú lištu — stránka receptov a od verzie 2.1 aj Správa (login ju nemá). */
     body.ma-spodnu-listu {
         padding-bottom: calc(var(--lista-vyska) + env(safe-area-inset-bottom, 0px) + 1rem);
     }
@@ -1979,4 +1905,413 @@ form.d-flex > .kategoria-nazov { flex: 1 1 220px; }
         top: 0;
         margin-bottom: 0 !important;
     }
+}
+
+/* ============================================================
+   Verzia 2.1 — Správa (admin/) v rovnakom dizajne ako appka
+   Bočná ponuka, hlavička a spodná lišta sú tie isté ako na stránke
+   receptov (includes/sprava.php). Tu sú časti Správy v ponuke, tlačidlá
+   častí na telefóne, karty, riadky, polia a tlačidlá.
+   ============================================================ */
+
+/* ── Bočná ponuka (PC): Správa a pod ňou jej časti ── */
+@media (min-width: 768px) {
+    .app-bocna-polozka.je-rodic { font-weight: 600; }
+    .app-bocna-polozka.je-rodic > .bi { color: var(--app-accent); }
+    .app-bocna-podponuka {
+        display: flex;
+        flex-direction: column;
+        gap: .15rem;
+        margin: .1rem 0 .4rem 1.55rem;
+        padding-left: .6rem;
+        border-left: 2px solid var(--app-border);
+    }
+    .app-bocna-podpolozka {
+        display: flex;
+        align-items: center;
+        gap: .7rem;
+        min-height: 48px;
+        padding: .35rem .75rem;
+        border-radius: 12px;
+        color: var(--app-text);
+        font-size: 1.02rem;
+        text-decoration: none;
+    }
+    .app-bocna-podpolozka > .bi { flex: none; width: 1.25rem; font-size: 1.1rem; text-align: center; color: var(--app-muted-text); }
+    .app-bocna-podpolozka:hover, .app-bocna-podpolozka:focus-visible { background: var(--app-jemna); color: var(--app-text); }
+    .app-bocna-podpolozka.is-active { background: var(--app-accent-soft); font-weight: 600; }
+    .app-bocna-podpolozka.is-active > .bi { color: var(--app-accent); }
+    .app-bocna-odznak {
+        flex: none;
+        min-width: 26px;
+        height: 26px;
+        padding: 0 7px;
+        border-radius: 13px;
+        background: var(--app-odznak-zlty-bg);
+        color: var(--app-odznak-zlty);
+        font-size: .85rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .sprava-obsah { max-width: 1240px; }
+}
+
+/* ── Telefón: časti Správy ako štyri veľké tlačidlá pod nadpisom ── */
+@media (max-width: 767.98px) {
+    .sprava-casti { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; padding: 1rem 1rem 0; }
+    .sprava-obsah { padding: 1.25rem 1rem 0; }
+    a.spodna-lista-polozka { text-decoration: none; }
+}
+.sprava-cast {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    min-height: 56px;
+    padding: .45rem .9rem;
+    border-radius: 16px;
+    border: 1px solid var(--app-border);
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.15;
+    text-decoration: none;
+}
+.sprava-cast > .bi { flex: none; font-size: 1.3rem; color: var(--app-muted-text); }
+.sprava-cast:hover, .sprava-cast:focus-visible { color: var(--app-text); border-color: var(--app-accent); }
+.sprava-cast.is-active { background: var(--app-accent); border-color: var(--app-accent); color: #1c1917; }
+.sprava-cast.is-active > .bi { color: #1c1917; }
+.sprava-cast-pocet {
+    margin-left: auto;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 7px;
+    border-radius: 13px;
+    background: var(--app-odznak-zlty-bg);
+    color: var(--app-odznak-zlty);
+    font-size: .85rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.sprava-cast.is-active .sprava-cast-pocet { background: rgba(28, 25, 23, .15); color: #1c1917; }
+
+/* ── Texty a nadpisy ── */
+.sprava-popis { max-width: 75ch; margin-bottom: 1.1rem; font-size: 1.02rem; line-height: 1.5; color: var(--app-muted-text); }
+.sprava-nadpis { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: 1.75rem 0 .8rem; font-size: 1.3rem; font-weight: 700; }
+.sprava-mriezka .sprava-nadpis { margin-top: 0; }
+.sprava-pocet {
+    min-width: 30px;
+    min-height: 30px;
+    padding: .1rem .6rem;
+    border-radius: 15px;
+    background: var(--app-jemna);
+    color: var(--app-muted-text);
+    font-size: .95rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.sprava-nepovinne { font-weight: 400; color: var(--app-muted-text); }
+.sprava-pomoc { font-size: .95rem; color: var(--app-muted-text); }
+
+/* ── Karty a riadky ── */
+.sprava-karta {
+    margin-bottom: 1.25rem;
+    padding: 1.25rem;
+    border-radius: 20px;
+    background: var(--app-plocha);
+    border: 1px solid var(--app-border);
+}
+.sprava-karta-nadpis { display: flex; align-items: center; gap: .6rem; margin: 0 0 .35rem; font-size: 1.25rem; font-weight: 700; }
+.sprava-karta-nadpis .bi { color: var(--app-accent); }
+.sprava-karta .sprava-popis { margin-bottom: 0; }
+.sprava-zoznam { display: flex; flex-direction: column; gap: .75rem; margin: 0; padding: 0; list-style: none; }
+.sprava-polozka {
+    padding: .9rem 1rem;
+    border-radius: 18px;
+    background: var(--app-plocha);
+    border: 1px solid var(--app-border);
+}
+.sprava-prazdne {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: 1.5rem;
+    border-radius: 18px;
+    border: 1px dashed var(--app-border);
+    font-size: 1.05rem;
+    color: var(--app-muted-text);
+}
+.sprava-prazdne > .bi { font-size: 1.6rem; color: var(--bs-success-text-emphasis); }
+
+/* ── Hlásenia ── */
+.sprava .alert {
+    display: flex;
+    gap: .7rem;
+    margin-bottom: 1.25rem;
+    padding: .95rem 1.15rem;
+    border-radius: 16px;
+    font-size: 1.05rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+.sprava .alert-success::before,
+.sprava .alert-danger::before { flex: none; font-family: bootstrap-icons; font-size: 1.25rem; line-height: 1.2; }
+.sprava .alert-success::before { content: "\f26a"; }
+.sprava .alert-danger::before { content: "\f336"; }
+.sprava .alert-warning { display: block; }
+.sprava-upozornenie {
+    display: flex;
+    gap: .75rem;
+    margin-bottom: 1.25rem;
+    padding: .95rem 1.15rem;
+    border-radius: 16px;
+    background: rgba(245, 158, 11, .15);
+    color: var(--bs-warning-text-emphasis);
+    font-size: 1rem;
+    line-height: 1.45;
+}
+.sprava-upozornenie > .bi { flex: none; font-size: 1.3rem; line-height: 1.1; }
+
+/* ── Polia formulárov: veľké, písmo aspoň 16 px (iPhone pri menšom priblíži stránku) ── */
+.sprava .form-label { margin-bottom: .35rem; font-size: 1rem; font-weight: 600; color: var(--app-text); }
+.sprava .form-control,
+.sprava .form-select { min-height: 52px; border-radius: 14px; font-size: 1.05rem; }
+
+/* ── Tlačidlá (farby cez premenné Bootstrapu, aby sedeli aj pri stlačení a vypnutí) ── */
+.sprava-tlacidlo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    min-height: 52px;
+    padding: 0 1.15rem;
+    border-radius: 14px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    white-space: nowrap;
+    --bs-btn-disabled-opacity: .4;
+}
+.sprava-tlacidlo .bi { font-size: 1.15rem; }
+.sprava-ikona { width: 52px; padding: 0; }
+.sprava-hlavne {
+    --bs-btn-color: #1c1917;               --bs-btn-bg: var(--app-accent);       --bs-btn-border-color: var(--app-accent);
+    --bs-btn-hover-color: #1c1917;         --bs-btn-hover-bg: #d97f06;           --bs-btn-hover-border-color: #d97f06;
+    --bs-btn-active-color: #1c1917;        --bs-btn-active-bg: #c27005;          --bs-btn-active-border-color: #c27005;
+    --bs-btn-disabled-color: #1c1917;      --bs-btn-disabled-bg: var(--app-accent); --bs-btn-disabled-border-color: var(--app-accent);
+}
+.sprava-vedlajsie {
+    --bs-btn-color: var(--app-text);       --bs-btn-bg: var(--app-plocha);       --bs-btn-border-color: var(--app-border);
+    --bs-btn-hover-color: var(--app-text); --bs-btn-hover-bg: var(--app-jemna);  --bs-btn-hover-border-color: var(--app-accent);
+    --bs-btn-active-color: var(--app-text); --bs-btn-active-bg: var(--app-jemna); --bs-btn-active-border-color: var(--app-accent);
+    --bs-btn-disabled-color: var(--app-text); --bs-btn-disabled-bg: var(--app-plocha); --bs-btn-disabled-border-color: var(--app-border);
+}
+.sprava-zmazat {
+    --bs-btn-color: var(--bs-danger-text-emphasis);       --bs-btn-bg: transparent;                --bs-btn-border-color: rgba(220, 53, 69, .45);
+    --bs-btn-hover-color: var(--bs-danger-text-emphasis); --bs-btn-hover-bg: rgba(220, 53, 69, .12); --bs-btn-hover-border-color: var(--bs-danger);
+    --bs-btn-active-color: var(--bs-danger-text-emphasis); --bs-btn-active-bg: rgba(220, 53, 69, .2); --bs-btn-active-border-color: var(--bs-danger);
+    --bs-btn-disabled-color: var(--app-muted-text);       --bs-btn-disabled-bg: transparent;       --bs-btn-disabled-border-color: var(--app-border);
+}
+.sprava-akcie { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem; }
+
+/* ── Rozbaľovacie tlačidlo s formulárom (Nové heslo, Zlúčiť s inou…, prevedené recepty) ── */
+.sprava-rozbal > summary { list-style: none; }
+.sprava-rozbal > summary::-webkit-details-marker { display: none; }
+.sprava-rozbal[open] > summary { --bs-btn-border-color: var(--app-accent); --bs-btn-color: var(--app-accent); }
+.sprava-akcie > .sprava-rozbal[open] { flex-basis: 100%; }
+.sprava-akcie:has(> .sprava-rozbal[open]) { flex: 1 1 100%; }
+.sprava-rozbal-form {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    max-width: 560px;
+    margin-top: .65rem;
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px dashed var(--app-border);
+    background: var(--app-bg);
+}
+.sprava-rozbal-form .form-label { margin-bottom: 0; }
+.sprava-rozbal-form > .btn { align-self: flex-start; }
+
+/* ── Používatelia ── */
+/* Akcie sú vždy v druhom riadku pod menom, aby všetky karty vyzerali rovnako. */
+.sprava-pouzivatel { display: flex; flex-direction: column; gap: .85rem; }
+.sprava-pouzivatel-hlava { display: flex; align-items: center; gap: .9rem; min-width: 0; }
+.sprava-inicialy {
+    flex: none;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+    font-size: 1.1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sprava-pouzivatel-info { min-width: 0; }
+.sprava-pouzivatel-meno { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .5rem; font-size: 1.15rem; font-weight: 700; overflow-wrap: anywhere; }
+.sprava-pouzivatel-detail { margin-top: .2rem; font-size: .95rem; line-height: 1.4; color: var(--app-muted-text); overflow-wrap: anywhere; }
+.sprava-pouzivatel-detail strong { font-weight: 600; color: var(--app-text); }
+.sprava-odznak { padding: .2em .6em; border-radius: 8px; background: var(--app-odznak-sivy-bg); color: var(--app-odznak-sivy); font-size: .8rem; font-weight: 600; }
+.sprava-odznak.je-admin { background: var(--app-odznak-zlty-bg); color: var(--app-odznak-zlty); }
+.sprava-odznak.je-ty { background: var(--app-modra-bg); color: var(--app-modra-text); }
+.sprava-pouzivatel .sprava-akcie { margin-left: calc(52px + .9rem); }
+.sprava-formular { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.1rem; }
+.sprava-formular-odoslat { grid-column: 1 / -1; justify-self: start; }
+.sprava-mriezka > * + * { margin-top: 1.75rem; }
+/* Široká obrazovka: účty vľavo, pridanie vpravo */
+@media (min-width: 1280px) {
+    .sprava-mriezka { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(330px, 1fr); gap: 1.75rem; align-items: start; }
+    .sprava-mriezka > * + * { margin-top: 0; }
+    .sprava-mriezka > .sprava-karta { position: sticky; top: 2rem; margin-bottom: 0; }
+}
+
+/* ── Kategórie receptov ── */
+.kategoria-riadok { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem .75rem; }
+.kategoria-cislo {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--app-jemna);
+    color: var(--app-muted-text);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.kategoria-premenovat { display: flex; gap: .5rem; flex: 1 1 320px; min-width: 0; }
+.kategoria-premenovat .kategoria-nazov { flex: 1 1 auto; min-width: 0; }
+.kategoria-premenovat.je-zmenena .kategoria-ulozit {
+    --bs-btn-color: #1c1917; --bs-btn-bg: var(--app-accent); --bs-btn-border-color: var(--app-accent);
+    --bs-btn-hover-color: #1c1917; --bs-btn-hover-bg: #d97f06; --bs-btn-hover-border-color: #d97f06;
+}
+.kategoria-nazov-text { flex: 1 1 200px; font-size: 1.1rem; font-weight: 600; }
+.kategoria-spodok { display: flex; align-items: center; gap: .75rem; margin-left: auto; }
+.kategoria-pocet { min-width: 6.5rem; text-align: right; white-space: nowrap; color: var(--app-muted-text); }
+.kategoria-akcie { display: flex; gap: .5rem; }
+.sprava-pridat { max-width: 640px; }
+.sprava-riadok-pola { display: flex; gap: .5rem; }
+.sprava-riadok-pola > .form-control { flex: 1 1 auto; min-width: 0; }
+
+/* ── Suroviny ── */
+.sprava-hladanie { display: flex; gap: .5rem; max-width: 760px; margin-bottom: .75rem; }
+.sprava-hladanie-pole { position: relative; flex: 1 1 auto; min-width: 0; }
+.sprava-hladanie-pole > .bi {
+    position: absolute;
+    left: 1.1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.2rem;
+    color: var(--app-muted-text);
+    pointer-events: none;
+}
+.sprava .sprava-hladanie-pole .form-control { min-height: 58px; padding-left: 3rem; border-radius: 18px; }
+.sprava-hladanie > .btn { min-height: 58px; border-radius: 18px; }
+.sprava-filtre { display: flex; flex-wrap: wrap; gap: .5rem; }
+.sprava-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    min-height: 46px;
+    padding: 0 1.15rem;
+    border-radius: 23px;
+    border: 1px solid var(--app-border);
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-size: 1rem;
+    text-decoration: none;
+}
+a.sprava-filter:hover, a.sprava-filter:focus-visible { color: var(--app-text); border-color: var(--app-accent); }
+.sprava-filter.is-active { background: var(--app-accent); border-color: var(--app-accent); color: #1c1917; font-weight: 600; }
+a.sprava-filter.is-active:hover { color: #1c1917; }
+.surovina-riadok { display: flex; flex-direction: column; gap: .65rem; }
+.surovina-uprava { display: flex; flex-wrap: wrap; gap: .5rem; }
+/* Kategória a Uložiť sa zalamujú spolu: na užšej obrazovke idú pod názov do jedného riadku. */
+.surovina-uprava input[name="nazov"] { flex: 2 1 240px; min-width: 0; }
+.surovina-uprava-kategoria { display: flex; gap: .5rem; flex: 1 1 320px; min-width: 0; }
+.surovina-uprava-kategoria > select { flex: 1 1 auto; min-width: 0; }
+.surovina-info { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+.surovina-pouzitie { color: var(--app-muted-text); }
+.surovina-konflikt .sprava-akcie > form { margin: 0; }
+
+/* ── Prevod surovín ── */
+.prevod-stav {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: .5rem;
+    padding: .55rem 1rem;
+    border-radius: 14px;
+    background: var(--app-odznak-zlty-bg);
+    color: var(--app-odznak-zlty);
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+.prevod-stav.je-hotovo { background: var(--app-odznak-zeleny-bg); color: var(--app-odznak-zeleny); }
+.prevod-ulozene { margin: .25rem 0 .9rem; font-weight: 600; color: var(--bs-success-text-emphasis); }
+.prevod-ulozene:empty { margin: 0 0 .9rem; }
+.prevod-recept { margin: 0 0 .15rem; font-size: 1.3rem; font-weight: 700; }
+.prevod-legenda { margin-bottom: .35rem; font-size: .95rem; color: var(--app-muted-text); }
+.prevod-line {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    column-gap: .85rem;
+    padding: .85rem 0;
+    border-top: 1px solid var(--app-border);
+}
+.prevod-line:first-child { border-top: 0; }
+.prevod-line .form-switch { padding-left: 0; }
+.prevod-line .form-switch .form-check-input { float: none; width: 3em; height: 1.65em; margin: .1rem 0 0; cursor: pointer; }
+.prevod-on:checked { background-color: var(--app-accent); border-color: var(--app-accent); }
+.prevod-original { padding-top: .15rem; font-size: 1.05rem; color: var(--app-muted-text); overflow-wrap: anywhere; cursor: pointer; }
+.prevod-line.is-off .prevod-original { color: var(--app-text); }
+.prevod-line.is-off .prevod-edit { display: none; }
+.prevod-edit { grid-column: 2; display: grid; gap: .5rem; margin-top: .5rem; }
+.prevod-name { display: flex; align-items: center; gap: .5rem; }
+.prevod-name .surovina-combo { flex: 1; min-width: 0; }
+.prevod-name .badge { flex-shrink: 0; padding: .45em .7em; border-radius: 8px; font-size: .85rem; }
+.prevod-edit .surovina-fields { grid-template-columns: 7.5rem 8.5rem minmax(0, 1fr); gap: .5rem; padding-right: 0; }
+.sprava .surovina-fields .form-control,
+.sprava .surovina-fields .form-select { min-height: 48px; }
+.prevod-paticka { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: .5rem; padding-top: .9rem; border-top: 1px solid var(--app-border); }
+.prevod-error { font-weight: 600; color: var(--bs-danger-text-emphasis); }
+.prevod-hotove { margin-top: 1.75rem; }
+.prevod-hotovy { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.prevod-hotovy-pocet { color: var(--app-muted-text); }
+
+/* ── Telefón: polia a tlačidlá na celú šírku ── */
+@media (max-width: 767.98px) {
+    .sprava-karta { padding: 1rem; }
+    .sprava-nadpis { font-size: 1.2rem; }
+    .sprava-formular-odoslat { justify-self: stretch; }
+    .sprava-pouzivatel .sprava-akcie { margin-left: 0; }
+    .sprava-pouzivatel .sprava-akcie > * { flex: 1 1 0; }
+    .sprava-pouzivatel .sprava-akcie > .sprava-rozbal[open] { flex-basis: 100%; }
+    .sprava-pouzivatel .sprava-akcie .btn { width: 100%; }
+    .sprava-rozbal-form > .btn { align-self: stretch; }
+    .kategoria-premenovat { flex: 1 1 0; }
+    /* Úzky telefón: číslo poradia ustúpi, aby sa zmestil celý názov kategórie aj tlačidlo Uložiť. */
+    .kategoria-cislo { display: none; }
+    .kategoria-spodok { flex: 1 1 100%; justify-content: space-between; margin-left: 0; }
+    .kategoria-pocet { min-width: 0; text-align: left; }
+    .surovina-uprava input[name="nazov"] { flex-basis: 100%; }
+    .surovina-info .sprava-akcie { flex: 1 1 100%; }
+    .surovina-info .sprava-akcie > .sprava-rozbal:not([open]) { flex: 1 1 0; }
+    .surovina-info .sprava-akcie > .sprava-rozbal > summary { width: 100%; }
+    .prevod-paticka > .btn { width: 100%; }
+}
+@media (max-width: 575.98px) {
+    .prevod-line { column-gap: .65rem; }
+    .prevod-edit { grid-column: 1 / -1; }
+    .prevod-edit .surovina-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .prevod-edit .surovina-fields .sur-poznamka { grid-column: 1 / -1; }
 }
