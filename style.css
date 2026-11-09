@@ -36,6 +36,18 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
+/* ── Bez priblíženia dvojitým ťuknutím ──
+   Keď niekto rýchlo ťukne dvakrát (napr. na tlačidlo vo formulári receptu),
+   telefón stránku priblíži. „manipulation“ vypne len toto priblíženie,
+   posúvanie a priblíženie dvoma prstami ostávajú, kto zle vidí, môže si
+   stránku zväčšiť. Ťuknutie navyše reaguje hneď, bez čakania na druhé ťuknutie.
+   Platí pre všetky prvky (*), nielen pre <html>: Safari na iPhone toto
+   nastavenie nededí cez posúvateľné časti (telo okna receptu má vlastný posuv).
+   Vlastné touch-action s triedou (napr. galéria fotiek v Bootstrape) má prednosť. */
+* {
+    touch-action: manipulation;
+}
+
 /* ── Glass/card panel, spoločné pre login aj dashboard ── */
 .app-card {
     background: var(--app-surface);

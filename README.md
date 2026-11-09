@@ -13,7 +13,7 @@ Rodinná webová appka na recepty. Beží v prehliadači a dá sa pridať na plo
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty bez internetu** (len na čítanie).
 - **Recept z fotky.** AI (Gemini, Claude alebo OpenAI) z fotky jedla alebo kuchárky navrhne celý recept, ty ho skontroluješ a uložíš. Nepovinné.
-- **Rozloženie pre telefón** (spodná lišta, formulár v troch krokoch) a **pre PC** (bočná ponuka), svetlý a tmavý vzhľad.
+- **Rozloženie pre telefón** (spodná lišta, formulár v troch krokoch) a **pre PC** (bočná ponuka), svetlý a tmavý vzhľad. Rýchle dvojité ťuknutie stránku na telefóne nepriblíži, zväčšiť sa dá dvoma prstami.
 - **Správa** používateľov, kategórií a surovín pre admina.
 
 ## Požiadavky
@@ -218,6 +218,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.0.2** Rýchle dvojité ťuknutie (napr. pri pridávaní receptu) už na telefóne nepriblíži stránku. Priblíženie dvoma prstami ostáva.
 - **2.0.1** Obsah na PC sa roztiahne na celú šírku obrazovky, na veľkom monitore je viac stĺpcov kariet.
 - **2.0** Nové rozloženie na PC: bočná ponuka, veľké hľadanie, kategórie ako tlačidlá, karty s tlačidlami Uvarené a Do nákupu, náhľad receptu s fotkami vľavo a receptom vpravo.
 - **1.9** Formulár receptu na telefóne v troch krokoch (Základ, Suroviny, Postup a fotka). Recept z fotky ide rovno do vyplneného formulára.
