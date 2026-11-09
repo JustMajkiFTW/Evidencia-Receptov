@@ -2321,7 +2321,7 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
    (#strankaObjednane) na celú obrazovku namiesto receptov.
    Wolt, Bolt Food… zvlášť od receptov. Na stránke sú dve časti
    (zoznam a formulár), riadky a tlačidlá sú veľké ako v Nákupe.
-   Farebné krúžky služieb (W, B, f) nie sú logá, len rozlíšenie.
+   Farebné krúžky služieb (W, B, Bi) nie sú logá, len rozlíšenie.
    ============================================================ */
 /* Stránky Recepty / Objednané jedlo a časti stránky prepína script.js atribútom hidden */
 .stranka[hidden],
@@ -2465,7 +2465,7 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 }
 .objednavka-znak[data-sluzba="wolt"] { background: #009de0; color: #fff; }
 .objednavka-znak[data-sluzba="bolt"] { background: #34d186; color: #0b2e1c; }
-.objednavka-znak[data-sluzba="foodora"] { background: #df1b6c; color: #fff; }
+.objednavka-znak[data-sluzba="bistro"] { background: #e30613; color: #fff; font-size: 1rem; letter-spacing: -.02em; } /* 2.3.1, namiesto foodora */
 
 /* ── Formulár ── */
 .objednavky-form-hlavicka { display: flex; align-items: center; gap: .85rem; margin-bottom: 1.25rem; }
@@ -2519,6 +2519,8 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
     cursor: pointer;
 }
 .objednavky-sluzba .objednavka-znak { width: 34px; height: 34px; font-size: 1rem; }
+.objednavky-sluzba .objednavka-znak[data-sluzba="bistro"],
+.objednavky-tip .objednavka-znak[data-sluzba="bistro"] { font-size: .8rem; }
 .btn-check:checked + .objednavky-sluzba { border-color: var(--app-accent); background: var(--app-accent-soft); }
 .btn-check:focus-visible + .objednavky-sluzba { outline: 3px solid var(--app-accent-soft); outline-offset: 2px; }
 .objednavky-tipy { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }

@@ -483,10 +483,10 @@ if ($objednavkyVDb) {
     $o = akcia($p, $csrf, 'objednavka_ulozit', ['restauracia' => 'Drahá', 'cena' => 'veľa']);
     over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'Cena'), 'Cena, ktorá nie je číslo, sa odmietne', $o->popis());
 
-    $o = akcia($p, $csrf, 'objednavka_ulozit', ['objednavka_id' => $kfcId, 'sluzba' => 'foodora', 'restauracia' => "KFC $znacka",
+    $o = akcia($p, $csrf, 'objednavka_ulozit', ['objednavka_id' => $kfcId, 'sluzba' => 'bistro', 'restauracia' => "KFC $znacka",
         'jedlo' => 'Bucket', 'datum' => $vcera, 'cena' => '']);
     $kfc = $objednavka($o->json()['polozky'] ?? [], $kfcId);
-    over(uspech($o) && ($kfc['sluzba'] ?? '') === 'foodora' && ($kfc['jedlo'] ?? '') === 'Bucket' && array_key_exists('cena', $kfc ?? [])
+    over(uspech($o) && ($kfc['sluzba'] ?? '') === 'bistro' && ($kfc['jedlo'] ?? '') === 'Bucket' && array_key_exists('cena', $kfc ?? [])
         && $kfc['cena'] === null, 'Objednávka sa dá upraviť (aj zmazať cenu)', json_encode($kfc, JSON_UNESCAPED_UNICODE));
     $o = akcia($p, $csrf, 'objednavka_ulozit', ['objednavka_id' => 999999, 'restauracia' => 'Nikde']);
     over(nespadla($o) && str_contains((string) ($o->json()['error'] ?? ''), 'neexistuje'), 'Úprava neexistujúcej objednávky sa odmietne', $o->popis());

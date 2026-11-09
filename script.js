@@ -953,6 +953,7 @@ const objednavky = (function initObjednavky() {
     if (!strankaEl) return null;
 
     const SLUZBY = window.APP_OBJEDNAVKY_SLUZBY || {};
+    const ZNAKY = window.APP_OBJEDNAVKY_ZNAKY || {};
     const MESIACE = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August', 'September', 'Október', 'November', 'December'];
     const DNI = ['nedeľa', 'pondelok', 'utorok', 'streda', 'štvrtok', 'piatok', 'sobota'];
 
@@ -1006,14 +1007,14 @@ const objednavky = (function initObjednavky() {
     const pocetObjednavok = (n) => n + ' ' + (n === 1 ? 'objednávka' : (n >= 2 && n <= 4 ? 'objednávky' : 'objednávok'));
     const nazovSluzby = (kluc) => SLUZBY[kluc] || SLUZBY.ine || 'Iné';
 
-    /** Farebný krúžok služby: „W", „B", „f", pri Iné ikona obchodu. */
+    /** Farebný krúžok služby: „W", „B", „Bi" (OBJEDNAVKY_ZNAKY), pri Iné ikona obchodu. */
     function znak(sluzba) {
         const el = document.createElement('span');
         el.className = 'objednavka-znak';
-        el.dataset.sluzba = sluzba;
+        el.dataset.sluzba = SLUZBY[sluzba] ? sluzba : 'ine';
         el.setAttribute('aria-hidden', 'true');
-        if (sluzba === 'ine' || !SLUZBY[sluzba]) el.innerHTML = '<i class="bi bi-shop"></i>';
-        else el.textContent = nazovSluzby(sluzba).charAt(0);
+        if (ZNAKY[sluzba]) el.textContent = ZNAKY[sluzba];
+        else el.innerHTML = '<i class="bi bi-shop"></i>';
         return el;
     }
 

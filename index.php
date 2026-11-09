@@ -326,7 +326,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=35">
+    <link rel="stylesheet" href="style.css?v=36">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -709,7 +709,7 @@ header('X-Recepty-Offline: 1');
                         <input type="radio" class="btn-check" name="sluzba" id="objednavkaSluzba-<?= htmlspecialchars($kluc) ?>"
                                value="<?= htmlspecialchars($kluc) ?>" autocomplete="off"<?= $kluc === 'wolt' ? ' checked' : '' ?>>
                         <label class="objednavky-sluzba" for="objednavkaSluzba-<?= htmlspecialchars($kluc) ?>">
-                            <span class="objednavka-znak" data-sluzba="<?= htmlspecialchars($kluc) ?>" aria-hidden="true"><?= $kluc === 'ine' ? '<i class="bi bi-shop"></i>' : htmlspecialchars(mb_substr($nazov, 0, 1)) ?></span><?= htmlspecialchars($nazov) ?>
+                            <span class="objednavka-znak" data-sluzba="<?= htmlspecialchars($kluc) ?>" aria-hidden="true"><?= isset(OBJEDNAVKY_ZNAKY[$kluc]) ? htmlspecialchars(OBJEDNAVKY_ZNAKY[$kluc]) : '<i class="bi bi-shop"></i>' ?></span><?= htmlspecialchars($nazov) ?>
                         </label>
                     <?php endforeach; ?>
                 </div>
@@ -1517,9 +1517,10 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     // Objednané jedlo (includes/objednavky.php): zoznam je priamo v stránke, takže ho vidno aj bez internetu.
     window.APP_OBJEDNAVKY = <?= json_encode($objednavky, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
     window.APP_OBJEDNAVKY_SLUZBY = <?= json_encode(OBJEDNAVKY_SLUZBY, JSON_UNESCAPED_UNICODE) ?>;
+    window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=35"></script>
+<script src="script.js?v=36"></script>
 </body>
 </html>
 <?php

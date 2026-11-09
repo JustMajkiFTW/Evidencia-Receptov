@@ -2,7 +2,7 @@
 /**
  * objednavky.php — Objednané jedlo (verzia 2.2).
  *
- * Zvlášť od receptov: jedlo objednané cez Wolt, Bolt Food, foodora a podobne.
+ * Zvlášť od receptov: jedlo objednané cez Wolt, Bolt Food, Bistro.sk a podobne.
  * Pri každej objednávke je dátum, odkiaľ sa objednávalo, reštaurácia, čo sme
  * mali a nepovinne cena. V appke slúži hlavne na otázku „kedy sme naposledy
  * mali objednané jedlo a čo to bolo".
@@ -17,12 +17,23 @@
  * Očakáva, že functions.php je už načítaný (app_today, parse_app_date, debug_log).
  */
 
-/** Odkiaľ bolo jedlo: kľúč uložený v databáze => názov na obrazovke. Poradie = poradie tlačidiel. */
+/**
+ * Odkiaľ bolo jedlo: kľúč uložený v databáze => názov na obrazovke. Poradie = poradie tlačidiel.
+ * Verzia 2.3.1: foodora nahradilo Bistro.sk. Staré záznamy s kľúčom, ktorý tu už nie je
+ * (napr. „foodora"), sa ukazujú ako Iné (get_objednavky) a v databáze sa nemenia.
+ */
 const OBJEDNAVKY_SLUZBY = [
-    'wolt'    => 'Wolt',
-    'bolt'    => 'Bolt Food',
-    'foodora' => 'foodora',
-    'ine'     => 'Iné',
+    'wolt'   => 'Wolt',
+    'bolt'   => 'Bolt Food',
+    'bistro' => 'Bistro.sk',
+    'ine'    => 'Iné',
+];
+
+/** Písmená vo farebnom krúžku služby (Bolt Food a Bistro.sk by inak mali obe „B"). Iné má ikonu obchodu. */
+const OBJEDNAVKY_ZNAKY = [
+    'wolt'   => 'W',
+    'bolt'   => 'B',
+    'bistro' => 'Bi',
 ];
 
 const OBJEDNAVKA_RESTAURACIA_MAX = 150; // ako stĺpec objednane_jedla.restauracia

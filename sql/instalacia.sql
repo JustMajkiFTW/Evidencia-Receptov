@@ -242,14 +242,14 @@ CREATE TABLE IF NOT EXISTS `ai_rozpoznania` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------------------------------------------------
--- Objednané jedlo (Wolt, Bolt Food, foodora…)
+-- Objednané jedlo (Wolt, Bolt Food, Bistro.sk…)
 -- ----------------------------------------------------------------------
 
 -- Objednané jedlo: jeden riadok = jedna objednávka. S receptami nesúvisí.
 CREATE TABLE IF NOT EXISTS `objednane_jedla` (
   `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
   `datum` date NOT NULL,                        -- kedy sme jedlo mali
-  `sluzba` varchar(20) NOT NULL DEFAULT 'ine',  -- wolt | bolt | foodora | ine
+  `sluzba` varchar(20) NOT NULL DEFAULT 'ine',  -- wolt | bolt | bistro | ine (do 2.3 aj foodora)
   `restauracia` varchar(150) DEFAULT NULL,
   `jedlo` text DEFAULT NULL,                    -- čo sme mali (voľný text)
   `cena` decimal(8,2) DEFAULT NULL,             -- spolu v eurách, nepovinné
