@@ -1557,8 +1557,8 @@ html[data-offline] .recipe-card .rating-star { cursor: default; }
     .app-rozlozenie { display: flex; align-items: flex-start; min-height: 100vh; }
     .app-obsah { flex: 1 1 auto; min-width: 0; padding: 2rem 2.5rem 3rem; }
     /* Obsah na celú šírku vedľa ponuky — na veľkej obrazovke pribudnú stĺpce kariet (2.0.1) */
-    .app-obsah > .container-fluid { max-width: none !important; margin: 0; padding: 0; }
-    .app-obsah > .container-fluid.mt-3 { margin-top: 0 !important; }
+    .app-obsah > .stranka > .container-fluid { max-width: none !important; margin: 0; padding: 0; }
+    .app-obsah > .stranka > .container-fluid.mt-3 { margin-top: 0 !important; }
 
     /* ── Bočná ponuka ── */
     .app-bocna {
@@ -2317,14 +2317,31 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 }
 
 /* ============================================================
-   Verzia 2.2 — Objednané jedlo (okno #objednavkyModal)
-   Wolt, Bolt Food… zvlášť od receptov. V okne sú dve časti
+   Verzia 2.2 — Objednané jedlo, od 2.3 samostatná stránka
+   (#strankaObjednane) na celú obrazovku namiesto receptov.
+   Wolt, Bolt Food… zvlášť od receptov. Na stránke sú dve časti
    (zoznam a formulár), riadky a tlačidlá sú veľké ako v Nákupe.
    Farebné krúžky služieb (W, B, f) nie sú logá, len rozlíšenie.
    ============================================================ */
-.objednavky-cast,
-.objednavky-cast > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.objednavky-cast .modal-body { overflow-y: auto; }
+/* Stránky Recepty / Objednané jedlo a časti stránky prepína script.js atribútom hidden */
+.stranka[hidden],
+.objednavky-cast[hidden] { display: none !important; }
+.objednavky-obsah,
+#strankaObjednane .app-hlavicka,
+.objednavky-form-hlavicka { max-width: 880px; }
+.objednavky-pridat {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    min-height: 54px;
+    padding: 0 1.4rem;
+    border-radius: 16px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1c1917;
+}
+.objednavky-pridat:hover, .objednavky-pridat:focus-visible { color: #1c1917; }
 
 /* ── Naposledy objednané ── */
 .objednavky-naposledy {
@@ -2451,11 +2468,26 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 .objednavka-znak[data-sluzba="foodora"] { background: #df1b6c; color: #fff; }
 
 /* ── Formulár ── */
+.objednavky-form-hlavicka { display: flex; align-items: center; gap: .85rem; margin-bottom: 1.25rem; }
+.objednavky-form-nadpis { margin: 0; font-size: 2.3rem; font-weight: 700; line-height: 1.1; outline: none; }
+.objednavky-formular {
+    padding: 1.5rem;
+    border-radius: 18px;
+    border: 1px solid var(--app-border);
+    background: var(--app-plocha);
+}
+.objednavky-formular .form-control { min-height: 52px; font-size: 1.05rem; }
+.objednavky-formular textarea.form-control { min-height: 110px; }
+.objednavky-formular .form-label.small { font-size: .95rem !important; }
+.objednavky-tlacidla { display: flex; gap: .5rem; justify-content: flex-end; }
+.objednavky-tlacidla > .btn { min-height: 54px; padding: 0 1.4rem; border-radius: 14px; font-size: 1.05rem; white-space: nowrap; }
+.objednavky-tlacidla > .btn-primary { color: #1c1917; }
+.objednavky-tlacidla .btn-outline-secondary { color: var(--app-text); border-color: var(--app-border); }
+#objednavkaZmazat { margin-right: auto; }
 .objednavky-spat {
     flex: none;
-    width: 44px;
-    height: 44px;
-    margin-right: .6rem;
+    width: 52px;
+    height: 52px;
     padding: 0;
     border-radius: 50%;
     border: 1px solid var(--app-border);
@@ -2466,6 +2498,7 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
     justify-content: center;
 }
 .objednavky-spat:hover, .objednavky-spat:focus-visible { color: var(--app-text); border-color: var(--app-accent); }
+.objednavky-spat { background: var(--app-plocha); font-size: 1.35rem; }
 .objednavky-sluzby { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
 @media (min-width: 576px) {
     .objednavky-sluzby { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -2505,12 +2538,22 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 }
 .objednavky-tip .objednavka-znak { width: 32px; height: 32px; font-size: .9rem; }
 .objednavky-tip:hover, .objednavky-tip:focus-visible { border-color: var(--app-accent); }
-#objednavkyModal .modal-footer > .btn { min-height: 48px; }
-#objednavkaZmazat { margin-right: auto; }
-
+/* ── Telefón: obsah s okrajmi ako recepty, tlačidlá na celú šírku ── */
 @media (max-width: 767.98px) {
-    #objednavkyModal .modal-title { font-size: 1.6rem; font-weight: 700; }
-    #objednavkyModal .modal-footer { padding: .75rem 1rem; }
-    #objednavkyModal .modal-footer > .btn { flex: 1 1 0; min-height: 54px; padding: 0 .5rem; white-space: nowrap; }
+    .objednavky-obsah { padding: 1rem 1rem 0; }
+    .objednavky-pridat { width: 100%; margin-bottom: 1rem; }
+    .objednavky-form-hlavicka { padding: 1.25rem 1rem 0; margin-bottom: 0; }
+    .objednavky-form-nadpis { font-size: 1.8rem; }
+    .objednavky-formular { margin: 1rem 1rem 0; padding: 1rem; }
+    .objednavky-formular.objednavky-obsah { padding: 1rem; }
+    .objednavky-tlacidla > .btn { flex: 1 1 0; padding: 0 .5rem; }
     #objednavkaZmazat { margin-right: 0; }
+}
+
+/* ── Spodná lišta s piatimi položkami (Recepty, Objednané, Pridať, Nákup, Viac):
+   o niečo menšie písmo, aby sa „Objednané" zmestilo aj na úzky telefón ── */
+@media (max-width: 767.98px) {
+    .spodna-lista.ma-5-poloziek { gap: .1rem; padding-left: .25rem; padding-right: .25rem; }
+    .spodna-lista.ma-5-poloziek .spodna-lista-polozka { font-size: .8rem; }
+    .spodna-lista.ma-5-poloziek .spodna-lista-pridat { width: 50px; }
 }

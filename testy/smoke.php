@@ -446,9 +446,14 @@ $objednavka = function (array $polozky, int $id): ?array {
 };
 $stranka = $p->get('index.php')->telo;
 $o = akcia($p, $csrf, 'objednavky_get');
-if ($plny) {
-    over(str_contains($stranka, 'id="objednavkyModal"') && str_contains($stranka, 'openObjednavkyModal()'),
-        'Stránka má okno Objednané jedlo a odkaz naň v ponuke');
+// Databáza predchádzajúcej verzie môže tabuľku objednane_jedla už mať (od 2.2) — vtedy sa overí celé.
+$objednavkyVDb = $plny || str_contains($stranka, 'id="strankaObjednane"');
+if ($objednavkyVDb) {
+    over(str_contains($stranka, 'id="strankaObjednane"') && str_contains($stranka, 'id="objednavkaForm"')
+        && str_contains($stranka, 'data-stranka="objednane"'),
+        'Objednané jedlo je samostatná stránka s formulárom a je v bočnej ponuke');
+    over((bool) preg_match('~<nav class="spodna-lista[^"]*ma-5-poloziek[^>]*>.*?data-lista="recepty".*?data-lista="objednane".*?data-lista="pridat".*?data-lista="nakup".*?data-lista="viac"~s', $stranka),
+        'Spodná lišta: Recepty, Objednané, Pridať, Nákup, Viac');
     over(uspech($o) && is_array($o->json()['polozky'] ?? null), 'Objednávky sa načítajú', $o->popis());
 
     $o = akcia($p, $csrf, 'objednavka_ulozit', ['sluzba' => 'wolt', 'restauracia' => "  KFC $znacka  ", 'jedlo' => "Bucket\nhranolky",
@@ -498,8 +503,9 @@ if ($plny) {
     $o = $p->post('index.php', ['action' => 'objednavka_ulozit', 'csrf_token' => 'zly', 'restauracia' => 'Bez tokenu']);
     over($o->kod === 403, 'Zápis objednávky s neplatným tokenom sa odmietne', $o->popis());
 } else {
-    over(!str_contains($stranka, 'id="objednavkyModal"') && !str_contains($stranka, 'openObjednavkyModal()'),
-        'Bez migrácie sa Objednané jedlo v ponuke neukáže');
+    over(!str_contains($stranka, 'id="strankaObjednane"') && !str_contains($stranka, 'data-lista="objednane"')
+        && !str_contains($stranka, 'data-stranka="objednane"'),
+        'Bez migrácie sa Objednané jedlo v ponuke ani v lište neukáže');
     over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Bez migrácie načítanie objednávok nespadne', $o->popis());
     $o = akcia($p, $csrf, 'objednavka_ulozit', ['restauracia' => "KFC $znacka"]);
     over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Bez migrácie sa objednávka nezapíše, appka nespadne', $o->popis());
@@ -746,7 +752,7 @@ over($o->kod === 200 && bez_chyby($o), 'Odkaz z upozornenia (index.php?recept=�
 
 $o = $p->get('admin/index.php');
 over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Používatelia'), 'Správa používateľov sa otvorí', $o->popis());
-over(str_contains($o->telo, 'index.php?otvor=objednavky') === $plny, $plny
+over(str_contains($o->telo, 'index.php?otvor=objednavky') === $objednavkyVDb, $objednavkyVDb
     ? 'Bočná ponuka Správy vedie aj na Objednané jedlo' : 'Bez migrácie Správa Objednané jedlo neponúka');
 $o = $p->get('admin/prevod-surovin.php');
 over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Prevod surovín'), 'Prevod surovín sa otvorí', $o->popis());

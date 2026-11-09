@@ -933,14 +933,24 @@ function openShoppingModal() {
 
 /* ========================================================================
    Objednané jedlo (verzia 2.2) — Wolt, Bolt Food… zvlášť od receptov.
+   Od verzie 2.3 je to samostatná stránka na celú obrazovku namiesto receptov
+   (#strankaObjednane), nie okno. Na stránke sú dve časti: zoznam a formulár.
+
+   Ktorá stránka a časť sa ukazuje, určuje adresa:
+     index.php                       → Recepty
+     index.php#objednane             → Objednané jedlo, zoznam
+     index.php#objednane-formular    → Objednané jedlo, formulár (pridať / upraviť)
+   Každý prechod pridá záznam do histórie prehliadača, takže tlačidlo Späť
+   (aj systémové na Androide) vráti z formulára na zoznam a zo zoznamu na recepty.
+   V history.state.hlbka je, koľko takých záznamov je nad receptami.
+
    Zoznam je priamo v stránke (window.APP_OBJEDNAVKY), takže sa dá pozrieť
-   aj bez internetu. Pri otvorení okna sa potichu stiahne čerstvý zo servera
-   a každá akcia (uloženie, zmazanie) vráti celý aktuálny zoznam.
-   V okne sú dve časti: zoznam a formulár (pridať / upraviť).
+   aj bez internetu. Pri príchode na stránku sa potichu stiahne čerstvý zo
+   servera a každá akcia (uloženie, zmazanie) vráti celý aktuálny zoznam.
    ======================================================================== */
 const objednavky = (function initObjednavky() {
-    const modalEl = document.getElementById('objednavkyModal');
-    if (!modalEl) return null;
+    const strankaEl = document.getElementById('strankaObjednane');
+    if (!strankaEl) return null;
 
     const SLUZBY = window.APP_OBJEDNAVKY_SLUZBY || {};
     const MESIACE = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August', 'September', 'Október', 'November', 'December'];
@@ -950,7 +960,7 @@ const objednavky = (function initObjednavky() {
     const zoznamEl = $('objednavkyZoznam');
     const naposledyEl = $('objednavkyNaposledy');
     const hladajEl = $('objednavkyHladaj');
-    const cipy = Array.from(modalEl.querySelectorAll('.objednavky-cip'));
+    const cipy = Array.from(strankaEl.querySelectorAll('.objednavky-cip'));
     const form = $('objednavkaForm');
     const chybaEl = $('objednavkaChyba');
     const tipyEl = $('objednavkaTipy');
@@ -959,6 +969,8 @@ const objednavky = (function initObjednavky() {
     let polozky = Array.isArray(window.APP_OBJEDNAVKY) ? window.APP_OBJEDNAVKY : [];
     let filterSluzba = '';
     let upravovana = null; // objednávka vo formulári (null = nová)
+    let formularPripraveny = false; // formulár bol v tejto návšteve otvorený (inak #objednane-formular = zoznam)
+    let strankaTeraz = 'recepty';
 
     /* ── Pomôcky na text a dátumy ── */
     const normalizuj = (text) => (window.Suroviny ? window.Suroviny.normKey(text) : String(text || '').toLowerCase());
@@ -1170,10 +1182,77 @@ const objednavky = (function initObjednavky() {
         vykresli();
     }));
 
-    /* ── Prepínanie medzi zoznamom a formulárom ── */
-    function ukazCast(nazov) {
-        modalEl.querySelectorAll('.objednavky-cast').forEach((cast) => cast.classList.toggle('d-none', cast.dataset.cast !== nazov));
-        modalEl.querySelector('.modal-dialog').classList.toggle('je-formular', nazov === 'formular');
+    /* ── Stránky a časti podľa adresy (pozri popis vyššie) ── */
+    const hlbka = () => (history.state && history.state.hlbka) || 0;
+    const adresaReceptov = () => location.pathname + location.search;
+
+    function zobraz() {
+        let stranka = 'recepty';
+        let cast = 'zoznam';
+        if (location.hash === '#objednane-formular' && formularPripraveny) {
+            stranka = 'objednane';
+            cast = 'formular';
+        } else if (location.hash.startsWith('#objednane')) {
+            stranka = 'objednane';
+            // Formulár po obnovení stránky nemá čo ukázať — adresa sa vráti na zoznam.
+            if (location.hash !== '#objednane') history.replaceState(history.state, '', '#objednane');
+        }
+        if (cast !== 'formular') {
+            formularPripraveny = false;
+            upravovana = null;
+        }
+
+        const prisiel = stranka === 'objednane' && strankaTeraz !== 'objednane';
+        strankaTeraz = stranka;
+        document.querySelectorAll('.stranka[data-stranka]').forEach((el) => { el.hidden = el.dataset.stranka !== stranka; });
+        strankaEl.querySelectorAll('.objednavky-cast').forEach((el) => { el.hidden = el.dataset.cast !== cast; });
+        // Bočná ponuka na PC: svieti stránka, na ktorej si.
+        document.querySelectorAll('.app-bocna-polozka[data-stranka]').forEach((btn) => {
+            const aktivna = btn.dataset.stranka === stranka;
+            btn.classList.toggle('is-active', aktivna);
+            if (aktivna) btn.setAttribute('aria-current', 'page');
+            else btn.removeAttribute('aria-current');
+        });
+        document.dispatchEvent(new CustomEvent('stranka-zmenena', { detail: { stranka } }));
+        window.scrollTo(0, 0);
+
+        if (prisiel) {
+            vykresli();
+            // Čerstvý zoznam zo servera (zmeny od ostatných). Bez internetu ostane ten zo stránky.
+            if (!OfflineRezim.jeAktivny() && navigator.onLine !== false) call('objednavky_get', null, { ticho: true });
+        }
+        if (cast === 'formular') {
+            // Na PC rovno do poľa reštaurácie; na telefóne nie, klávesnica by zakryla polovicu obrazovky.
+            if (jeTelefon()) $('objednavkaNadpis').focus({ preventScroll: true });
+            else form.restauracia.focus({ preventScroll: true });
+        }
+    }
+    window.addEventListener('popstate', zobraz);
+
+    /** Prejde na stránku 'recepty' alebo 'objednane' (bočná ponuka, spodná lišta). */
+    function prejdi(stranka) {
+        if (stranka === 'objednane') {
+            if (location.hash === '#objednane-formular' && hlbka() > 0) {
+                history.back(); // z formulára späť na zoznam (zobrazí popstate)
+                return;
+            }
+            if (location.hash !== '#objednane') {
+                history.pushState({ hlbka: hlbka() + 1 }, '', '#objednane');
+            } else {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        } else {
+            if (!location.hash.startsWith('#objednane')) {
+                window.scrollTo({ top: 0, behavior: 'smooth' }); // už si na receptoch
+                return;
+            }
+            if (hlbka() > 0) {
+                history.go(-hlbka()); // späť na recepty bez zbytočných záznamov v histórii
+                return;
+            }
+            history.pushState({ hlbka: 0 }, '', adresaReceptov());
+        }
+        zobraz();
     }
 
     function otvorFormular(o = null) {
@@ -1191,18 +1270,22 @@ const objednavky = (function initObjednavky() {
         form.jedlo.value = o ? o.jedlo : '';
         form.datum.value = o ? o.datum : todayISO();
         form.datum.max = todayISO();
-        form.cena.value = o && o.cena !== null ? String(o.cena.toFixed(2)).replace('.', ',') : '';
+        form.cena.value = o && o.cena !== null ? o.cena.toFixed(2).replace('.', ',') : '';
         zmazatBtn.classList.toggle('d-none', !(o && o.mozeZmazat));
         vykresliTipy();
-        ukazCast('formular');
-        form.querySelector('.modal-body').scrollTop = 0;
-        // Na PC rovno do poľa reštaurácie; na telefóne nie, klávesnica by zakryla polovicu okna.
-        if (!jeTelefon()) form.restauracia.focus();
+        formularPripraveny = true;
+        history.pushState({ hlbka: hlbka() + 1 }, '', '#objednane-formular');
+        zobraz();
     }
 
+    /** Späť, Zrušiť a po uložení: z formulára na zoznam (ako tlačidlo Späť v prehliadači). */
     function spatNaZoznam() {
-        upravovana = null;
-        ukazCast('zoznam');
+        if (location.hash === '#objednane-formular' && hlbka() > 0) {
+            history.back();
+        } else {
+            history.replaceState(history.state, '', '#objednane');
+            zobraz();
+        }
     }
 
     /** Reštaurácie, z ktorých sa už objednávalo (najnovšie prvé), zúžené podľa napísaného textu. */
@@ -1240,7 +1323,7 @@ const objednavky = (function initObjednavky() {
     function ukazChybu(text, pole = null) {
         chybaEl.textContent = text;
         chybaEl.classList.remove('d-none');
-        form.querySelector('.modal-body').scrollTop = 0;
+        window.scrollTo(0, 0);
         if (pole) pole.focus({ preventScroll: true });
     }
 
@@ -1283,33 +1366,20 @@ const objednavky = (function initObjednavky() {
 
     $('objednavkaSpat').addEventListener('click', spatNaZoznam);
     $('objednavkaZrusit').addEventListener('click', spatNaZoznam);
-    $('objednavkyPridat').addEventListener('click', () => otvorFormular());
-    // Po zatvorení okna sa nabudúce otvorí znova zoznam.
-    modalEl.addEventListener('hidden.bs.modal', spatNaZoznam);
-
-    function openModal() {
-        const show = () => {
-            vykresli();
-            bootstrap.Modal.getOrCreateInstance(modalEl).show();
-            // Čerstvý zoznam zo servera (zmeny od ostatných). Bez internetu ostane ten zo stránky.
-            if (!OfflineRezim.jeAktivny() && navigator.onLine !== false) call('objednavky_get', null, { ticho: true });
-        };
-        // Dve okná naraz Bootstrap nezvláda — najprv zavrieme otvorené (napr. Viac na telefóne).
-        const ine = Array.from(document.querySelectorAll('.modal.show')).find((el) => el !== modalEl);
-        if (ine) {
-            ine.addEventListener('hidden.bs.modal', show, { once: true });
-            bootstrap.Modal.getInstance(ine)?.hide();
-        } else {
-            show();
-        }
-    }
+    strankaEl.querySelectorAll('[data-objednavka-pridat]').forEach((btn) => btn.addEventListener('click', () => otvorFormular()));
+    // Bočná ponuka na PC: Recepty / Objednané jedlo
+    document.querySelectorAll('.app-bocna-polozka[data-stranka]').forEach((btn) =>
+        btn.addEventListener('click', () => prejdi(btn.dataset.stranka)));
 
     vykresli();
-    return { open: openModal };
+    zobraz(); // príchod s adresou index.php#objednane (obnovenie stránky)
+    return { prejdi, aktualna: () => strankaTeraz };
 })();
 
-function openObjednavkyModal() {
-    if (objednavky) objednavky.open();
+/* Bez Objednaného jedla (pred migráciou 2.2) je Recepty v bočnej ponuke len posun hore. */
+if (!objednavky) {
+    document.querySelectorAll('.app-bocna-polozka[data-stranka="recepty"]').forEach((btn) =>
+        btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' })));
 }
 
 /* ========================================================================
@@ -2920,7 +2990,6 @@ window.aiRecept = (function initAiRecept() {
 
     const viacEl = document.getElementById('viacModal');
     const shoppingEl = document.getElementById('shoppingModal');
-    const objednavkyEl = document.getElementById('objednavkyModal'); // otvára sa z okna Viac
 
     /** Zavrie otvorené okno (ak nejaké je) a až potom spustí akciu. */
     function poZatvoreniOkien(akcia) {
@@ -2935,6 +3004,7 @@ window.aiRecept = (function initAiRecept() {
 
     // ── Ktorá položka lišty svieti a kedy sa lišta skryje ──
     // Nákup a Viac sú „záložky" (lišta ostane), ostatné okná lištu zakryjú.
+    // Bez otvoreného okna svieti stránka, na ktorej si: Recepty alebo Objednané (2.3).
     function oznacPolozku(nazov) {
         lista.querySelectorAll('.spodna-lista-polozka').forEach((btn) => {
             const aktivna = btn.dataset.lista === nazov;
@@ -2947,8 +3017,8 @@ window.aiRecept = (function initAiRecept() {
         const otvorene = Array.from(document.querySelectorAll('.modal.show, .modal.je-otvarane'));
         document.body.classList.toggle('lista-skryta', otvorene.some((el) => !el.classList.contains('modal-s-listou')));
         const zalozka = otvorene.find((el) => el.classList.contains('modal-s-listou'));
-        oznacPolozku(zalozka === shoppingEl ? 'nakup'
-            : (zalozka === viacEl || (zalozka && zalozka === objednavkyEl)) ? 'viac' : 'recepty');
+        oznacPolozku(zalozka === shoppingEl ? 'nakup' : zalozka === viacEl ? 'viac'
+            : (objednavky ? objednavky.aktualna() : 'recepty'));
     }
     document.addEventListener('show.bs.modal', (e) => {
         e.target.classList.add('je-otvarane');
@@ -2959,6 +3029,8 @@ window.aiRecept = (function initAiRecept() {
         e.target.classList.remove('je-otvarane');
         aktualizujListu();
     });
+    document.addEventListener('stranka-zmenena', aktualizujListu);
+    aktualizujListu(); // príchod rovno na index.php#objednane
 
     // ── Akcie položiek lišty ──
     lista.addEventListener('click', (e) => {
@@ -2966,9 +3038,18 @@ window.aiRecept = (function initAiRecept() {
         if (!btn) return;
         switch (btn.dataset.lista) {
             case 'recepty':
-                if (document.querySelector('.modal.show')) poZatvoreniOkien(() => {});
-                else window.scrollTo({ top: 0, behavior: 'smooth' });
+            case 'objednane': {
+                // Otvorené okno (Nákup, Viac) najprv zavrieme, potom stránka (alebo posun hore, ak už na nej si).
+                const stranka = btn.dataset.lista;
+                if (document.querySelector('.modal.show')) {
+                    poZatvoreniOkien(() => { if (objednavky && objednavky.aktualna() !== stranka) objednavky.prejdi(stranka); });
+                } else if (objednavky) {
+                    objednavky.prejdi(stranka);
+                } else {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
                 break;
+            }
             case 'pridat':
                 poZatvoreniOkien(() => (window.aiRecept ? window.aiRecept.otvor() : openRecipeModal()));
                 break;
@@ -3031,7 +3112,7 @@ window.aiRecept = (function initAiRecept() {
 
     // ── Príchod zo Správy (verzia 2.1): spodná lišta a bočná ponuka v admin/ vedú na
     //    index.php?otvor=pridat | nakup | viac a tu sa otvorí to isté okno ako z lišty.
-    //    Od verzie 2.2 aj ?otvor=objednavky (Objednané jedlo z bočnej ponuky Správy). ──
+    //    ?otvor=objednavky prejde na stránku Objednané jedlo (2.3, predtým okno). ──
     function otvorZAdresy() {
         const otvor = new URLSearchParams(location.search).get('otvor');
         if (!otvor) return;
@@ -3047,8 +3128,8 @@ window.aiRecept = (function initAiRecept() {
             openShoppingModal();
         } else if (otvor === 'viac' && telefon && viacEl) {
             bootstrap.Modal.getOrCreateInstance(viacEl).show();
-        } else if (otvor === 'objednavky' && objednavkyEl) {
-            openObjednavkyModal();
+        } else if (otvor === 'objednavky' && objednavky) {
+            objednavky.prejdi('objednane');
         }
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', otvorZAdresy);

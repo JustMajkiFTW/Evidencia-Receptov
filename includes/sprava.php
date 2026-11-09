@@ -9,7 +9,8 @@
  *  - Telefón: veľký nadpis, štyri tlačidlá s časťami Správy a spodná lišta
  *    (Recepty, Pridať, Nákup, Viac). Lišta vedie späť do appky, kde sa cez
  *    ?otvor=… otvorí to isté okno ako z lišty na stránke receptov (script.js).
- *    Objednané jedlo (2.2) je na PC v bočnej ponuke, na telefóne v okne Viac.
+ *    Objednané jedlo je stránka v appke (?otvor=objednavky): na PC v bočnej
+ *    ponuke, na telefóne v spodnej lište (od 2.3: Recepty, Objednané, Pridať, Nákup, Viac).
  *
  * Použitie na stránke v admin/:
  *   sprava_zaciatok($pdo, 'suroviny', 'Suroviny');   // od <!DOCTYPE> po začiatok obsahu
@@ -87,7 +88,7 @@ function sprava_zaciatok(PDO $pdo, string $aktivna, string $nadpis): void
     <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=34">
+    <link rel="stylesheet" href="../style.css?v=35">
 </head>
 <body class="ma-spodnu-listu sprava">
 
@@ -186,10 +187,15 @@ function sprava_koniec(PDO $pdo): void
 </div>
 
 <!-- Spodná lišta (telefón) — tie isté položky ako na stránke receptov, Správa patrí pod Viac -->
-<nav class="spodna-lista d-md-none" aria-label="Hlavné menu">
+<nav class="spodna-lista d-md-none<?= $u['objednavky'] && $u['nakup'] ? ' ma-5-poloziek' : '' ?>" aria-label="Hlavné menu">
     <a href="../index.php" class="spodna-lista-polozka">
         <i class="bi bi-journal-text" aria-hidden="true"></i><span>Recepty</span>
     </a>
+    <?php if ($u['objednavky']): ?>
+    <a href="../index.php?otvor=objednavky" class="spodna-lista-polozka">
+        <i class="bi bi-bag" aria-hidden="true"></i><span>Objednané</span>
+    </a>
+    <?php endif; ?>
     <a href="../index.php?otvor=pridat" class="spodna-lista-polozka">
         <span class="spodna-lista-pridat" aria-hidden="true"><i class="bi <?= $u['ai'] ? 'bi-camera' : 'bi-plus-lg' ?>"></i></span><span>Pridať</span>
     </a>

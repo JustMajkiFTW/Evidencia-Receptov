@@ -9,12 +9,12 @@ Rodinná webová appka na recepty. Beží v prehliadači a dá sa pridať na plo
 - **Prepočet porcií** s prevodom jednotiek (2000 g → 2 kg, 0,5 PL → 1½ ČL).
 - **Spoločný nákupný zoznam.** Zlúči suroviny z viacerých receptov, dá sa odškrtávať a poslať do Google Keep. Zmeny od ostatných sa ukážu do pár sekúnd.
 - **Uvarené, hodnotenie a história.** Pri recepte je vidno, kedy sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodil zopakovať.
-- **Objednané jedlo** (Wolt, Bolt Food, foodora a iné) zvlášť od receptov: kedy sme naposledy mali objednané jedlo, z akej reštaurácie a čo to bolo. Hľadanie, filter podľa služby, objednávky po mesiacoch so súčtom cien. Na PC v bočnej ponuke, na telefóne v okne Viac.
+- **Objednané jedlo** (Wolt, Bolt Food, foodora a iné) zvlášť od receptov: kedy sme naposledy mali objednané jedlo, z akej reštaurácie a čo to bolo. Hľadanie, filter podľa služby, objednávky po mesiacoch so súčtom cien. Samostatná stránka na celú obrazovku: na PC v bočnej ponuke pod Receptami, na telefóne v spodnej lište.
 - **Upozornenia do telefónu** na nový recept, nové hodnotenie a dlho nevarené recepty.
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty bez internetu** (len na čítanie).
 - **Recept z fotky.** AI (Gemini, Claude alebo OpenAI) z fotky jedla alebo kuchárky navrhne celý recept, ty ho skontroluješ a uložíš. Nepovinné.
-- **Rozloženie pre telefón** (spodná lišta, formulár v troch krokoch) a **pre PC** (bočná ponuka), svetlý a tmavý vzhľad. Rýchle dvojité ťuknutie stránku na telefóne nepriblíži, zväčšiť sa dá dvoma prstami.
+- **Rozloženie pre telefón** (spodná lišta Recepty, Objednané, Pridať, Nákup, Viac, formulár v troch krokoch) a **pre PC** (bočná ponuka), svetlý a tmavý vzhľad. Rýchle dvojité ťuknutie stránku na telefóne nepriblíži, zväčšiť sa dá dvoma prstami.
 - **Správa** používateľov, kategórií a surovín pre admina, v rovnakom vzhľade ako zvyšok appky (na PC bočná ponuka, na telefóne spodná lišta).
 
 ## Požiadavky
@@ -139,7 +139,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `login.php`, `logout.php` | Prihlásenie a odhlásenie. |
 | `install.php` | Sprievodca prvou inštaláciou, potom sa maže. |
 | `cron.php` | Denné pripomienky, chránené kľúčom `CRON_KEY`. |
-| `script.js` | Logika hlavnej stránky v prehliadači, aj rozloženie pre telefón a PC. Adresa `index.php?otvor=pridat`, `nakup`, `viac` alebo `objednavky` otvorí príslušné okno (odkazy zo Správy). |
+| `script.js` | Logika hlavnej stránky v prehliadači, aj rozloženie pre telefón a PC. Stránky Recepty a Objednané jedlo (`index.php#objednane`) sa prepínajú bez načítania, tlačidlo Späť v prehliadači funguje. Adresa `index.php?otvor=pridat`, `nakup`, `viac` alebo `objednavky` otvorí príslušné okno (odkazy zo Správy). |
 | `suroviny.js` | Výber surovín, kľúč suroviny, návrh pri preklepe a prepočet jednotiek. |
 | `theme.js`, `webauthn-client.js`, `style.css` | Motív a prepnutie na HTTPS, biometria v prehliadači, štýly. |
 | `sw.js`, `manifest.json`, `offline.html` | PWA: cache, kópia receptov na čítanie bez internetu, príjem upozornení. |
@@ -223,6 +223,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.3** Objednané jedlo je samostatná stránka na celú obrazovku namiesto okna, aj formulár na pridanie a úpravu. Spodná lišta na telefóne: Recepty, Objednané, Pridať (v strede), Nákup, Viac. Tlačidlo Späť v telefóne vráti z formulára na zoznam a zo zoznamu na recepty. Databáza sa nemení.
 - **2.2** Objednané jedlo: zvlášť od receptov sa dá zapísať jedlo z Wolt, Bolt Food, foodora a podobne (kedy, odkiaľ, reštaurácia, čo sme mali, nepovinne cena). Hore je vidno, kedy sme naposledy objednávali a čo, zoznam sa dá prehľadávať a filtrovať podľa služby a pozrieť aj bez internetu. Na PC v bočnej ponuke pod Receptami, na telefóne v okne Viac. Zapísať a upraviť môže každý, zmazať ten, kto objednávku zapísal, alebo admin. Migrácia `migracia-2.2.sql`.
 - **2.1** Správa v rovnakom vzhľade ako appka: na PC bočná ponuka s časťami Správy, na telefóne veľké tlačidlá častí a spodná lišta. Kategórie receptov majú vlastnú stránku, nové heslo sa zadáva priamo pri používateľovi. Databáza sa nemení.
 - **2.0.2** Rýchle dvojité ťuknutie (napr. pri pridávaní receptu) už na telefóne nepriblíži stránku. Priblíženie dvoma prstami ostáva.
