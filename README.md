@@ -5,7 +5,7 @@ Rodinná webová appka na recepty. Beží v prehliadači a dá sa pridať na plo
 ![Evidencia receptov na počítači a na telefóne](ukazky/nahlad.png)
 
 <details>
-<summary><b>Tmavý vzhľad</b> — klikni na šípku a ukáže sa</summary>
+<summary>🌙 <b>Pozri si aj tmavý vzhľad</b> (klikni sem)</summary>
 <br>
 <img src="ukazky/nahlad-tmavy.png" alt="Evidencia receptov v tmavom vzhľade na počítači a na telefóne">
 </details>
