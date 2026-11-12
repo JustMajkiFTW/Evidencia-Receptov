@@ -2,6 +2,38 @@
 
 Rodinná webová appka na recepty. Beží v prehliadači a dá sa pridať na plochu telefónu ako aplikácia (PWA). Je pre malú skupinu ľudí, ktorí si recepty spravujú spoločne, a má veľké ovládacie prvky, aby sa s ňou dobre pracovalo aj starším.
 
+![Evidencia receptov na počítači a na telefóne](ukazky/nahlad.png)
+
+## Ukážky
+
+Fotky sú z verzie 2.5 s vymyslenými dátami; jedlá na nich sú kreslené.
+
+### Telefón
+
+| Recepty | Recept | Objednané jedlo | Nákupný zoznam |
+|---|---|---|---|
+| ![Zoznam receptov na telefóne](ukazky/mobil-01-recepty.png) | ![Recept s galériou fotiek a surovinami](ukazky/mobil-02-detail-receptu.png) | ![Objednané jedlo po mesiacoch](ukazky/mobil-03-objednane-jedlo.png) | ![Spoločný nákupný zoznam](ukazky/mobil-05-nakupny-zoznam.png) |
+
+| Náhľad objednávky | Nový recept z fotky | Viac | Tmavý vzhľad |
+|---|---|---|---|
+| ![Náhľad objednávky s hodnotením](ukazky/mobil-04-nahlad-objednavky.png) | ![Nový recept z fotky cez AI](ukazky/mobil-06-novy-recept-z-fotky.png) | ![Ponuka Viac](ukazky/mobil-07-viac.png) | ![Zoznam receptov v tmavom vzhľade](ukazky/mobil-08-tmavy-motiv.png) |
+
+### Počítač
+
+| Recepty | Recept |
+|---|---|
+| ![Zoznam receptov na počítači](ukazky/pc-01-recepty.png) | ![Recept s galériou fotiek a prepočtom porcií](ukazky/pc-02-detail-receptu.png) |
+
+| Objednané jedlo | Nákupný zoznam |
+|---|---|
+| ![Objednané jedlo na počítači](ukazky/pc-03-objednane-jedlo.png) | ![Nákupný zoznam na počítači](ukazky/pc-05-nakupny-zoznam.png) |
+
+| Náhľad objednávky | Tmavý vzhľad |
+|---|---|
+| ![Náhľad objednávky na počítači](ukazky/pc-04-nahlad-objednavky.png) | ![Recept v tmavom vzhľade](ukazky/pc-08-tmavy-detail.png) |
+
+Ďalšie zábery (pridanie receptu, prihlásenie, tmavý vzhľad) sú v priečinku [`ukazky/`](ukazky/).
+
 ## Čo appka vie
 
 - **Recepty** s kategóriou, časom prípravy, porciami, postupom a **galériou fotiek** (každé varenie môže mať vlastnú fotku s dátumom).
@@ -97,7 +129,7 @@ Po vydaní verzie (Release) na GitHube spraví `.github/workflows/nasadenie.yml`
 2. cez šifrované FTP nahrá len zmenené súbory a zmaže tie, ktoré v novej verzii už nie sú,
 3. overí, že appka na serveri beží a že súbory s heslami nie sú dostupné z internetu.
 
-Nikdy nenahrá ani nezmaže `includes/.env`, `vendor/`, `uploads/`, `sql/`, `install.php`, `testy/`, `README.md`, `LICENSE` a `composer.json` / `composer.lock`. Release označený ako pre-release sa nenahráva. Súbor `includes/.ftp-deploy-sync-state.json` na serveri nemaž, podľa neho sa nahrávajú len zmeny.
+Nikdy nenahrá ani nezmaže `includes/.env`, `vendor/`, `uploads/`, `sql/`, `install.php`, `testy/`, `ukazky/`, `README.md`, `LICENSE` a `composer.json` / `composer.lock`. Release označený ako pre-release sa nenahráva. Súbor `includes/.ftp-deploy-sync-state.json` na serveri nemaž, podľa neho sa nahrávajú len zmeny.
 
 **Jednorazové nastavenie:** v repozitári otvor **Settings → Secrets and variables → Actions** a pridaj:
 
@@ -155,6 +187,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `sql/` | `instalacia.sql` pre novú inštaláciu a `migracia-X.Y.sql` pre aktualizácie. |
 | `uploads/recipes/`, `uploads/objfood/` | Fotky receptov a fotky objednaného jedla. |
 | `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. |
+| `ukazky/` | Ukážkové fotky appky pre tento README. Na server sa nenahrávajú. |
 
 ### Databáza
 
