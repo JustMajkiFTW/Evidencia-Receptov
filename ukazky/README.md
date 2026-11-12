@@ -1,7 +1,3 @@
-
-
-
-
 # Ukážky appky
 
 Fotky sú z verzie 2.5 s vymyslenými dátami; jedlá na nich sú kreslené.
@@ -12,12 +8,10 @@ Každé video má dve časti: najprv recept z fotky s pomocou AI, potom ručné 
 
 ### Na telefóne
 
-<!-- SEM pretiahni súbor pridanie-receptu.mp4 (na tento prázdny riadok pod komentárom) -->
 https://github.com/user-attachments/assets/fa2ad9b0-d3bf-44b2-b91c-e9a2fa8bd505
 
 ### Na počítači
 
-<!-- SEM pretiahni súbor pc-pridanie-receptu.mp4 (na tento prázdny riadok pod komentárom) -->
 https://github.com/user-attachments/assets/6ac6ada6-cf42-49f8-b67c-2f5c8348cf2b
 
 ## Telefón
