@@ -2,6 +2,20 @@
 
 Fotky sú z verzie 2.5 s vymyslenými dátami; jedlá na nich sú kreslené.
 
+## Videá: ako sa pridáva recept
+
+Každé video má dve časti: najprv recept z fotky s pomocou AI, potom ručné pridanie bez AI.
+
+### Na telefóne
+
+<!-- SEM pretiahni súbor pridanie-receptu.mp4 (na tento prázdny riadok pod komentárom) -->
+
+
+### Na počítači
+
+<!-- SEM pretiahni súbor pc-pridanie-receptu.mp4 (na tento prázdny riadok pod komentárom) -->
+
+
 ## Telefón
 
 | Recepty | Recept | Objednané jedlo | Nákupný zoznam |
