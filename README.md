@@ -95,23 +95,35 @@ Vzor je v `includes/.env.example`. Súbor obsahuje heslá, preto nepatrí na Git
 | `VAPID_SUBJECT` | Kontakt na správcu v tvare `mailto:meno@domena.sk`. |
 | `CRON_KEY` | Tajný kľúč pre `cron.php`, aspoň 16 znakov. Prázdny = cron vypnutý. |
 | `APP_DEBUG` | `1` zobrazí presnú chybu na obrazovke. V prevádzke nechaj `0`. |
-| `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Kľúče pre recept z fotky. Stačí jeden, bez kľúča je funkcia vypnutá. |
-| `AI_PORADIE` | V akom poradí služby skúšať, predvolene `gemini,claude,openai`. |
+| `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY` | Kľúče k AI (recept z fotky, hlasový asistent, výživa). Stačí jeden, bez kľúča sú tieto funkcie vypnuté. Gemini a Mistral majú bezplatnú verziu, pozri [AI zadarmo](#ai-zadarmo-gemini--mistral). |
+| `AI_PORADIE` | V akom poradí služby skúšať, predvolene `gemini,mistral,claude,openai`. Keď prvá zlyhá (minutý limit, výpadok), skúsi sa ďalšia. |
 | `AI_DENNY_LIMIT` | Koľko fotiek môže jeden používateľ poslať za deň, predvolene `20` (`0` = bez limitu). |
-| `AI_ASISTENT_MODEL_GEMINI`, `AI_ASISTENT_MODEL_CLAUDE`, `AI_ASISTENT_MODEL_OPENAI` | Iný model len pre hlasového asistenta (napr. rýchlejší `gemini-flash-lite-latest`). Prázdne = rovnaké ako pri fotke. |
+| `AI_ASISTENT_MODEL_GEMINI`, `…_CLAUDE`, `…_OPENAI`, `…_MISTRAL` | Iný model len pre hlasového asistenta (napr. rýchlejší `gemini-flash-lite-latest`). Prázdne = rovnaké ako pri fotke. |
 | `AI_ASISTENT_DENNY_LIMIT` | Koľko otázok môže jeden používateľ položiť hlasovému asistentovi za deň, predvolene `100` (`0` = bez limitu). Počíta sa zvlášť od fotiek. |
-| `AI_PREPIS_MODEL_OPENAI` | Model OpenAI na prepis hlasu z iPhonu, predvolene `gpt-4o-mini-transcribe`. Gemini prepisuje tým istým modelom ako asistent. |
+| `AI_PREPIS_MODEL_GEMINI`, `…_MISTRAL`, `…_OPENAI` | Modely na prepis hlasu z iPhonu (viac oddelených čiarkou), aby prepis nemíňal limit modelu, ktorý odpovedá. Prázdne = Gemini modely asistenta, Mistral `voxtral-mini-latest`, OpenAI `gpt-4o-mini-transcribe`. |
 | `KUCHARKY_PRIECINOK` | Iný priečinok s kuchárkami v PDF (celá cesta na serveri). Prázdne = `kucharky/` v appke. |
-| `AI_MODEL_GEMINI`, `AI_MODEL_CLAUDE`, `AI_MODEL_OPENAI` | Iné modely než predvolené, viac oddelených čiarkou. Väčšinou netreba. |
+| `AI_MODEL_GEMINI`, `…_CLAUDE`, `…_OPENAI`, `…_MISTRAL` | Iné modely než predvolené, viac oddelených čiarkou (skúšajú sa po rade). Pri bezplatných verziách daj na prvé miesto model s najvyšším denným limitom. |
 
 Premenné `AI_ADRESA_…` slúžia len na testy, v prevádzke ich nevypĺňaj.
+
+### AI zadarmo (Gemini + Mistral)
+
+Gemini aj Mistral majú bezplatnú verziu bez platobnej karty. Obe majú limity pre každý model zvlášť (Gemini denné, obnovia sa okolo 9:00 nášho času), preto sa oplatí mať obe a viac modelov:
+
+```
+GEMINI_API_KEY=…          # aistudio.google.com/apikey
+MISTRAL_API_KEY=…         # console.mistral.ai (overenie telefónnym číslom)
+AI_PORADIE=gemini,mistral
+```
+
+Keď Gemini minie limit, odpovie Mistral (asistent, prepis hlasu cez Voxtral, fotky aj výživa). Keď majú limit minutý všetky, appka povie „Bezplatný limit AI je na dnes minutý…" namiesto všeobecnej chyby. V bezplatných verziách môžu Google aj Mistral používať poslané otázky, nahrávky a fotky na zlepšovanie svojich modelov; platené verzie to nerobia. Prepis hlasu skúša služby v rovnakom poradí ako `AI_PORADIE`, takže s `gemini,mistral` prepisuje Gemini a Mistral (Voxtral) až po jeho limite. Ako dobre Voxtral rozumie slovenčine, treba vyskúšať.
 
 ## Hlasový asistent
 
 Zapne sa sám, keď je v `.env` kľúč k aspoň jednej AI službe (tie isté ako pri recepte z fotky, v poradí `AI_PORADIE`). Databázu netreba meniť.
 
 1. Mikrofón je vo vyhľadávaní receptov, v okne **Viac** a na PC v bočnej ponuke (**Hlasový asistent**).
-2. Android a PC rozpoznajú reč priamo v prehliadači (slovenčina). **iPhone** nahrá zvuk a prepíše ho AI na serveri (Gemini alebo OpenAI, Claude zvuk neprijíma) — rozpoznávanie v Safari totiž po prvom prečítaní odpovede nahlas zamrzne. Nahrávanie skončí samo po chvíli ticha, ťuknutím alebo po 30 sekundách, mikrofón sa hneď uvoľní. Čítanie nahlas na iPhone stlmí mikrofón, preto sa pred nahrávaním zastaví a chvíľu sa počká; keď mikrofón aj tak nič nezachytí, nahrávka sa nepošle a appka povie, nech to skúsiš znova. Admin vidí pod každou nahrávkou jej dĺžku a hlasitosť a môže si ju vypočuť. Kde nejde ani jedno, appka ponúkne pole na písanie, do ktorého sa dá nadiktovať mikrofónom na klávesnici.
+2. Android a PC rozpoznajú reč priamo v prehliadači (slovenčina). **iPhone** nahrá zvuk a prepíše ho AI na serveri (Gemini, Mistral alebo OpenAI, Claude zvuk neprijíma) — rozpoznávanie v Safari totiž po prvom prečítaní odpovede nahlas zamrzne. Nahrávanie skončí samo po chvíli ticha, ťuknutím alebo po 30 sekundách, mikrofón sa hneď uvoľní. Čítanie nahlas na iPhone stlmí mikrofón, preto sa pred nahrávaním zastaví a chvíľu sa počká; keď mikrofón aj tak nič nezachytí, nahrávka sa nepošle a appka povie, nech to skúsiš znova. Admin vidí pod každou nahrávkou jej dĺžku a hlasitosť a môže si ju vypočuť. Kde nejde ani jedno, appka ponúkne pole na písanie, do ktorého sa dá nadiktovať mikrofónom na klávesnici.
 3. Otázka ide na server (`includes/asistent.php`). AI dostane tie isté nástroje ako asistent cez MCP (nájdi, zobraz, ulož recept, zapíš varenie, nákup) a volá ich, kým nemá odpoveď. Hľadanie receptu nezáleží na páde („kedy sme robili kuraciu cigánsku?“), pri preklepe vráti podobný recept a asistent povie, že presne taký nie je.
 4. Odpoveď je krátka a prečíta ju telefón svojím hlasom (iPhone nečíta v tichom režime; pri každej odpovedi je aj tlačidlo reproduktora). Na iPhone znie najlepšie **Laura (vylepšená)**: Nastavenia → Prístupnosť → Hovorený obsah → Hlasy → Slovenčina. Čítanie nahlas sa dá v okne vypnúť.
 
@@ -308,9 +320,9 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Hlasový asistent nepočuje | Prehliadač nemá povolený mikrofón (na iPhone Nastavenia → Safari → Mikrofón). Vždy sa dá nadiktovať do poľa mikrofónom na klávesnici. |
 | iPhone sa pýta na mikrofón stále znova | Appka na ploche (PWA) si na iPhone povolenie nepamätá medzi spusteniami — to je obmedzenie iOS. Kým je appka otvorená, pýta sa raz. V Safari pomôže Nastavenia → Safari → Mikrofón → Povoliť. |
 | Na iPhone asistent hovorí „Mikrofón nič nezachytil“ alebo nerozumie | Mikrofón dával ticho (napr. hneď po čítaní nahlas). Ťukni znova; keď to nepomôže, zavri asistenta a otvor ho znova. Admin vidí pod nahrávkou hlasitosť a môže si ju vypočuť — keď je skoro nulová, ticho dáva iPhone. |
-| Asistent hlási „minutý limit alebo kredit (429)" | Bezplatný kľúč Gemini má denný limit otázok na model (obnoví sa okolo 9:00 nášho času). Záložný ľahší model vtedy prepisuje a rozumie horšie. Pomôže zapnúť platenie v Google AI Studio, alebo pridať kľúč OpenAI ako ďalšiu službu v `AI_PORADIE`. |
+| Asistent hlási „Bezplatný limit AI je na dnes minutý" alebo admin vidí „minutý limit alebo kredit (429)" | Bezplatné verzie majú limit na každý model (Gemini sa obnoví okolo 9:00 nášho času). Pridaj ďalšiu službu, napr. Mistral (`MISTRAL_API_KEY`, `AI_PORADIE=gemini,mistral`), daj na prvé miesto model s vyšším limitom, alebo zapni platenie. |
 | Upozornenie na nákup príde viackrát | Položky pridané jedným človekom za 15 minút sa zlúčia do jedného upozornenia, ktoré sa len obnoví. Suroviny receptu majú vlastné upozornenie pre každý recept. |
-| Na iPhone asistent hlási, že prepis hlasu nejde | Prepis robí Gemini alebo OpenAI: v `AI_PORADIE` musí byť aspoň jedna z nich s kľúčom. Admin vidí pod chybou „Prepis zlyhal: …“ s dôvodom pri každom modeli (napr. 429 = minutý limit, 503 = preťažený); to isté je v `includes/debug-log.txt` pod `AI ASISTENT prepis`. |
+| Na iPhone asistent hlási, že prepis hlasu nejde | Prepis robí Gemini, Mistral alebo OpenAI: v `AI_PORADIE` musí byť aspoň jedna z nich s kľúčom. Admin vidí pod chybou „Prepis zlyhal: …“ s dôvodom pri každom modeli (napr. 429 = minutý limit, 503 = preťažený); to isté je v `includes/debug-log.txt` pod `AI ASISTENT prepis`. |
 | Kuchárka je „Bez textu (sken)" | PDF je naskenované, text v ňom nie je. Treba verziu s textom (alebo ju najprv prehnať cez OCR). |
 | Kuchárka sa nespracuje (chyba alebo bez konca) | Pri veľkej knihe môže hosting prerušiť spracovanie po časovom limite PHP — skús **Prečítať znova** alebo nechaj cron. V `includes/debug-log.txt` hľadaj `KUCHÁRKY`. |
 | Asistent odpovedá, ale nečíta nahlas | iPhone je v tichom režime (prepínač alebo tlačidlo Akcia) — Safari vtedy nečíta. Ťukni na reproduktor pri odpovedi. Skontroluj aj prepínač Čítať odpovede nahlas v okne asistenta. |
@@ -331,6 +343,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **3.2** Mistral AI ako štvrtá služba (`MISTRAL_API_KEY`): bezplatný režim bez karty, vie hlasového asistenta s nástrojmi, prepis hlasu (Voxtral, s názvami receptov), recept a nákup z fotky aj odhad výživy. S `AI_PORADIE=gemini,mistral` odpovie Mistral, keď Gemini minie denný limit. Vlastné modely na prepis hlasu (`AI_PREPIS_MODEL_GEMINI` / `_MISTRAL`), aby prepis nemíňal limit modelu, ktorý odpovedá. Keď majú minutý limit všetky služby, appka povie „Bezplatný limit AI je na dnes minutý…" namiesto všeobecnej chyby. Databáza sa nemení.
 - **3.1** Nákup z fotky v hlasovom asistentovi: na „z fotky mi pridaj do nákupu" sa ukážu tlačidlá Odfotiť a Z galérie, AI z fotky (recept, kuchárka, nákupný zoznam, jedlo, aj po česky) vytiahne suroviny a pridá ich do nákupu bez uloženia receptu, ostatným príde upozornenie. Počíta sa do denného limitu fotiek. Databáza sa nemení.
 - **3.0** Výživové hodnoty: v náhľade receptu sú kcal, bielkoviny, sacharidy, tuky, cukry, nasýtené tuky, vláknina a soľ na porciu ako všeobecný odhad zo surovín. Hodnoty surovín na 100 g (aj hustota, hmotnosť kusu a balenia na prepočet ml, lyžíc a kusov) doplní AI samo po uložení receptu, cronom alebo tlačidlom v Správe → Suroviny, kde sa dajú aj ručne opraviť. Asistent aj Claude vedia povedať, koľko kalórií či bielkovín má porcia. Migrácia `migracia-3.0.sql`.
 - **2.9.3** Nákup z kuchárky bez uloženia receptu: keď asistent (v appke aj Claude) pridáva do nákupu suroviny receptu, ktorý v appke nie je (z kuchárky, z webu, vlastný návrh, alebo len „pridaj mlieko a chlieb"), pridá ich rovno do nákupu — recept neuloží a ostatným príde len upozornenie na nákup („… pridal(a) do nákupu suroviny na „Zemiakové placky""). Suroviny sa napárujú na zoznam appky a zlúčia s rovnakými v nákupe. Recepty z českých kuchárok asistent vždy prekladá do slovenčiny (názov, suroviny aj postup) a v kuchárkach hľadá slovensky aj česky. Databáza sa nemení.

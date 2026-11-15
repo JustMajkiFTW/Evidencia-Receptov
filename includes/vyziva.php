@@ -342,7 +342,8 @@ function vyziva_dopln_ai(PDO $pdo, ?array $ids = null, int $davok = 1): array
         $odhad = vyziva_ai_odhad($chybajuce);
         if (!$odhad['ok']) {
             debug_log('VÝŽIVA: AI nedoplnilo hodnoty — ' . $odhad['chyba']);
-            return ['doplnene' => $doplnene, 'chyba' => 'AI teraz hodnoty neodhadla. Skús to neskôr.'];
+            return ['doplnene' => $doplnene, 'chyba' => str_contains($odhad['chyba'], '(429)') && ai_limit_minuty(explode('; ', $odhad['chyba']))
+                ? AI_HLASKA_LIMIT : 'AI teraz hodnoty neodhadla. Skús to neskôr.'];
         }
         foreach ($odhad['suroviny'] as $riadok) {
             $id = (int) ($riadok['id'] ?? 0);

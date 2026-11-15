@@ -2,7 +2,7 @@
 /**
  * ai.php — rozpoznanie receptu z fotky cez AI (verzia 1.8).
  *
- * Appka pošle zmenšenú fotku jednej z AI služieb (Gemini, Claude, OpenAI) spolu
+ * Appka pošle zmenšenú fotku jednej z AI služieb (Gemini, Claude, OpenAI, od 3.2 aj Mistral) spolu
  * so zoznamom surovín z číselníka, jednotkami a kategóriami. AI vráti JSON podľa
  * pevnej schémy (názov, kategória, porcie, čas, postup, suroviny). Server výsledok
  * skontroluje, suroviny napáruje na číselník a pošle formuláru na kontrolu —
@@ -10,24 +10,25 @@
  *
  * Nastavenie v includes/.env (všetko nepovinné; bez kľúča je funkcia vypnutá a
  * appka beží ako doteraz):
- *   GEMINI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY  — kľúče k službám
- *   AI_PORADIE=gemini,claude,openai  — v akom poradí ich skúšať (bez kľúča sa preskočí)
+ *   GEMINI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY  — kľúče k službám
+ *   AI_PORADIE=gemini,mistral,claude,openai  — v akom poradí ich skúšať (bez kľúča sa preskočí)
  *   AI_DENNY_LIMIT=20                — koľko fotiek môže jeden používateľ poslať za deň (0 = bez limitu)
- *   AI_MODEL_GEMINI / AI_MODEL_CLAUDE / AI_MODEL_OPENAI — iný model než predvolený
- *   AI_ADRESA_GEMINI / AI_ADRESA_CLAUDE / AI_ADRESA_OPENAI — iná adresa API (len na testovanie)
+ *   AI_MODEL_GEMINI / _CLAUDE / _OPENAI / _MISTRAL — iný model než predvolený
+ *   AI_ADRESA_GEMINI / _CLAUDE / _OPENAI / _MISTRAL — iná adresa API (len na testovanie)
  *
  * Keď prvá služba zlyhá (zlý kľúč, minutý limit, výpadok, nečitateľná odpoveď),
  * skúsi sa ďalšia v poradí.
  */
 
-const AI_POSKYTOVATELIA = ['gemini', 'claude', 'openai'];
+const AI_POSKYTOVATELIA = ['gemini', 'claude', 'openai', 'mistral'];
 
-const AI_NAZVY = ['gemini' => 'Gemini', 'claude' => 'Claude', 'openai' => 'OpenAI'];
+const AI_NAZVY = ['gemini' => 'Gemini', 'claude' => 'Claude', 'openai' => 'OpenAI', 'mistral' => 'Mistral'];
 
 const AI_KLUCE_ENV = [
     'gemini' => 'GEMINI_API_KEY',
     'claude' => 'ANTHROPIC_API_KEY',
     'openai' => 'OPENAI_API_KEY',
+    'mistral' => 'MISTRAL_API_KEY', // 3.2: má bezplatný režim (limity pre každý model zvlášť)
 ];
 
 // Lacné a rýchle modely, ktoré vedia čítať fotky a vracať JSON podľa schémy (november 2026).
@@ -37,12 +38,15 @@ const AI_PREDVOLENE_MODELY = [
     'gemini' => ['gemini-3.8-flash', 'gemini-flash-lite-latest'],
     'claude' => ['claude-haiku-5-5'],
     'openai' => ['gpt-6-luna'],
+    // Mistral (3.2): dva modely s obrázkami — každý má v bezplatnom režime vlastný limit.
+    'mistral' => ['mistral-medium-latest', 'mistral-small-latest'],
 ];
 
 const AI_PREDVOLENE_ADRESY = [
     'gemini' => 'https://generativelanguage.googleapis.com/v1beta',
     'claude' => 'https://api.anthropic.com/v1',
     'openai' => 'https://api.openai.com/v1',
+    'mistral' => 'https://api.mistral.ai/v1',
 ];
 
 const AI_DENNY_LIMIT_PREDVOLENY = 20;
@@ -326,6 +330,23 @@ function ai_json_z_textu(string $text): ?array
     return is_array($data) ? $data : null;
 }
 
+/** 3.2: hláška, keď majú všetky služby minutý limit (bezplatné verzie Gemini a Mistral). */
+const AI_HLASKA_LIMIT = 'Bezplatný limit AI je na dnes minutý. Skús to zajtra ráno, dovtedy sa dá všetko spraviť v appke ručne.';
+
+/** Zlyhali všetky pokusy na minutom limite (429)? Vtedy má človek dostať AI_HLASKA_LIMIT, nie „skús o chvíľu". */
+function ai_limit_minuty(array $chyby): bool
+{
+    if (!$chyby) {
+        return false;
+    }
+    foreach ($chyby as $chyba) {
+        if (!str_contains((string) $chyba, '(429)')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /** Zrozumiteľný popis chyby služby pre záznam chýb a pre používateľa. */
 function ai_popis_chyby(int $kod, string $telo, string $chybaCurl): string
 {
@@ -421,6 +442,31 @@ function ai_zavolaj(string $sluzba, string $model, string $pokyny, ?array $fotka
                 );
                 break;
 
+            case 'mistral': // 3.2 — Chat Completions; 2 = JSON schéma, 1 = len JSON, 0 = nič navyše
+                $telo = [
+                    'model' => $model,
+                    'max_tokens' => 8000,
+                    'messages' => [
+                        ['role' => 'system', 'content' => $pokyny],
+                        ['role' => 'user', 'content' => array_merge(
+                            [['type' => 'text', 'text' => $uloha]],
+                            $fotka ? [['type' => 'image_url', 'image_url' => 'data:' . $fotka['mime'] . ';base64,' . $fotka['data']]] : []
+                        )],
+                    ],
+                ];
+                if ($rychlo) {
+                    $telo['response_format'] = ['type' => 'json_schema', 'json_schema' => ['name' => 'vysledok', 'schema' => $schema, 'strict' => true]];
+                } elseif ($soSchemou) {
+                    $telo['response_format'] = ['type' => 'json_object'];
+                }
+                [$kod, $telo, $chybaCurl] = ai_http_post(
+                    $adresa . '/chat/completions',
+                    ['Authorization: Bearer ' . $kluc],
+                    $telo,
+                    $timeout
+                );
+                break;
+
             default: // openai — Responses API
                 $telo = [
                     'model' => $model,
@@ -487,6 +533,19 @@ function ai_text_odpovede(string $sluzba, $odpoved): ?string
             foreach ($odpoved['candidates'][0]['content']['parts'] ?? [] as $cast) {
                 if (isset($cast['text']) && empty($cast['thought'])) {
                     $casti[] = $cast['text'];
+                }
+            }
+            break;
+        case 'mistral':
+            // 3.2: text, alebo zoznam kúskov (premýšľanie modelu sa preskočí)
+            $obsah = $odpoved['choices'][0]['message']['content'] ?? null;
+            if (is_string($obsah)) {
+                $casti[] = $obsah;
+            } elseif (is_array($obsah)) {
+                foreach ($obsah as $kus) {
+                    if (($kus['type'] ?? '') === 'text' && isset($kus['text'])) {
+                        $casti[] = $kus['text'];
+                    }
                 }
             }
             break;
@@ -684,7 +743,8 @@ function ai_rozpoznaj(PDO $pdo, int $userId, $file, bool $podrobnosti = false): 
     ai_zapis_pouzitie($pdo, $userId, null, false, implode('; ', $chyby));
     $odpoved = [
         'success' => false,
-        'error'   => 'Fotku sa teraz nepodarilo rozpoznať. Skús to o chvíľu znova, alebo vyplň recept ručne.',
+        'error'   => ai_limit_minuty($chyby) ? AI_HLASKA_LIMIT
+            : 'Fotku sa teraz nepodarilo rozpoznať. Skús to o chvíľu znova, alebo vyplň recept ručne.',
     ];
     if ($podrobnosti) {
         $odpoved['detail'] = implode(' · ', $chyby);

@@ -15,7 +15,7 @@
  * - Keď služba zlyhá skôr, než asistent niečo zapísal, skúsi sa ďalšia v poradí.
  * - Rýchlosť (2.7.3): premýšľanie modelu najkratšie, aké model pozná (minimal → low →
  *   bez nastavenia), pred záložným pokusom sa čaká najviac AI_TIMEOUT_PRED_ZALOHOU.
- *   Iný (rýchlejší) model len pre asistenta: AI_ASISTENT_MODEL_GEMINI / _CLAUDE / _OPENAI.
+ *   Iný (rýchlejší) model len pre asistenta: AI_ASISTENT_MODEL_GEMINI / _CLAUDE / _OPENAI / _MISTRAL.
  *   Čas každého volania AI aj nástrojov sa zapíše do záznamu (AI ASISTENT … za … s).
  */
 
@@ -233,6 +233,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         $vysledok = match ($sluzba) {
             'gemini' => asistent_gemini($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
             'claude' => asistent_claude($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
+            'mistral' => asistent_mistral($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
             default  => asistent_openai($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
         };
         if ($vysledok['ok']) {
@@ -278,7 +279,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
                 ? 'Asistent nestihol odpovedať, ale už v appke urobil toto: ' . implode(' ', array_filter($stav['zapisane']))
                     . ' Ak to nemalo byť, oprav to v appke.'
                 : 'Asistent nestihol odpovedať, ale niečo už v appke urobil. Skontroluj recepty alebo nákup.')
-            : 'Asistent teraz neodpovedá. Skús to o chvíľu znova.',
+            : (ai_limit_minuty($chyby) ? AI_HLASKA_LIMIT : 'Asistent teraz neodpovedá. Skús to o chvíľu znova.'),
         'zmeny'   => $stav['zmeny'],
     ];
     if ($podrobnosti) {
@@ -302,10 +303,42 @@ const ASISTENT_ZVUK_TYPY = [
     'audio/wave' => 'audio/wav', 'audio/mpeg' => 'audio/mp3',
 ];
 
-/** Vie niektorá služba z AI_PORADIE prepisovať zvuk (Gemini alebo OpenAI)? */
+/** Vie niektorá služba z AI_PORADIE prepisovať zvuk (Gemini, Mistral alebo OpenAI)? */
 function asistent_prepis_dostupny(): bool
 {
-    return (bool) array_intersect(ai_poradie(), ['gemini', 'openai']);
+    return (bool) array_intersect(ai_poradie(), ['gemini', 'mistral', 'openai']);
+}
+
+/**
+ * Modely na prepis hlasu (3.2): AI_PREPIS_MODEL_GEMINI / _MISTRAL / _OPENAI=model1,model2.
+ * Vlastný zoznam pre prepis, aby nemíňal denný limit modelu, ktorý odpovedá.
+ * Bez nastavenia: Gemini tie isté ako asistent, Mistral Voxtral, OpenAI gpt-4o-mini-transcribe.
+ */
+function asistent_prepis_modely(string $sluzba): array
+{
+    $nastavene = ai_env('AI_PREPIS_MODEL_' . strtoupper($sluzba));
+    $modely = $nastavene !== '' ? (preg_split('/[\s,;]+/', $nastavene, -1, PREG_SPLIT_NO_EMPTY) ?: []) : [];
+    return $modely ?: match ($sluzba) {
+        'gemini'  => asistent_modely('gemini'),
+        'mistral' => ['voxtral-mini-latest'],
+        default   => ['gpt-4o-mini-transcribe'],
+    };
+}
+
+/** Prepis cez /audio/transcriptions (OpenAI, Mistral) — multipart s nahrávkou. Návrat [kód, telo, chyba cURL]. */
+function asistent_prepis_multipart(string $url, string $kluc, array $polia): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $kluc],
+        CURLOPT_POSTFIELDS => array_filter($polia, static fn($v) => $v !== ''),
+    ]);
+    $odpoved = (string) curl_exec($ch);
+    $kod = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $chybaCurl = curl_error($ch);
+    curl_close($ch);
+    return [$kod, $odpoved, $chybaCurl];
 }
 
 /** Prepis nahrávky. Návrat: ['ok' => true, 'text' => …] alebo ['ok' => false, 'chyba' => …]. */
@@ -350,7 +383,7 @@ function asistent_prepis(array $subor, ?PDO $pdo = null): array
             // 2.9.1: skúsi sa každý model z AI_ASISTENT_MODEL_GEMINI (inak AI_MODEL_GEMINI), nielen prvý —
             // preťažený alebo minutý model inak znamenal „nepodarilo sa prepísať".
             $vysledok = null;
-            foreach (asistent_modely('gemini') as $model) {
+            foreach (asistent_prepis_modely('gemini') as $model) {
                 $zaciatok = microtime(true);
                 foreach (['minimal', 'low', null] as $uroven) {
                     $telo = ['contents' => [['role' => 'user', 'parts' => [
@@ -384,21 +417,29 @@ function asistent_prepis(array $subor, ?PDO $pdo = null): array
             if ($vysledok === null) {
                 continue; // chyby sú už zapísané, ďalšia služba v poradí
             }
-        } elseif ($sluzba === 'openai') {
-            $model = ai_env('AI_PREPIS_MODEL_OPENAI') ?: 'gpt-4o-mini-transcribe';
+        } elseif ($sluzba === 'openai' || $sluzba === 'mistral') {
+            // OpenAI aj Mistral (Voxtral, 3.2) majú rovnaké /audio/transcriptions; každý model z AI_PREPIS_MODEL_… po rade.
             $pripona = ['audio/mp4' => 'm4a', 'audio/webm' => 'webm', 'audio/ogg' => 'ogg', 'audio/wav' => 'wav', 'audio/mp3' => 'mp3', 'audio/aac' => 'aac'][$mime];
-            $ch = curl_init(ai_adresa('openai') . '/audio/transcriptions');
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 30,
-                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV['openai'])],
-                CURLOPT_POSTFIELDS => array_filter(['model' => $model, 'language' => 'sk', 'response_format' => 'json', 'prompt' => $slovnik,
-                    'file' => new CURLFile($subor['tmp_name'], $mime, 'nahravka.' . $pripona)], static fn($v) => $v !== ''),
-            ]);
-            $odpoved = (string) curl_exec($ch);
-            $kod = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            $chybaCurl = curl_error($ch);
-            curl_close($ch);
-            $vysledok = $kod === 200 ? (string) (json_decode($odpoved, true)['text'] ?? '') : null;
+            $vysledok = null;
+            foreach (asistent_prepis_modely($sluzba) as $model) {
+                $zaciatok = microtime(true);
+                $polia = ['model' => $model, 'language' => 'sk', 'file' => new CURLFile($subor['tmp_name'], $mime, 'nahravka.' . $pripona)];
+                // Slovník názvov receptov: OpenAI ho berie ako prompt, Mistral ako context_bias (pri 400 sa skúsi bez neho).
+                $polia += $sluzba === 'openai' ? ['response_format' => 'json', 'prompt' => $slovnik] : ['context_bias' => $slovnik];
+                [$kod, $odpoved, $chybaCurl] = asistent_prepis_multipart(ai_adresa($sluzba) . '/audio/transcriptions', ai_env(AI_KLUCE_ENV[$sluzba]), $polia);
+                if ($kod === 400 && $sluzba === 'mistral' && $slovnik !== '') {
+                    unset($polia['context_bias']);
+                    [$kod, $odpoved, $chybaCurl] = asistent_prepis_multipart(ai_adresa($sluzba) . '/audio/transcriptions', ai_env(AI_KLUCE_ENV[$sluzba]), $polia);
+                }
+                if ($kod === 200) {
+                    $vysledok = (string) (json_decode($odpoved, true)['text'] ?? '');
+                    break;
+                }
+                $chyby[] = AI_NAZVY[$sluzba] . ': ' . $model . ' — ' . ai_popis_chyby($kod, $odpoved, $chybaCurl);
+            }
+            if ($vysledok === null) {
+                continue; // chyby sú už zapísané, ďalšia služba v poradí
+            }
         } else {
             continue; // Claude zvuk neprijíma
         }
@@ -414,8 +455,9 @@ function asistent_prepis(array $subor, ?PDO $pdo = null): array
         $chyby[] = AI_NAZVY[$sluzba] . ': ' . $model . ' — ' . ai_popis_chyby($kod, $odpoved, $chybaCurl);
     }
     debug_log('AI ASISTENT prepis nedokončil: ' . ($chyby ? implode('; ', $chyby) : 'žiadna služba nevie prepisovať zvuk'));
-    return ['ok' => false, 'chyba' => $chyby ? 'Nahrávku sa teraz nepodarilo prepísať. Skús to znova alebo to napíš.'
-        : 'Na prepis hlasu treba v nastaveniach kľúč Gemini alebo OpenAI.', 'detail' => implode(' · ', $chyby)];
+    return ['ok' => false, 'chyba' => $chyby ? (ai_limit_minuty($chyby) ? AI_HLASKA_LIMIT . ' Otázku môžeš zatiaľ napísať.'
+            : 'Nahrávku sa teraz nepodarilo prepísať. Skús to znova alebo to napíš.')
+        : 'Na prepis hlasu treba v nastaveniach kľúč Gemini, Mistral alebo OpenAI.', 'detail' => implode(' · ', $chyby)];
 }
 
 /** Je dnešný limit otázok minutý? (kontroluje sa pred prepisom, aby sa zbytočne neplatil) */
@@ -607,6 +649,48 @@ function asistent_openai(string $model, string $pokyny, array $spravy, array $na
 }
 
 /* ----------------------------------------------------------------------
+   Mistral (Chat Completions, 3.2): tool_calls → správy role „tool", kým nepríde text.
+   Celý rozhovor sa posiela znova (Mistral nemá previous_response_id).
+   ---------------------------------------------------------------------- */
+function asistent_mistral(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
+{
+    $sprava = array_merge([['role' => 'system', 'content' => $pokyny]],
+        array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'assistant' : 'user', 'content' => $s['text']], $spravy));
+    $tools = array_map(static fn($n) => ['type' => 'function', 'function' => [
+        'name' => $n['name'], 'description' => $n['description'], 'parameters' => $n['schema'],
+    ]], $nastroje);
+
+    for ($kolo = 0; $kolo <= ASISTENT_MAX_KOL; $kolo++) {
+        [$kod, $odpoved, $chybaCurl] = asistent_post(ai_adresa('mistral') . '/chat/completions',
+            ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV['mistral'])],
+            ['model' => $model, 'messages' => $sprava, 'tools' => $tools, 'max_tokens' => 4000,
+                'tool_choice' => $kolo === ASISTENT_MAX_KOL ? 'none' : 'auto'],
+            $timeout, $casy);
+        if ($kod !== 200) {
+            return asistent_chyba_sluzby($model, $kod, $odpoved, $chybaCurl, $timeout);
+        }
+        $data = json_decode($odpoved, true);
+        $vyrok = $data['choices'][0]['message'] ?? null;
+        $volania = is_array($vyrok['tool_calls'] ?? null) ? $vyrok['tool_calls'] : [];
+        if (!$volania) {
+            $text = ai_text_odpovede('mistral', $data);
+            return $text !== null && trim($text) !== '' ? ['ok' => true, 'text' => $text]
+                : ['ok' => false, 'chyba' => $model . ' — prázdna odpoveď (' . ($data['choices'][0]['finish_reason'] ?? 'bez dôvodu') . ')'];
+        }
+        $sprava[] = ['role' => 'assistant', 'content' => is_string($vyrok['content'] ?? null) ? $vyrok['content'] : '', 'tool_calls' => $volania];
+        foreach ($volania as $volanie) {
+            $nazov = (string) ($volanie['function']['name'] ?? '');
+            $argumenty = $volanie['function']['arguments'] ?? '';
+            $argumenty = is_array($argumenty) ? $argumenty : json_decode((string) $argumenty, true);
+            $r = $vykonaj($nazov, is_array($argumenty) ? $argumenty : []);
+            $sprava[] = ['role' => 'tool', 'tool_call_id' => (string) ($volanie['id'] ?? ''), 'name' => $nazov,
+                'content' => ($r['chyba'] ? 'CHYBA: ' : '') . $r['text']];
+        }
+    }
+    return ['ok' => false, 'chyba' => $model . ' — priveľa krokov'];
+}
+
+/* ----------------------------------------------------------------------
    Fotka do nákupu (3.1): „z fotky mi pridaj do nákupu". Telefón po nástroji
    odfot_na_nakup ukáže tlačidlá Odfotiť / Z galérie a fotku pošle sem.
    AI z nej vytiahne suroviny (recept, nákupný zoznam aj jedlo, české texty
@@ -719,7 +803,7 @@ function asistent_fotka_do_nakupu(PDO $pdo, array $pripojenie, $file, bool $podr
     if ($data === null) {
         ai_zapis_pouzitie($pdo, $userId, null, false, implode('; ', $chyby));
         debug_log('AI ASISTENT fotka do nákupu nedokončená: ' . implode('; ', $chyby));
-        $odpoved = ['success' => false, 'error' => 'Fotku sa teraz nepodarilo prečítať. Skús to o chvíľu znova.'];
+        $odpoved = ['success' => false, 'error' => ai_limit_minuty($chyby) ? AI_HLASKA_LIMIT : 'Fotku sa teraz nepodarilo prečítať. Skús to o chvíľu znova.'];
         if ($podrobnosti) {
             $odpoved['meta'] = 'Fotka zlyhala: ' . implode(' · ', $chyby);
         }

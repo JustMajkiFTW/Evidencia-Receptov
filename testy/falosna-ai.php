@@ -6,8 +6,8 @@
  *   php -S 127.0.0.1:8766 testy/falosna-ai.php
  * a appka ju dostane cez AI_ADRESA_GEMINI=http://127.0.0.1:8766/gemini atď.
  *
- * Odpovedá v tvare Gemini (generateContent), Claude (Messages) a OpenAI
- * (Responses) vrátane volania nástrojov. Podľa slov v otázke zavolá nástroj
+ * Odpovedá v tvare Gemini (generateContent), Claude (Messages), OpenAI
+ * (Responses) a Mistral (Chat Completions, 3.2) vrátane volania nástrojov. Podľa slov v otázke zavolá nástroj
  * appky, po výsledku nástroja odpovie „Hotovo. …". Zároveň kontroluje, či
  * appka posiela späť, čo musí (podpis pri Gemini, id volaní pri Claude
  * a OpenAI) — inak vráti 400 ako skutočná služba.
@@ -15,9 +15,9 @@
  * Slová v otázke: „ahoj" (bez nástroja), „ulož recept NÁZOV", „kúpiť",
  * „nevarili", „nájdi SLOVO", „pamätáš" (zopakuje predošlú odpoveď z histórie),
  * „chyba503" (Gemini odpovie 503 — appka má skúsiť ďalšiu službu),
- * „poznámok" (priprav_na_ulozenie).
+ * „poznámok" (priprav_na_ulozenie), „limit429" (každá služba vráti 429 — minutý limit, 3.2).
  *
- * Prepis hlasu (2.8): Gemini so zvukom v inline_data a OpenAI
+ * Prepis hlasu (2.8): Gemini so zvukom v inline_data, OpenAI aj Mistral
  * /audio/transcriptions vrátia text, ktorý je v nahrávke za značkou „TEXT:".
  */
 
@@ -132,8 +132,16 @@ function over_nastroje(array $nazvy): void
     }
 }
 
-/* OpenAI prepis zvuku (multipart, nie JSON) */
-if ($cesta === '/openai/audio/transcriptions') {
+/** „limit429" v otázke: služba odpovie 429 ako pri minutom bezplatnom limite (3.2). */
+function limit429(string $otazka): void
+{
+    if (str_contains(bez_diakritiky($otazka), 'limit429')) {
+        chyba(429, 'Resource has been exhausted (e.g. check quota).');
+    }
+}
+
+/* OpenAI a Mistral (3.2) prepis zvuku (multipart, nie JSON) */
+if ($cesta === '/openai/audio/transcriptions' || $cesta === '/mistral/audio/transcriptions') {
     if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '') || ($_POST['model'] ?? '') === '') {
         chyba(401, 'Chýba kľúč alebo model.');
     }
@@ -227,6 +235,7 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
         }
         odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [['text' => hotovo((string) ($r['result'] ?? $r['error'] ?? ''))]]], 'finishReason' => 'STOP']]]);
     }
+    limit429($otazka);
     $rozhodnutie = rozhodni($otazka, $predosla);
     if (isset($rozhodnutie['text'])) {
         odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [
@@ -275,6 +284,7 @@ if ($cesta === '/claude/messages') {
         odpovedz(200, ['id' => 'msg_2', 'type' => 'message', 'role' => 'assistant', 'stop_reason' => 'end_turn',
             'content' => [['type' => 'text', 'text' => hotovo((string) $posledna['content'][0]['content'])]]]);
     }
+    limit429($otazka);
     $rozhodnutie = rozhodni($otazka, $predosla);
     if (isset($rozhodnutie['text'])) {
         odpovedz(200, ['id' => 'msg_1', 'type' => 'message', 'role' => 'assistant', 'stop_reason' => 'end_turn',
@@ -317,6 +327,7 @@ if ($cesta === '/openai/responses') {
             $predosla = (string) $s['content'];
         }
     }
+    limit429($otazka);
     $rozhodnutie = rozhodni($otazka, $predosla);
     if (isset($rozhodnutie['text'])) {
         odpovedz(200, ['id' => 'resp_1', 'output' => [['type' => 'message', 'role' => 'assistant',
@@ -327,6 +338,51 @@ if ($cesta === '/openai/responses') {
         ['type' => 'function_call', 'id' => 'fc_1', 'call_id' => 'call_1', 'name' => $rozhodnutie['nastroj'],
             'arguments' => json_encode((object) $rozhodnutie['argumenty'], JSON_UNESCAPED_UNICODE)],
     ]]);
+}
+
+/* --------------------------------- Mistral (3.2) --------------------------------- */
+if ($cesta === '/mistral/chat/completions') {
+    if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '')) {
+        chyba(401, 'Chýba kľúč.');
+    }
+    $spravy = $telo['messages'] ?? [];
+    $system = ($spravy[0]['role'] ?? '') === 'system' ? (string) $spravy[0]['content'] : '';
+    $vystup = static fn(array $sprava, string $dovod) => odpovedz(200, ['id' => 'cmpl-1', 'object' => 'chat.completion',
+        'choices' => [['index' => 0, 'message' => ['role' => 'assistant'] + $sprava, 'finish_reason' => $dovod]]]);
+    // Recept z fotky, výživa, fotka do nákupu: obsah používateľa je zoznam kúskov (text, obrázok)
+    $kusy = is_array($spravy[1]['content'] ?? null) ? $spravy[1]['content'] : [];
+    $json = vyziva_odpoved($system, (string) ($kusy[0]['text'] ?? '')) ?? fotka_nakup_odpoved($system);
+    if ($json !== null) {
+        $vystup(['content' => $json], 'stop');
+    }
+    $tools = array_column(array_column($telo['tools'] ?? [], 'function'), 'name');
+    over_nastroje($tools);
+    $otazka = '';
+    $predosla = '';
+    foreach ($spravy as $sprava) {
+        if (($sprava['role'] ?? '') === 'user' && is_string($sprava['content'] ?? null)) {
+            $otazka = $sprava['content'];
+        } elseif (($sprava['role'] ?? '') === 'assistant' && empty($sprava['tool_calls'])) {
+            $predosla = (string) ($sprava['content'] ?? '');
+        }
+    }
+    $posledna = end($spravy) ?: [];
+    if (($posledna['role'] ?? '') === 'tool') {
+        // výsledok nástroja musí nadväzovať na volanie z predošlej správy (ako skutočný Mistral)
+        $volanie = $spravy[count($spravy) - 2] ?? [];
+        if (($volanie['role'] ?? '') !== 'assistant' || ($volanie['tool_calls'][0]['id'] ?? '') !== ($posledna['tool_call_id'] ?? '')) {
+            chyba(400, 'Tool call id was not found in the previous assistant message.');
+        }
+        $vystup(['content' => hotovo((string) ($posledna['content'] ?? ''))], 'stop');
+    }
+    limit429($otazka);
+    $rozhodnutie = rozhodni($otazka, $predosla);
+    if (isset($rozhodnutie['text'])) {
+        $vystup(['content' => $rozhodnutie['text']], 'stop');
+    }
+    $vystup(['content' => '', 'tool_calls' => [['id' => 'callM1abc', 'type' => 'function', 'function' => [
+        'name' => $rozhodnutie['nastroj'], 'arguments' => json_encode((object) $rozhodnutie['argumenty'], JSON_UNESCAPED_UNICODE),
+    ]]]], 'tool_calls');
 }
 
 chyba(404, 'Neznáma cesta ' . $cesta);
