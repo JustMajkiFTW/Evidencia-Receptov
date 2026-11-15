@@ -381,6 +381,13 @@ if ($rezim === 'asistent') {
             $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka('BEZTEXTU')]);
             over(($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['meta'] ?? ''), 'OTHER')
                 && str_contains((string) ($o->json()['meta'] ?? ''), 'gemini-zaloha'), 'Admin vidí, prečo prepis zlyhal (každý model)', $o->popis());
+            // 2.9.2: AI pri prepise dostane názvy receptov z appky, aby ich napísala správne.
+            $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka('VRAT_POKYN')]);
+            over(str_contains((string) ($o->json()['prepis'] ?? ''), $nazov), 'Pri prepise AI pozná názvy receptov z appky', $o->popis());
+            // Keď asistent zapíše a potom zlyhá, povie presne, čo zapísal.
+            $o = $spytaj("zapíš uvarené $receptId zlyhaj");
+            over(($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['error'] ?? ''), 'Zapísané: „' . $nazov)
+                && str_contains((string) ($o->json()['error'] ?? ''), 'Ak to nemalo byť'), 'Pri chybe po zápise asistent povie, čo zapísal', $o->popis());
         }
         // 2.9: z tichej nahrávky (stlmený mikrofón na iPhone) vráti AI len „..." — to nie je otázka.
         foreach (['...', '…', '[ticho]'] as $bodky) {

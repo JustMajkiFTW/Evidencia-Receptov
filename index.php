@@ -196,7 +196,7 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
                     $result = ['success' => false, 'error' => 'Dnešný počet otázok pre asistenta je minutý. Zajtra to pôjde znova.'];
                     break;
                 }
-                $vysledokPrepisu = asistent_prepis($_FILES['zvuk']);
+                $vysledokPrepisu = asistent_prepis($_FILES['zvuk'], $pdo);
                 if (!$vysledokPrepisu['ok']) {
                     $result = ['success' => false, 'error' => $vysledokPrepisu['chyba']];
                     if (is_admin() && ($vysledokPrepisu['detail'] ?? '') !== '') {

@@ -87,6 +87,11 @@ function asistent_pokyny(PDO $pdo, array $pripojenie): string
             : '')
         . 'Ak chce nový recept a v appke ani v kuchárkach nie je, navrhni bežný overený recept z vlastných vedomostí. Keď ho chce uložiť, ulož ho celý (všetky suroviny s množstvami aj postup), '
         . 'aj keď nahlas povieš len krátke zhrnutie. Ak nie je jasné, čo chce, krátko sa opýtaj. '
+        // 2.9.2: otázka je prepis reči — misheard „robili kuraciu…" zapísal varenie
+        . 'Otázka je prepis reči a môže byť skomolená (napr. „koracu cigánsko" znamená „kuraciu cigánsku"); hľadaj podľa toho, čo človek pravdepodobne myslel. '
+        . 'Zapisovať (zapis_varenie, pridaj_do_nakupu, pridaj_recept) smieš len vtedy, keď človek jasne povie, že to chce zapísať, pridať alebo uložiť '
+        . '(„dnes sme uvarili…, zapíš to", „pridaj do nákupu…"). Otázka „kedy sme robili…" alebo veta, ktorej nerozumieš, nie je pokyn na zápis — vtedy len hľadaj, '
+        . 'alebo povedz, čo si počul, a opýtaj sa. '
         . 'Keď chce niečo uložiť do poznámok, Google Keep alebo poslať, zavolaj priprav_na_ulozenie a povedz mu, nech ťukne na tlačidlo pri odpovedi. '
         . 'Dnes je ' . $dni[(int) $dnes->format('w')] . ' ' . format_sk_date(app_today()) . '.';
 }
@@ -155,7 +160,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
     $pokyny = asistent_pokyny($pdo, $pripojenie);
 
     // Vykonanie nástroja: tie isté funkcie ako cez MCP. Zapisuje sa, čo asistent urobil.
-    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'nastroje_s' => 0.0, 'export' => null];
+    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'zapisane' => [], 'nastroje_s' => 0.0, 'export' => null];
     $vykonaj = static function (string $nazov, array $argumenty) use ($pdo, $pripojenie, $nastroje, &$stav): array {
         if (!in_array($nazov, array_column($nastroje, 'name'), true)) {
             return ['text' => 'Neznámy nástroj ' . $nazov . '.', 'chyba' => true];
@@ -177,6 +182,9 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         if ($zapisuje) {
             $stav['konal'] = true;
             $stav['zmeny'] = $stav['zmeny'] || !$chyba;
+            if (!$chyba) { // keď potom AI zlyhá, človek sa dozvie, čo presne sa zapísalo (2.9.2)
+                $stav['zapisane'][] = (string) ($vysledok['content'][0]['text'] ?? '');
+            }
         }
         $akcia = ['nastroj' => $nazov, 'ok' => !$chyba];
         if (!$chyba && isset($vysledok['structuredContent']['odkaz']) && $nazov === 'pridaj_recept') {
@@ -247,7 +255,10 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
     $odpoved = [
         'success' => false,
         'error'   => $stav['konal']
-            ? 'Asistent nestihol odpovedať, ale niečo už v appke urobil. Skontroluj recepty alebo nákup.'
+            ? ($stav['zapisane']
+                ? 'Asistent nestihol odpovedať, ale už v appke urobil toto: ' . implode(' ', array_filter($stav['zapisane']))
+                    . ' Ak to nemalo byť, oprav to v appke.'
+                : 'Asistent nestihol odpovedať, ale niečo už v appke urobil. Skontroluj recepty alebo nákup.')
             : 'Asistent teraz neodpovedá. Skús to o chvíľu znova.',
         'zmeny'   => $stav['zmeny'],
     ];
@@ -279,7 +290,7 @@ function asistent_prepis_dostupny(): bool
 }
 
 /** Prepis nahrávky. Návrat: ['ok' => true, 'text' => …] alebo ['ok' => false, 'chyba' => …]. */
-function asistent_prepis(array $subor): array
+function asistent_prepis(array $subor, ?PDO $pdo = null): array
 {
     if (($subor['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) ($subor['tmp_name'] ?? ''))) {
         return ['ok' => false, 'chyba' => 'Nahrávka neprišla celá, skús to znova.'];
@@ -297,6 +308,21 @@ function asistent_prepis(array $subor): array
     $data = (string) file_get_contents($subor['tmp_name']);
     $pokyn = 'Prepíš presne, čo človek v nahrávke povedal (po slovensky, prípadne česky). Vráť len prepis bez úvodzoviek a bez komentárov. '
         . 'Ak v nahrávke nie je žiadna reč, vráť prázdny text.';
+    // 2.9.2: názvy receptov z appky — AI ich potom napíše správne („kuraciu cigánsku", nie „koracu cigánsko").
+    $slovnik = ''; // pre OpenAI (parameter prompt)
+    if ($pdo !== null) {
+        try {
+            $nazvy = $pdo->query('SELECT name FROM recipes ORDER BY last_made_date IS NULL, last_made_date DESC, id DESC LIMIT 200')->fetchAll(PDO::FETCH_COLUMN);
+            if ($nazvy) {
+                $pokyn .= ' Človek sa zvyčajne pýta na recepty, varenie alebo nákup (napr. „Kedy sme naposledy robili…?", „Čo treba kúpiť?"). '
+                    . 'Môžu zaznieť názvy receptov z rodinnej appky (v hocijakom páde) — keď zaznie niektorý z nich, napíš ho správne: '
+                    . implode('; ', $nazvy) . '.';
+                $slovnik = mb_substr('Kedy sme naposledy robili? Čo treba kúpiť? Recepty: ' . implode(', ', $nazvy) . '.', 0, 800, 'UTF-8');
+            }
+        } catch (Throwable $e) {
+            // bez názvov receptov sa prepisuje ako doteraz
+        }
+    }
 
     $chyby = [];
     foreach (ai_poradie() as $sluzba) {
@@ -346,8 +372,8 @@ function asistent_prepis(array $subor): array
             curl_setopt_array($ch, [
                 CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 30,
                 CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV['openai'])],
-                CURLOPT_POSTFIELDS => ['model' => $model, 'language' => 'sk', 'response_format' => 'json',
-                    'file' => new CURLFile($subor['tmp_name'], $mime, 'nahravka.' . $pripona)],
+                CURLOPT_POSTFIELDS => array_filter(['model' => $model, 'language' => 'sk', 'response_format' => 'json', 'prompt' => $slovnik,
+                    'file' => new CURLFile($subor['tmp_name'], $mime, 'nahravka.' . $pripona)], static fn($v) => $v !== ''),
             ]);
             $odpoved = (string) curl_exec($ch);
             $kod = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);

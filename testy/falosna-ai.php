@@ -68,6 +68,10 @@ function rozhodni(string $otazka, string $predoslaOdpoved): array
             'postup' => "1. Vymiešaj cesto.\n2. Pečieme 50 minút.",
         ]];
     }
+    // 2.9.2: „zapis uvarene 12 zlyhaj" — zapíše varenie a potom „zlyhá" (ako PROHIBITED_CONTENT v Gemini).
+    if (preg_match('/zapis uvarene (\d+)/u', $o, $m)) {
+        return ['nastroj' => 'zapis_varenie', 'argumenty' => ['id' => (int) $m[1]]];
+    }
     if (str_contains($o, 'kupit') || str_contains($o, 'nakup')) {
         return ['nastroj' => 'zobraz_nakup', 'argumenty' => []];
     }
@@ -132,6 +136,13 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
         if (str_contains($prepis, 'PREPIS503') && $m[1] === 'gemini-bez-premyslania') {
             chyba(503, 'The model is overloaded. Please try again later.');
         }
+        // „VRAT_POKYN" — vráti názvy receptov z pokynu (2.9.2: AI pri prepise pozná názvy receptov).
+        if (str_contains($prepis, 'VRAT_POKYN')) {
+            $pokynPrepisu = (string) ($telo['contents'][0]['parts'][1]['text'] ?? '');
+            odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [
+                ['text' => preg_match('/napíš ho správne: (.*)\.$/su', $pokynPrepisu, $mm) ? 'Recepty ' . $mm[1] : 'Bez receptov'],
+            ]], 'finishReason' => 'STOP']]]);
+        }
         // „BEZTEXTU" — odpoveď 200 bez textu (napr. zablokovaná), admin má vidieť dôvod.
         if (str_contains($prepis, 'BEZTEXTU')) {
             odpovedz(200, ['candidates' => [['finishReason' => 'OTHER']]]);
@@ -172,6 +183,9 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
             chyba(400, 'Function call is missing a thought_signature.');
         }
         $r = $vysledky[0]['functionResponse']['response'];
+        if (str_contains(bez_diakritiky($otazka), 'zlyhaj')) {
+            odpovedz(200, ['candidates' => [['finishReason' => 'PROHIBITED_CONTENT']]]);
+        }
         odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [['text' => hotovo((string) ($r['result'] ?? $r['error'] ?? ''))]]], 'finishReason' => 'STOP']]]);
     }
     $rozhodnutie = rozhodni($otazka, $predosla);
