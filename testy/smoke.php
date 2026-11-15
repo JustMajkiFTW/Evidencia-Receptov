@@ -349,6 +349,22 @@ if ($rezim === 'asistent') {
     over(($vyziva['hodnoty']['kcal'] ?? 0) === 133 && ($vyziva['zaratane'] ?? 0) === 3,
         'Po uložení receptu AI doplní výživové hodnoty surovín', json_encode($vyziva, JSON_UNESCAPED_UNICODE));
 
+    // 3.1: „z fotky mi pridaj do nákupu" → tlačidlá Odfotiť / Z galérie → fotka → suroviny do nákupu (bez receptu).
+    akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);
+    $pocetReceptov = count(recepty_zo_stranky($p->get('index.php')->telo));
+    $o = $spytaj('Z fotky mi pridaj do nákupu');
+    over(uspech($o) && ($o->json()['fotka'] ?? null) === 'nakup' && ($o->json()['zmeny'] ?? null) === false,
+        'Na „z fotky do nákupu" asistent ukáže tlačidlá Odfotiť / Z galérie', $o->popis());
+    $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'ucel' => 'nakup', 'fotka' => testovacia_fotka('#c08040')]);
+    $nakup = array_column(akcia($p, $csrf, 'shopping_get')->json()['items'] ?? [], 'nazov');
+    over(uspech($o) && ($o->json()['zmeny'] ?? null) === true && str_starts_with((string) ($o->json()['odpoved'] ?? ''), 'Pridal som do nákupu 4 položky na Zemiakové placky')
+        && in_array('Múka hladká', $nakup, true) && in_array('Zemiaky', $nakup, true) && count(recepty_zo_stranky($p->get('index.php')->telo)) === $pocetReceptov,
+        'Suroviny z fotky sú v nákupe a recept sa neuložil', $o->popis() . ' ' . json_encode($nakup, JSON_UNESCAPED_UNICODE));
+    akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);
+    if ($zostavaFotiek !== null && $zostavaFotiek !== '') {
+        $zostavaFotiek = (string) ((int) $zostavaFotiek - 1); // fotka do nákupu sa ráta do limitu fotiek (ako recept z fotky)
+    }
+
     $o = $spytaj('Čo treba kúpiť?');
     over(uspech($o) && str_starts_with((string) ($o->json()['odpoved'] ?? ''), 'Hotovo.') && ($o->json()['zmeny'] ?? null) === false,
         'Asistent pozrie nákup (čítanie nič nemení)', $o->popis());

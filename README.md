@@ -117,6 +117,8 @@ Zapne sa sám, keď je v `.env` kľúč k aspoň jednej AI službe (tie isté ak
 
 Keď poprosíš „ulož mi to do poznámok" (recept, nákup…), pri odpovedi sa ukáže tlačidlo **Uložiť do poznámok**. Otvorí zdieľanie telefónu, kde vyberieš Poznámky, Google Keep alebo správu; kde zdieľanie nejde (PC), text sa skopíruje. Keď sú v appke [kuchárky v PDF](#kuchárky-v-pdf), asistent v nich hľadá ako prvé a povie aj knihu a stranu. Recept z českej kuchárky povie aj zapíše po slovensky. Na „pridaj mi to do nákupu" pridá suroviny rovno do nákupu, recept kvôli tomu do appky neukladá.
 
+**Nákup z fotky:** povedz „z fotky mi pridaj do nákupu" a pod odpoveďou sa ukážu tlačidlá **Odfotiť** a **Z galérie** (fotoaparát môže otvoriť len ťuknutie, sám od seba to telefón nedovolí). Na fotke môže byť recept z kuchárky alebo z obrazovky, nákupný zoznam na papieri alebo hotové jedlo. AI z nej vytiahne suroviny (český text preloží), pridajú sa do nákupu a ostatným príde upozornenie; recept sa neukladá. Počíta sa do denného limitu fotiek (`AI_DENNY_LIMIT`), ako recept z fotky.
+
 Všetko, čo asistent zapíše, je pod menom prihláseného používateľa, nový recept má v histórii „Pridané cez hlasového asistenta" a ostatným príde upozornenie (aj pri pridaní do nákupu). Rozhovor si pamätá posledných 12 správ, kým je okno otvorené. Keď služba zlyhá skôr, než asistent niečo zapísal, skúsi sa ďalšia v poradí.
 
 ## Kuchárky v PDF
@@ -227,7 +229,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `includes/webpush.php` | Odosielanie upozornení (šifrovanie a podpis cez openssl a curl). |
 | `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok aj s fotkou, kto ich môže zmazať. |
 | `includes/ai.php` | Recept z fotky: volanie AI služieb, kontrola odpovede, párovanie surovín, denný limit. |
-| `includes/asistent.php` | Hlasový asistent: rozhovor s AI (Gemini, Claude, OpenAI) s volaním nástrojov appky, prepis nahrávky z iPhonu, text do poznámok, denný limit. |
+| `includes/asistent.php` | Hlasový asistent: rozhovor s AI (Gemini, Claude, OpenAI) s volaním nástrojov appky, prepis nahrávky z iPhonu, text do poznámok, nákup z fotky, denný limit. |
 | `includes/vyziva.php` | Výživové hodnoty: prepočet dávok na gramy, výpočet receptu na porciu, odhad hodnôt surovín cez AI, uloženie a kontrola. |
 | `includes/kucharky.php` | Kuchárky v PDF: nahratie, čítanie textu po stranách, fulltextové hľadanie. |
 | `includes/kniznice/pdfparser/` | Pribalená knižnica smalot/pdfparser 2.13.1 (LGPL-3.0) na čítanie PDF, bez Composera. |
@@ -329,6 +331,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **3.1** Nákup z fotky v hlasovom asistentovi: na „z fotky mi pridaj do nákupu" sa ukážu tlačidlá Odfotiť a Z galérie, AI z fotky (recept, kuchárka, nákupný zoznam, jedlo, aj po česky) vytiahne suroviny a pridá ich do nákupu bez uloženia receptu, ostatným príde upozornenie. Počíta sa do denného limitu fotiek. Databáza sa nemení.
 - **3.0** Výživové hodnoty: v náhľade receptu sú kcal, bielkoviny, sacharidy, tuky, cukry, nasýtené tuky, vláknina a soľ na porciu ako všeobecný odhad zo surovín. Hodnoty surovín na 100 g (aj hustota, hmotnosť kusu a balenia na prepočet ml, lyžíc a kusov) doplní AI samo po uložení receptu, cronom alebo tlačidlom v Správe → Suroviny, kde sa dajú aj ručne opraviť. Asistent aj Claude vedia povedať, koľko kalórií či bielkovín má porcia. Migrácia `migracia-3.0.sql`.
 - **2.9.3** Nákup z kuchárky bez uloženia receptu: keď asistent (v appke aj Claude) pridáva do nákupu suroviny receptu, ktorý v appke nie je (z kuchárky, z webu, vlastný návrh, alebo len „pridaj mlieko a chlieb"), pridá ich rovno do nákupu — recept neuloží a ostatným príde len upozornenie na nákup („… pridal(a) do nákupu suroviny na „Zemiakové placky""). Suroviny sa napárujú na zoznam appky a zlúčia s rovnakými v nákupe. Recepty z českých kuchárok asistent vždy prekladá do slovenčiny (názov, suroviny aj postup) a v kuchárkach hľadá slovensky aj česky. Databáza sa nemení.
 - **2.9.2** Hlasový asistent nezapisuje z nejasnej reči: skomolený prepis („robili koracu cigánsko") zapísal varenie. Asistent teraz zapisuje (varenie, nákup, recept) len na jasný pokyn, pri otázke „kedy sme robili…" len hľadá a pri nezrozumiteľnej vete sa opýta. Keď po zápise zlyhá, povie presne, čo zapísal. Prepis nahrávky dostane názvy receptov z appky, aby ich AI napísala správne (Gemini aj OpenAI). Databáza sa nemení.

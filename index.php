@@ -195,6 +195,15 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
             $historia = json_decode((string) ($_POST['historia'] ?? '[]'), true);
             $otazka = (string) ($_POST['text'] ?? '');
             $prepis = null;
+            $asistentPripojenie = [
+                'id' => 0, 'nazov' => 'Hlasový asistent', 'user_id' => $userId, 'meno' => $menoAsistent, 'role' => $user['role'] ?? 'user',
+                'poznamka' => 'Pridané cez hlasového asistenta', 'cez' => 'hlasového asistenta',
+            ];
+            // 3.1: fotka do nákupu (po nástroji odfot_na_nakup telefón pošle fotku namiesto otázky)
+            if (!empty($_FILES['fotka']['name']) && ($_POST['ucel'] ?? '') === 'nakup') {
+                $result = asistent_fotka_do_nakupu($pdo, $asistentPripojenie, $_FILES['fotka'], is_admin());
+                break;
+            }
             // iPhone (2.8): namiesto textu príde nahrávka, prepíše ju AI na serveri.
             if (!empty($_FILES['zvuk']['name'])) {
                 if (asistent_limit_minuty($pdo, $userId)) {
@@ -215,10 +224,7 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
                 }
                 $otazka = $prepis = $vysledokPrepisu['text'];
             }
-            $result = asistent_odpovedz($pdo, [
-                'id' => 0, 'nazov' => 'Hlasový asistent', 'user_id' => $userId, 'meno' => $menoAsistent, 'role' => $user['role'] ?? 'user',
-                'poznamka' => 'Pridané cez hlasového asistenta', 'cez' => 'hlasového asistenta',
-            ], $otazka, is_array($historia) ? $historia : [], is_admin());
+            $result = asistent_odpovedz($pdo, $asistentPripojenie, $otazka, is_array($historia) ? $historia : [], is_admin());
             if ($prepis !== null) {
                 $result['prepis'] = $prepis; // telefón ukáže, čo appka počula
             }
@@ -438,7 +444,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=46">
+    <link rel="stylesheet" href="style.css?v=47">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -1862,7 +1868,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=49"></script>
+<script src="script.js?v=50"></script>
 </body>
 </html>
 <?php

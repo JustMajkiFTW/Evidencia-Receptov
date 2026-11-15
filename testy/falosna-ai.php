@@ -72,6 +72,9 @@ function rozhodni(string $otazka, string $predoslaOdpoved): array
     if (preg_match('/zapis uvarene (\d+)/u', $o, $m)) {
         return ['nastroj' => 'zapis_varenie', 'argumenty' => ['id' => (int) $m[1]]];
     }
+    if (str_contains($o, 'z fotky')) { // 3.1: „z fotky mi pridaj do nákupu"
+        return ['nastroj' => 'odfot_na_nakup', 'argumenty' => []];
+    }
     if (str_contains($o, 'kupit') || str_contains($o, 'nakup')) {
         return ['nastroj' => 'zobraz_nakup', 'argumenty' => []];
     }
@@ -100,6 +103,20 @@ function vyziva_odpoved(string $pokyny, string $uloha): ?string
     $riadky = array_map(static fn($id) => ['id' => (int) $id, 'kcal' => 200, 'bielkoviny' => 10, 'sacharidy' => 20, 'cukry' => 5,
         'tuky' => 8, 'nasytene' => 3, 'vlaknina' => 2, 'sol' => 0.5, 'hustota' => 1, 'gramy_kus' => 50, 'gramy_balenie' => 0], $m[1]);
     return json_encode(['suroviny' => $riadky], JSON_UNESCAPED_UNICODE);
+}
+
+/** Nákup z fotky (3.1): rozpoznaný recept „Zemiakové placky" — 4 suroviny, jedna česky preložená. Inak null. */
+function fotka_nakup_odpoved(string $pokyny): ?string
+{
+    if (!str_contains($pokyny, 'NÁKUP Z FOTKY')) {
+        return null;
+    }
+    return json_encode(['typ' => 'recept', 'jedlo' => 'Zemiakové placky', 'polozky' => [
+        ['nazov' => 'Zemiaky', 'mnozstvo' => 1, 'jednotka' => 'kg'],
+        ['nazov' => 'hladká múka', 'mnozstvo' => 200, 'jednotka' => 'g'],
+        ['nazov' => 'Vajcia', 'mnozstvo' => 2, 'jednotka' => 'ks'],
+        ['nazov' => 'Majoránka', 'mnozstvo' => null, 'jednotka' => ''],
+    ]], JSON_UNESCAPED_UNICODE);
 }
 
 /** Prvý riadok výsledku nástroja do záverečnej odpovede. */
@@ -142,7 +159,8 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
     }
     $casti = $telo['contents'][0]['parts'] ?? [];
     $vyziva = vyziva_odpoved((string) ($telo['systemInstruction']['parts'][0]['text'] ?? ''),
-        (string) ($casti ? ($casti[count($casti) - 1]['text'] ?? '') : ''));
+        (string) ($casti ? ($casti[count($casti) - 1]['text'] ?? '') : ''))
+        ?? fotka_nakup_odpoved((string) ($telo['systemInstruction']['parts'][0]['text'] ?? ''));
     if ($vyziva !== null) {
         odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [['text' => $vyziva]]], 'finishReason' => 'STOP']]]);
     }
@@ -227,7 +245,8 @@ if ($cesta === '/claude/messages') {
     }
     $casti = is_array($telo['messages'][0]['content'] ?? null) ? $telo['messages'][0]['content'] : [];
     $vyziva = vyziva_odpoved(is_string($telo['system'] ?? null) ? $telo['system'] : '',
-        (string) ($casti ? ($casti[count($casti) - 1]['text'] ?? '') : ''));
+        (string) ($casti ? ($casti[count($casti) - 1]['text'] ?? '') : ''))
+        ?? fotka_nakup_odpoved(is_string($telo['system'] ?? null) ? $telo['system'] : '');
     if ($vyziva !== null) {
         odpovedz(200, ['id' => 'msg_v', 'type' => 'message', 'role' => 'assistant', 'stop_reason' => 'end_turn',
             'content' => [['type' => 'text', 'text' => $vyziva]]]);
@@ -272,7 +291,8 @@ if ($cesta === '/openai/responses') {
     if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '')) {
         chyba(401, 'Chýba kľúč.');
     }
-    $vyziva = vyziva_odpoved((string) ($telo['instructions'] ?? ''), (string) ($telo['input'][0]['content'][0]['text'] ?? ''));
+    $vyziva = vyziva_odpoved((string) ($telo['instructions'] ?? ''), (string) ($telo['input'][0]['content'][0]['text'] ?? ''))
+        ?? fotka_nakup_odpoved((string) ($telo['instructions'] ?? ''));
     if ($vyziva !== null) {
         odpovedz(200, ['id' => 'resp_v', 'output' => [['type' => 'message', 'role' => 'assistant',
             'content' => [['type' => 'output_text', 'text' => $vyziva]]]]]);

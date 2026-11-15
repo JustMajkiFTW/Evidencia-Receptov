@@ -3763,6 +3763,53 @@ const asistent = (function initAsistent() {
         return btn;
     }
 
+    /**
+     * Fotka do nákupu (3.1): po nástroji odfot_na_nakup tlačidlá Odfotiť a Z galérie.
+     * Fotoaparát smie otvoriť len ťuknutie (iPhone ani Android ho stránke samy neotvoria).
+     */
+    function tlacidlaFotky() {
+        const wrap = document.createElement('div');
+        wrap.className = 'asistent-fotka';
+        [
+            ['bi-camera-fill', 'Odfotiť', true],
+            ['bi-images', 'Z galérie', false],
+        ].forEach(([ikona, popis, fotoaparat]) => {
+            const label = document.createElement('label');
+            label.className = 'asistent-fotka-tlacidlo';
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            if (fotoaparat) input.setAttribute('capture', 'environment');
+            input.className = 'visually-hidden';
+            input.addEventListener('change', () => {
+                const subor = input.files && input.files[0];
+                input.value = '';
+                if (subor) posliFotku(subor);
+            });
+            label.innerHTML = '<i class="bi ' + ikona + '" aria-hidden="true"></i>';
+            label.append(popis, input);
+            wrap.append(label);
+        });
+        return wrap;
+    }
+
+    async function posliFotku(subor) {
+        if (stav === 'premysla') return;
+        prestanHovorit();
+        bublina('pouzivatel', 'Fotka na nákup');
+        const nahlad = document.createElement('img');
+        nahlad.className = 'asistent-fotka-nahlad';
+        nahlad.alt = '';
+        nahlad.src = URL.createObjectURL(subor);
+        rozhovorEl.lastElementChild.append(nahlad);
+        rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
+        nastavStav('premysla', 'Pozerám fotku a hľadám, čo kúpiť…');
+        const formData = new FormData();
+        formData.append('fotka', await downscaleImageFile(subor), 'fotka.jpg');
+        formData.append('ucel', 'nakup');
+        await spytajSa(formData, 'Pridaj do nákupu suroviny z fotky.', null);
+    }
+
     function bublina(rola, text, chyba = false) {
         $('asistentUvod')?.classList.add('d-none');
         const el = document.createElement('div');
@@ -4201,6 +4248,10 @@ const asistent = (function initAsistent() {
                 bublina('asistent', data.odpoved);
                 if (data.export && data.export.text) {
                     rozhovorEl.append(tlacidloExportu(data.export));
+                    rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
+                }
+                if (data.fotka === 'nakup') {
+                    rozhovorEl.append(tlacidlaFotky());
                     rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
                 }
                 ukazMeta(data.meta || data.detail);

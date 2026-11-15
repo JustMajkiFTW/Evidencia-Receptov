@@ -3020,3 +3020,24 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
     font-weight: 600;
 }
 .asistent-export .bi { color: var(--app-accent); font-size: 1.15rem; }
+/* Fotka do nákupu (3.1): dve veľké tlačidlá pod odpoveďou asistenta */
+.asistent-fotka { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: -.2rem; }
+.asistent-fotka-tlacidlo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    flex: 1 1 9rem;
+    min-height: 56px;
+    padding: .5rem 1rem;
+    border: 1px solid var(--app-accent);
+    border-radius: 14px;
+    background: var(--app-accent-soft);
+    color: var(--app-text);
+    font-weight: 600;
+    font-size: 1.05rem;
+    cursor: pointer;
+}
+.asistent-fotka-tlacidlo .bi { color: var(--app-accent); font-size: 1.3rem; }
+.asistent-fotka-tlacidlo:focus-within { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.asistent-fotka-nahlad { display: block; max-width: 160px; max-height: 160px; margin-top: .4rem; border-radius: 10px; object-fit: cover; }

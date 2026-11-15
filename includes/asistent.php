@@ -93,6 +93,8 @@ function asistent_pokyny(PDO $pdo, array $pripojenie): string
         . '(„dnes sme uvarili…, zapíš to", „pridaj do nákupu…"). Otázka „kedy sme robili…" alebo veta, ktorej nerozumieš, nie je pokyn na zápis — vtedy len hľadaj, '
         . 'alebo povedz, čo si počul, a opýtaj sa. '
         . 'Keď chce niečo uložiť do poznámok, Google Keep alebo poslať, zavolaj priprav_na_ulozenie a povedz mu, nech ťukne na tlačidlo pri odpovedi. '
+        . (shopping_available($pdo) ? 'Keď chce pridať do nákupu niečo z fotky (recept z kuchárky alebo z obrazovky, nákupný zoznam na papieri, jedlo), zavolaj odfot_na_nakup — '
+            . 'appka ukáže tlačidlá Odfotiť a Z galérie a suroviny z fotky do nákupu pridá sama; ty len krátko povedz, nech odfotí alebo vyberie fotku. ' : '')
         . 'Dnes je ' . $dni[(int) $dnes->format('w')] . ' ' . format_sk_date(app_today()) . '.';
 }
 
@@ -157,13 +159,29 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
             'additionalProperties' => false,
         ],
     ];
+    // Len v appke (3.1): fotka do nákupu — telefón ukáže tlačidlá Odfotiť / Z galérie, fotku spracuje asistent_fotka_do_nakupu().
+    if (shopping_available($pdo)) {
+        $nastroje[] = [
+            'name' => 'odfot_na_nakup',
+            'description' => 'Ukáže používateľovi tlačidlá Odfotiť a Z galérie. Z fotky (recept z kuchárky alebo obrazovky, nákupný zoznam, jedlo) '
+                . 'appka sama vytiahne suroviny a pridá ich do nákupu. Použi, keď chce do nákupu pridať niečo „z fotky", „odfotím ti to", '
+                . '„mám to v kuchárke"… Ty fotku nevidíš a nič nepridávaš — len povedz, nech odfotí alebo vyberie fotku.',
+            'schema' => ['type' => 'object', 'properties' => new stdClass(), 'additionalProperties' => false],
+        ];
+    }
     $pokyny = asistent_pokyny($pdo, $pripojenie);
 
     // Vykonanie nástroja: tie isté funkcie ako cez MCP. Zapisuje sa, čo asistent urobil.
-    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'zapisane' => [], 'nastroje_s' => 0.0, 'export' => null];
+    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'zapisane' => [], 'nastroje_s' => 0.0, 'export' => null, 'fotka' => null];
     $vykonaj = static function (string $nazov, array $argumenty) use ($pdo, $pripojenie, $nastroje, &$stav): array {
         if (!in_array($nazov, array_column($nastroje, 'name'), true)) {
             return ['text' => 'Neznámy nástroj ' . $nazov . '.', 'chyba' => true];
+        }
+        if ($nazov === 'odfot_na_nakup') {
+            $stav['fotka'] = 'nakup';
+            $stav['akcie'][] = ['nastroj' => $nazov, 'ok' => true];
+            return ['text' => 'Appka teraz pod odpoveďou ukáže tlačidlá Odfotiť a Z galérie. Povedz používateľovi jednou vetou, nech odfotí recept, '
+                . 'kuchárku alebo nákupný zoznam, alebo vyberie fotku z galérie — suroviny potom pridá do nákupu appka sama.', 'chyba' => false];
         }
         if ($nazov === 'priprav_na_ulozenie') {
             $text = is_string($argumenty['text'] ?? null) ? mb_substr(trim($argumenty['text']), 0, 8000, 'UTF-8') : '';
@@ -237,6 +255,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
                 'akcie'   => $stav['akcie'],
                 'poskytovatel' => AI_NAZVY[$sluzba],
                 'export'  => $stav['export'], // text na uloženie do poznámok (tlačidlo pri odpovedi)
+                'fotka'   => $stav['fotka'],  // 'nakup' = telefón ukáže tlačidlá Odfotiť / Z galérie (3.1)
                 'zostava' => $limit > 0 ? max(0, $limit - asistent_dnes_pouzite($pdo, $pripojenie['user_id'])) : null,
             ];
         }
@@ -585,4 +604,162 @@ function asistent_openai(string $model, string $pokyny, array $spravy, array $na
         }
     }
     return ['ok' => false, 'chyba' => $model . ' — priveľa krokov'];
+}
+
+/* ----------------------------------------------------------------------
+   Fotka do nákupu (3.1): „z fotky mi pridaj do nákupu". Telefón po nástroji
+   odfot_na_nakup ukáže tlačidlá Odfotiť / Z galérie a fotku pošle sem.
+   AI z nej vytiahne suroviny (recept, nákupný zoznam aj jedlo, české texty
+   preložené) a pridajú sa do nákupu cez mcp_pridaj_do_nakupu — recept sa
+   neukladá, ostatným príde upozornenie na nákup. Počíta sa do denného limitu
+   fotiek (ako recept z fotky).
+   ---------------------------------------------------------------------- */
+
+function asistent_fotka_schema(): array
+{
+    return [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'required' => ['typ', 'jedlo', 'polozky'],
+        'properties' => [
+            'typ'     => ['type' => 'string', 'enum' => ['recept', 'zoznam', 'jedlo', 'ine'],
+                'description' => 'recept = text receptu; zoznam = nákupný zoznam; jedlo = hotové jedlo bez textu; ine = nič z toho'],
+            'jedlo'   => ['type' => 'string', 'description' => 'Názov jedla po slovensky, pri nákupnom zozname prázdny text'],
+            'polozky' => [
+                'type' => 'array',
+                'items' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['nazov', 'mnozstvo', 'jednotka'],
+                    'properties' => [
+                        'nazov'    => ['type' => 'string'],
+                        'mnozstvo' => ['type' => ['number', 'null']],
+                        'jednotka' => ['type' => 'string', 'enum' => array_merge(SUROVINA_JEDNOTKY, [''])],
+                    ],
+                ],
+            ],
+        ],
+    ];
+}
+
+function asistent_fotka_pokyny(array $suroviny): string
+{
+    $zoznam = implode(', ', array_column($suroviny, 'nazov'));
+    return <<<TXT
+Si pomocník v slovenskej rodinnej appke na recepty. NÁKUP Z FOTKY: dostaneš fotku a vrátiš JSON so všetkým, čo treba kúpiť.
+
+Najprv urči, čo je na fotke (pole typ):
+- "recept": text receptu (kuchárka, lístok, obrazovka). Vypíš všetky suroviny s množstvami presne podľa textu.
+- "zoznam": nákupný zoznam (napísaný alebo vytlačený). Vypíš každú položku, aj nepotravinové (napr. toaletný papier), množstvo len keď je napísané.
+- "jedlo": hotové jedlo bez textu. Vypíš suroviny bežné v slovenskej domácej kuchyni na 4 porcie s rozumnými množstvami.
+- "ine": nič z toho. Pole polozky je prázdne.
+
+Pravidlá:
+- Všetko po slovensky. Text po česky alebo v inom jazyku prelož (brambory → Zemiaky, hladká mouka → Múka hladká, máslo → Maslo).
+- jedlo = názov jedla po slovensky (pri recepte a jedle), pri nákupnom zozname prázdny text.
+- Názov položky ber prednostne zo zoznamu surovín nižšie presne tak, ako je napísaný. Inak krátky názov v prvom páde s podstatným menom na začiatku a veľkým začiatočným písmenom („Múka hladká", „Smotana kyslá").
+- Množstvo je číslo (desatinná bodka) alebo null. Zlomky prepočítaj (1/2 = 0.5).
+- Jednotka je jedna z: g, kg, ml, dl, l, ks, PL, ČL, šálka, štipka, balenie, plátok, strúčik, alebo prázdny text. Kusy (2 vajcia) majú "ks".
+- Každú položku uveď len raz. Vodu z vodovodu neuvádzaj.
+
+Zoznam surovín v appke: {$zoznam}
+TXT;
+}
+
+/**
+ * Fotka → suroviny → nákup. Návrat v tvare odpovede asistenta (success, odpoved, zmeny, akcie…).
+ */
+function asistent_fotka_do_nakupu(PDO $pdo, array $pripojenie, $file, bool $podrobnosti = false): array
+{
+    if (!ai_dostupne()) {
+        return ['success' => false, 'error' => 'Asistent nie je zapnutý: v nastaveniach appky chýba kľúč k AI.'];
+    }
+    if (!shopping_available($pdo)) {
+        return ['success' => false, 'error' => 'Nákupný zoznam ešte nie je v databáze pripravený.'];
+    }
+    $userId = (int) $pripojenie['user_id'];
+    if (ai_zostava($pdo, $userId) === 0) {
+        return ['success' => false, 'error' => 'Dnešný počet fotiek na rozpoznanie je minutý (' . ai_denny_limit() . ' za deň). Zajtra to pôjde znova.'];
+    }
+    $fotka = ai_priprav_fotku($file);
+    if (isset($fotka['error'])) {
+        return ['success' => false, 'error' => $fotka['error']];
+    }
+    $zaciatok = microtime(true);
+    $pokyny = asistent_fotka_pokyny(get_all_suroviny($pdo));
+    $schema = asistent_fotka_schema();
+    $pokusy = [];
+    foreach (ai_poradie() as $sluzba) {
+        foreach (ai_modely($sluzba) as $model) {
+            $pokusy[] = [$sluzba, $model];
+        }
+    }
+    @set_time_limit(AI_TIMEOUT_PRED_ZALOHOU * count($pokusy) + AI_TIMEOUT_SEKUND + 30);
+
+    $chyby = [];
+    $zlyKluc = [];
+    $data = null;
+    $sluzbaOk = null;
+    foreach ($pokusy as $i => [$sluzba, $model]) {
+        if (isset($zlyKluc[$sluzba])) {
+            continue;
+        }
+        $vysledok = ai_zavolaj($sluzba, $model, $pokyny, $fotka, $schema,
+            $i === count($pokusy) - 1 ? AI_TIMEOUT_SEKUND : AI_TIMEOUT_PRED_ZALOHOU, 'Vypíš z fotky, čo treba kúpiť, a vráť JSON.');
+        if ($vysledok['ok'] && is_array($vysledok['data']['polozky'] ?? null)) {
+            $data = $vysledok['data'];
+            $sluzbaOk = $sluzba;
+            break;
+        }
+        if (!empty($vysledok['zly_kluc'])) {
+            $zlyKluc[$sluzba] = true;
+        }
+        $chyby[] = AI_NAZVY[$sluzba] . ': ' . ($vysledok['chyba'] ?? $model . ' — odpoveď bez zoznamu položiek');
+    }
+    if ($data === null) {
+        ai_zapis_pouzitie($pdo, $userId, null, false, implode('; ', $chyby));
+        debug_log('AI ASISTENT fotka do nákupu nedokončená: ' . implode('; ', $chyby));
+        $odpoved = ['success' => false, 'error' => 'Fotku sa teraz nepodarilo prečítať. Skús to o chvíľu znova.'];
+        if ($podrobnosti) {
+            $odpoved['meta'] = 'Fotka zlyhala: ' . implode(' · ', $chyby);
+        }
+        return $odpoved;
+    }
+    ai_zapis_pouzitie($pdo, $userId, $sluzbaOk, true, $chyby ? implode('; ', $chyby) : null);
+
+    $polozky = [];
+    foreach (array_slice($data['polozky'], 0, 60) as $p) {
+        if (!is_array($p) || trim((string) ($p['nazov'] ?? '')) === '') {
+            continue;
+        }
+        $polozky[] = array_filter([
+            'nazov'    => trim((string) $p['nazov']),
+            'mnozstvo' => is_numeric($p['mnozstvo'] ?? null) && (float) $p['mnozstvo'] > 0 ? (float) $p['mnozstvo'] : null,
+            'jednotka' => in_array($p['jednotka'] ?? '', SUROVINA_JEDNOTKY, true) ? $p['jednotka'] : null,
+        ], static fn($v) => $v !== null);
+    }
+    $meta = $podrobnosti ? AI_NAZVY[$sluzbaOk] . ' · ' . str_replace('.', ',', (string) round(microtime(true) - $zaciatok, 1)) . ' s (fotka: ' . ($data['typ'] ?? '?') . ')'
+        . ($chyby ? '; predtým zlyhalo: ' . implode('; ', $chyby) : '') : null;
+    if (!$polozky) {
+        return ['success' => true, 'zmeny' => false, 'akcie' => [], 'meta' => $meta, 'poskytovatel' => AI_NAZVY[$sluzbaOk],
+            'odpoved' => 'Na fotke som nenašiel recept ani nákupný zoznam. Skús to odfotiť bližšie a ostrejšie.'];
+    }
+    $jedlo = ($data['typ'] ?? '') !== 'zoznam' ? mb_substr(trim((string) ($data['jedlo'] ?? '')), 0, 150, 'UTF-8') : '';
+    $vysledok = mcp_pridaj_do_nakupu($pdo, $pripojenie, ['suroviny' => $polozky, 'jedlo' => $jedlo]);
+    if (isset($vysledok['chyba'])) {
+        return ['success' => false, 'error' => $vysledok['chyba'], 'meta' => $meta];
+    }
+    $nazvy = $vysledok['data']['polozky'];
+    $pocet = count($nazvy);
+    $zoznam = $pocet > 5 ? implode(', ', array_slice($nazvy, 0, 5)) . ' a ' . mcp_sklonuj($pocet - 5, 'ďalšiu', 'ďalšie', 'ďalších')
+        : (count($nazvy) > 1 ? implode(', ', array_slice($nazvy, 0, -1)) . ' a ' . end($nazvy) : $nazvy[0]);
+    return [
+        'success'      => true,
+        'odpoved'      => 'Pridal som do nákupu ' . mcp_sklonuj($pocet, 'položku', 'položky', 'položiek') . ($jedlo !== '' ? ' na ' . $jedlo : '') . ': ' . $zoznam . '.',
+        'zmeny'        => true,
+        'akcie'        => [['nastroj' => 'pridaj_do_nakupu', 'ok' => true]],
+        'polozky'      => $nazvy,
+        'meta'         => $meta,
+        'poskytovatel' => AI_NAZVY[$sluzbaOk],
+    ];
 }
