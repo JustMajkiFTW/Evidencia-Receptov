@@ -7,7 +7,7 @@
 #   2. syntax všetkých PHP súborov,
 #   3. pravidlá pre novú verziu (testy/kontrola-pravidiel.sh),
 #   4. novú inštaláciu: sql/instalacia.sql (aj dvakrát po sebe), celý priechod appkou
-#      a hlasového asistenta s falošnou AI (testy/falosna-ai.php) pre Gemini, Claude, OpenAI aj Mistral,
+#      a hlasového asistenta s falošnou AI (testy/falosna-ai.php) pre Gemini, Claude, OpenAI, Mistral aj Groq,
 #      hľadanie so skloňovaním a text upozornenia na nákup (testy/hladanie.php),
 #      výživové hodnoty — prepočet, ukladanie, text pre asistenta (testy/vyziva.php),
 #   5. databázu z predchádzajúcej verzie BEZ migrácie — appka na nej musí bežať,
@@ -162,13 +162,17 @@ asistent_s_falosnou_ai() { # $1 = databáza
     done
     local ai="http://127.0.0.1:$AI_PORT"
     local konfig sluzba poradie zaloha
-    for konfig in "Gemini gemini,claude 1" "Claude claude 0" "OpenAI openai 0" "Mistral mistral 0"; do
+    # Groq (3.2) fotky nevie, preto má za sebou Gemini (nákup z fotky ide tam); jeho kľúč má len vlastný beh,
+    # inak by Groq prepisoval hlas aj v ostatných behoch (pri prepise je Groq prvý).
+    for konfig in "Gemini gemini,claude 1" "Claude claude 0" "OpenAI openai 0" "Mistral mistral 0" "Groq groq,gemini 0"; do
         read -r sluzba poradie zaloha <<<"$konfig"
+        local groq=()
+        [ "$sluzba" = "Groq" ] && groq=(GROQ_API_KEY=testovaci-kluc)
         db_app "$1" sql "DELETE FROM ai_rozpoznania" >/dev/null # denný limit odznova pre každú službu
         spusti_server "$1" AI_PORADIE="$poradie" GEMINI_API_KEY=testovaci-kluc ANTHROPIC_API_KEY=testovaci-kluc \
-            OPENAI_API_KEY=testovaci-kluc MISTRAL_API_KEY=testovaci-kluc AI_ADRESA_GEMINI="$ai/gemini" AI_ADRESA_CLAUDE="$ai/claude" \
-            AI_ADRESA_OPENAI="$ai/openai" AI_ADRESA_MISTRAL="$ai/mistral" AI_MODEL_GEMINI="gemini-bez-premyslania gemini-zaloha" \
-            AI_ASISTENT_DENNY_LIMIT=16 || continue
+            OPENAI_API_KEY=testovaci-kluc MISTRAL_API_KEY=testovaci-kluc "${groq[@]}" AI_ADRESA_GEMINI="$ai/gemini" \
+            AI_ADRESA_CLAUDE="$ai/claude" AI_ADRESA_OPENAI="$ai/openai" AI_ADRESA_MISTRAL="$ai/mistral" AI_ADRESA_GROQ="$ai/groq" \
+            AI_MODEL_GEMINI="gemini-bez-premyslania gemini-zaloha" AI_ASISTENT_DENNY_LIMIT=16 || continue
         if ! TEST_ASISTENT_SLUZBA="$sluzba" TEST_ASISTENT_ZALOHA="$zaloha" \
                 "$PHP" testy/smoke.php "http://127.0.0.1:$PORT" "$ADMIN_MENO" "$ADMIN_HESLO" asistent "$CRON_KEY"; then
             zlyhanie "Hlasový asistent ($sluzba) má zlyhané kontroly (výpis vyššie)."

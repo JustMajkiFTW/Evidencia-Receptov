@@ -15,7 +15,7 @@
  * - Keď služba zlyhá skôr, než asistent niečo zapísal, skúsi sa ďalšia v poradí.
  * - Rýchlosť (2.7.3): premýšľanie modelu najkratšie, aké model pozná (minimal → low →
  *   bez nastavenia), pred záložným pokusom sa čaká najviac AI_TIMEOUT_PRED_ZALOHOU.
- *   Iný (rýchlejší) model len pre asistenta: AI_ASISTENT_MODEL_GEMINI / _CLAUDE / _OPENAI / _MISTRAL.
+ *   Iný (rýchlejší) model len pre asistenta: AI_ASISTENT_MODEL_GEMINI / _CLAUDE / _OPENAI / _MISTRAL / _GROQ.
  *   Čas každého volania AI aj nástrojov sa zapíše do záznamu (AI ASISTENT … za … s).
  */
 
@@ -93,7 +93,7 @@ function asistent_pokyny(PDO $pdo, array $pripojenie): string
         . '(„dnes sme uvarili…, zapíš to", „pridaj do nákupu…"). Otázka „kedy sme robili…" alebo veta, ktorej nerozumieš, nie je pokyn na zápis — vtedy len hľadaj, '
         . 'alebo povedz, čo si počul, a opýtaj sa. '
         . 'Keď chce niečo uložiť do poznámok, Google Keep alebo poslať, zavolaj priprav_na_ulozenie a povedz mu, nech ťukne na tlačidlo pri odpovedi. '
-        . (shopping_available($pdo) ? 'Keď chce pridať do nákupu niečo z fotky (recept z kuchárky alebo z obrazovky, nákupný zoznam na papieri, jedlo), zavolaj odfot_na_nakup — '
+        . (shopping_available($pdo) && array_filter(ai_poradie(), 'ai_vie_obrazky') ? 'Keď chce pridať do nákupu niečo z fotky (recept z kuchárky alebo z obrazovky, nákupný zoznam na papieri, jedlo), zavolaj odfot_na_nakup — '
             . 'appka ukáže tlačidlá Odfotiť a Z galérie a suroviny z fotky do nákupu pridá sama; ty len krátko povedz, nech odfotí alebo vyberie fotku. ' : '')
         . 'Dnes je ' . $dni[(int) $dnes->format('w')] . ' ' . format_sk_date(app_today()) . '.';
 }
@@ -160,7 +160,8 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         ],
     ];
     // Len v appke (3.1): fotka do nákupu — telefón ukáže tlačidlá Odfotiť / Z galérie, fotku spracuje asistent_fotka_do_nakupu().
-    if (shopping_available($pdo)) {
+    // Potrebuje službu, ktorá vie čítať fotky (Groq nie).
+    if (shopping_available($pdo) && array_filter(ai_poradie(), 'ai_vie_obrazky')) {
         $nastroje[] = [
             'name' => 'odfot_na_nakup',
             'description' => 'Ukáže používateľovi tlačidlá Odfotiť a Z galérie. Z fotky (recept z kuchárky alebo obrazovky, nákupný zoznam, jedlo) '
@@ -233,7 +234,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         $vysledok = match ($sluzba) {
             'gemini' => asistent_gemini($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
             'claude' => asistent_claude($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
-            'mistral' => asistent_mistral($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
+            'mistral', 'groq' => asistent_kompatibilne($sluzba, $model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
             default  => asistent_openai($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
         };
         if ($vysledok['ok']) {
@@ -303,16 +304,38 @@ const ASISTENT_ZVUK_TYPY = [
     'audio/wave' => 'audio/wav', 'audio/mpeg' => 'audio/mp3',
 ];
 
-/** Vie niektorá služba z AI_PORADIE prepisovať zvuk (Gemini, Mistral alebo OpenAI)? */
+/** Služby, ktoré vedia prepisovať zvuk (Claude nie). */
+const ASISTENT_PREPIS_SLUZBY = ['groq', 'gemini', 'mistral', 'openai'];
+
+/**
+ * Poradie služieb pri prepise hlasu (3.2): AI_PREPIS_PORADIE=groq,gemini, inak Groq prvý
+ * (Whisper má vlastný denný limit a nemíňa limit Gemini) a potom AI_PORADIE. Len služby s kľúčom.
+ */
+function asistent_prepis_poradie(): array
+{
+    $nastavene = strtolower(ai_env('AI_PREPIS_PORADIE'));
+    $zoznam = $nastavene !== '' ? (preg_split('/[\s,;]+/', $nastavene, -1, PREG_SPLIT_NO_EMPTY) ?: [])
+        : array_merge(['groq'], ai_poradie());
+    $vysledok = [];
+    foreach ($zoznam as $sluzba) {
+        if (in_array($sluzba, ASISTENT_PREPIS_SLUZBY, true) && !in_array($sluzba, $vysledok, true)
+                && ai_env(AI_KLUCE_ENV[$sluzba]) !== '') {
+            $vysledok[] = $sluzba;
+        }
+    }
+    return $vysledok;
+}
+
+/** Vie niektorá služba prepisovať zvuk (Groq, Gemini, Mistral alebo OpenAI)? */
 function asistent_prepis_dostupny(): bool
 {
-    return (bool) array_intersect(ai_poradie(), ['gemini', 'mistral', 'openai']);
+    return asistent_prepis_poradie() !== [];
 }
 
 /**
  * Modely na prepis hlasu (3.2): AI_PREPIS_MODEL_GEMINI / _MISTRAL / _OPENAI=model1,model2.
  * Vlastný zoznam pre prepis, aby nemíňal denný limit modelu, ktorý odpovedá.
- * Bez nastavenia: Gemini tie isté ako asistent, Mistral Voxtral, OpenAI gpt-4o-mini-transcribe.
+ * Bez nastavenia: Gemini tie isté ako asistent, Groq Whisper, Mistral Voxtral, OpenAI gpt-4o-mini-transcribe.
  */
 function asistent_prepis_modely(string $sluzba): array
 {
@@ -321,6 +344,7 @@ function asistent_prepis_modely(string $sluzba): array
     return $modely ?: match ($sluzba) {
         'gemini'  => asistent_modely('gemini'),
         'mistral' => ['voxtral-mini-latest'],
+        'groq'    => ['whisper-large-v3', 'whisper-large-v3-turbo'], // každý má v bezplatnom pláne vlastný limit
         default   => ['gpt-4o-mini-transcribe'],
     };
 }
@@ -377,7 +401,7 @@ function asistent_prepis(array $subor, ?PDO $pdo = null): array
     }
 
     $chyby = [];
-    foreach (ai_poradie() as $sluzba) {
+    foreach (asistent_prepis_poradie() as $sluzba) {
         $zaciatok = microtime(true);
         if ($sluzba === 'gemini') {
             // 2.9.1: skúsi sa každý model z AI_ASISTENT_MODEL_GEMINI (inak AI_MODEL_GEMINI), nielen prvý —
@@ -417,15 +441,19 @@ function asistent_prepis(array $subor, ?PDO $pdo = null): array
             if ($vysledok === null) {
                 continue; // chyby sú už zapísané, ďalšia služba v poradí
             }
-        } elseif ($sluzba === 'openai' || $sluzba === 'mistral') {
-            // OpenAI aj Mistral (Voxtral, 3.2) majú rovnaké /audio/transcriptions; každý model z AI_PREPIS_MODEL_… po rade.
+        } else {
+            // OpenAI, Mistral (Voxtral) aj Groq (Whisper) majú rovnaké /audio/transcriptions; každý model z AI_PREPIS_MODEL_… po rade.
             $pripona = ['audio/mp4' => 'm4a', 'audio/webm' => 'webm', 'audio/ogg' => 'ogg', 'audio/wav' => 'wav', 'audio/mp3' => 'mp3', 'audio/aac' => 'aac'][$mime];
             $vysledok = null;
             foreach (asistent_prepis_modely($sluzba) as $model) {
                 $zaciatok = microtime(true);
                 $polia = ['model' => $model, 'language' => 'sk', 'file' => new CURLFile($subor['tmp_name'], $mime, 'nahravka.' . $pripona)];
-                // Slovník názvov receptov: OpenAI ho berie ako prompt, Mistral ako context_bias (pri 400 sa skúsi bez neho).
-                $polia += $sluzba === 'openai' ? ['response_format' => 'json', 'prompt' => $slovnik] : ['context_bias' => $slovnik];
+                // Slovník názvov receptov: OpenAI a Groq ho berú ako prompt (Whisper najviac ~224 tokenov), Mistral ako context_bias.
+                $polia += match ($sluzba) {
+                    'mistral' => ['context_bias' => $slovnik],
+                    'groq'    => ['response_format' => 'json', 'prompt' => mb_substr($slovnik, 0, 300, 'UTF-8')],
+                    default   => ['response_format' => 'json', 'prompt' => $slovnik],
+                };
                 [$kod, $odpoved, $chybaCurl] = asistent_prepis_multipart(ai_adresa($sluzba) . '/audio/transcriptions', ai_env(AI_KLUCE_ENV[$sluzba]), $polia);
                 if ($kod === 400 && $sluzba === 'mistral' && $slovnik !== '') {
                     unset($polia['context_bias']);
@@ -440,8 +468,6 @@ function asistent_prepis(array $subor, ?PDO $pdo = null): array
             if ($vysledok === null) {
                 continue; // chyby sú už zapísané, ďalšia služba v poradí
             }
-        } else {
-            continue; // Claude zvuk neprijíma
         }
         if ($vysledok !== null) {
             $text = trim(preg_replace('/^["„“”\'\s]+|["„“”\'\s]+$/u', '', $vysledok) ?? '');
@@ -457,7 +483,7 @@ function asistent_prepis(array $subor, ?PDO $pdo = null): array
     debug_log('AI ASISTENT prepis nedokončil: ' . ($chyby ? implode('; ', $chyby) : 'žiadna služba nevie prepisovať zvuk'));
     return ['ok' => false, 'chyba' => $chyby ? (ai_limit_minuty($chyby) ? AI_HLASKA_LIMIT . ' Otázku môžeš zatiaľ napísať.'
             : 'Nahrávku sa teraz nepodarilo prepísať. Skús to znova alebo to napíš.')
-        : 'Na prepis hlasu treba v nastaveniach kľúč Gemini, Mistral alebo OpenAI.', 'detail' => implode(' · ', $chyby)];
+        : 'Na prepis hlasu treba v nastaveniach kľúč Groq, Gemini, Mistral alebo OpenAI.', 'detail' => implode(' · ', $chyby)];
 }
 
 /** Je dnešný limit otázok minutý? (kontroluje sa pred prepisom, aby sa zbytočne neplatil) */
@@ -649,11 +675,12 @@ function asistent_openai(string $model, string $pokyny, array $spravy, array $na
 }
 
 /* ----------------------------------------------------------------------
-   Mistral (Chat Completions, 3.2): tool_calls → správy role „tool", kým nepríde text.
-   Celý rozhovor sa posiela znova (Mistral nemá previous_response_id).
+   Mistral a Groq (Chat Completions, 3.2): tool_calls → správy role „tool",
+   kým nepríde text. Celý rozhovor sa posiela znova (nemajú previous_response_id).
    ---------------------------------------------------------------------- */
-function asistent_mistral(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
+function asistent_kompatibilne(string $sluzba, string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
 {
+    $kratkoPremyslat = $sluzba === 'groq'; // gpt-oss: reasoning_effort „low", pri 400 bez neho
     $sprava = array_merge([['role' => 'system', 'content' => $pokyny]],
         array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'assistant' : 'user', 'content' => $s['text']], $spravy));
     $tools = array_map(static fn($n) => ['type' => 'function', 'function' => [
@@ -661,11 +688,18 @@ function asistent_mistral(string $model, string $pokyny, array $spravy, array $n
     ]], $nastroje);
 
     for ($kolo = 0; $kolo <= ASISTENT_MAX_KOL; $kolo++) {
-        [$kod, $odpoved, $chybaCurl] = asistent_post(ai_adresa('mistral') . '/chat/completions',
-            ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV['mistral'])],
-            ['model' => $model, 'messages' => $sprava, 'tools' => $tools, 'max_tokens' => 4000,
-                'tool_choice' => $kolo === ASISTENT_MAX_KOL ? 'none' : 'auto'],
-            $timeout, $casy);
+        $telo = ['model' => $model, 'messages' => $sprava, 'tools' => $tools, 'max_tokens' => 4000,
+            'tool_choice' => $kolo === ASISTENT_MAX_KOL ? 'none' : 'auto'];
+        if ($kratkoPremyslat) {
+            $telo['reasoning_effort'] = 'low';
+        }
+        [$kod, $odpoved, $chybaCurl] = asistent_post(ai_adresa($sluzba) . '/chat/completions',
+            ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV[$sluzba])], $telo, $timeout, $casy);
+        if ($kod === 400 && $kratkoPremyslat) {
+            $kratkoPremyslat = false; // model nepozná reasoning_effort — to isté kolo znova bez neho
+            $kolo--;
+            continue;
+        }
         if ($kod !== 200) {
             return asistent_chyba_sluzby($model, $kod, $odpoved, $chybaCurl, $timeout);
         }
@@ -673,7 +707,7 @@ function asistent_mistral(string $model, string $pokyny, array $spravy, array $n
         $vyrok = $data['choices'][0]['message'] ?? null;
         $volania = is_array($vyrok['tool_calls'] ?? null) ? $vyrok['tool_calls'] : [];
         if (!$volania) {
-            $text = ai_text_odpovede('mistral', $data);
+            $text = ai_text_odpovede($sluzba, $data);
             return $text !== null && trim($text) !== '' ? ['ok' => true, 'text' => $text]
                 : ['ok' => false, 'chyba' => $model . ' — prázdna odpoveď (' . ($data['choices'][0]['finish_reason'] ?? 'bez dôvodu') . ')'];
         }
@@ -773,10 +807,13 @@ function asistent_fotka_do_nakupu(PDO $pdo, array $pripojenie, $file, bool $podr
     $pokyny = asistent_fotka_pokyny(get_all_suroviny($pdo));
     $schema = asistent_fotka_schema();
     $pokusy = [];
-    foreach (ai_poradie() as $sluzba) {
+    foreach (array_filter(ai_poradie(), 'ai_vie_obrazky') as $sluzba) { // Groq fotky nevie (3.2)
         foreach (ai_modely($sluzba) as $model) {
             $pokusy[] = [$sluzba, $model];
         }
+    }
+    if (!$pokusy) {
+        return ['success' => false, 'error' => 'Na nákup z fotky treba kľúč Gemini, Claude, OpenAI alebo Mistral (Groq fotky nevie).'];
     }
     @set_time_limit(AI_TIMEOUT_PRED_ZALOHOU * count($pokusy) + AI_TIMEOUT_SEKUND + 30);
 

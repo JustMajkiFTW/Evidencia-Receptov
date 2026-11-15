@@ -13,7 +13,7 @@
  *                 hodnotenie, história) musia fungovať, nové funkcie len nesmú spadnúť
  *   asistent      appka beží s kľúčmi k falošnej AI (testy/falosna-ai.php); po prihlásení
  *                 sa overí len hlasový asistent (verzia 2.7). Premenná TEST_ASISTENT_SLUZBA
- *                 = ktorá služba má odpovedať (Gemini, Claude, OpenAI, Mistral), TEST_ASISTENT_ZALOHA=1
+ *                 = ktorá služba má odpovedať (Gemini, Claude, OpenAI, Mistral, Groq), TEST_ASISTENT_ZALOHA=1
  *                 overí prepnutie na ďalšiu službu, keď prvá zlyhá.
  *
  * Návratový kód: 0 = všetko v poriadku, 1 = aspoň jedna kontrola zlyhala.
@@ -416,8 +416,8 @@ if ($rezim === 'asistent') {
             over(($o->json()['success'] ?? null) === false && ($o->json()['prepis'] ?? null) === '', "Prepis „{$bodky}\" sa berie ako ticho", $o->popis());
         }
     } else {
-        over(($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['error'] ?? ''), 'Gemini, Mistral alebo OpenAI'),
-            'Bez Gemini, Mistral či OpenAI appka povie, že prepis hlasu nejde', $o->popis());
+        over(($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['error'] ?? ''), 'Groq, Gemini, Mistral alebo OpenAI'),
+            'Bez Groq, Gemini, Mistral či OpenAI appka povie, že prepis hlasu nejde', $o->popis());
     }
     $zly = tempnam(sys_get_temp_dir(), 'zvuk');
     file_put_contents($zly, '<?php echo 1;');

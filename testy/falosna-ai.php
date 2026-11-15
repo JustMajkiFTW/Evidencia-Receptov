@@ -7,7 +7,7 @@
  * a appka ju dostane cez AI_ADRESA_GEMINI=http://127.0.0.1:8766/gemini atď.
  *
  * Odpovedá v tvare Gemini (generateContent), Claude (Messages), OpenAI
- * (Responses) a Mistral (Chat Completions, 3.2) vrátane volania nástrojov. Podľa slov v otázke zavolá nástroj
+ * (Responses), Mistral a Groq (Chat Completions, 3.2) vrátane volania nástrojov. Podľa slov v otázke zavolá nástroj
  * appky, po výsledku nástroja odpovie „Hotovo. …". Zároveň kontroluje, či
  * appka posiela späť, čo musí (podpis pri Gemini, id volaní pri Claude
  * a OpenAI) — inak vráti 400 ako skutočná služba.
@@ -17,7 +17,7 @@
  * „chyba503" (Gemini odpovie 503 — appka má skúsiť ďalšiu službu),
  * „poznámok" (priprav_na_ulozenie), „limit429" (každá služba vráti 429 — minutý limit, 3.2).
  *
- * Prepis hlasu (2.8): Gemini so zvukom v inline_data, OpenAI aj Mistral
+ * Prepis hlasu (2.8): Gemini so zvukom v inline_data, OpenAI, Mistral aj Groq
  * /audio/transcriptions vrátia text, ktorý je v nahrávke za značkou „TEXT:".
  */
 
@@ -141,7 +141,7 @@ function limit429(string $otazka): void
 }
 
 /* OpenAI a Mistral (3.2) prepis zvuku (multipart, nie JSON) */
-if ($cesta === '/openai/audio/transcriptions' || $cesta === '/mistral/audio/transcriptions') {
+if (in_array($cesta, ['/openai/audio/transcriptions', '/mistral/audio/transcriptions', '/groq/audio/transcriptions'], true)) {
     if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '') || ($_POST['model'] ?? '') === '') {
         chyba(401, 'Chýba kľúč alebo model.');
     }
@@ -340,8 +340,12 @@ if ($cesta === '/openai/responses') {
     ]]);
 }
 
-/* --------------------------------- Mistral (3.2) --------------------------------- */
-if ($cesta === '/mistral/chat/completions') {
+/* ------------------------- Mistral a Groq (3.2, Chat Completions) ------------------------- */
+if ($cesta === '/mistral/chat/completions' || $cesta === '/groq/chat/completions') {
+    // Groq fotky nevie — keby ich appka poslala, skutočný model by odmietol
+    if ($cesta === '/groq/chat/completions' && str_contains(json_encode($telo['messages'] ?? []), 'image_url')) {
+        chyba(400, 'This model does not support image input.');
+    }
     if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '')) {
         chyba(401, 'Chýba kľúč.');
     }
@@ -349,9 +353,10 @@ if ($cesta === '/mistral/chat/completions') {
     $system = ($spravy[0]['role'] ?? '') === 'system' ? (string) $spravy[0]['content'] : '';
     $vystup = static fn(array $sprava, string $dovod) => odpovedz(200, ['id' => 'cmpl-1', 'object' => 'chat.completion',
         'choices' => [['index' => 0, 'message' => ['role' => 'assistant'] + $sprava, 'finish_reason' => $dovod]]]);
-    // Recept z fotky, výživa, fotka do nákupu: obsah používateľa je zoznam kúskov (text, obrázok)
-    $kusy = is_array($spravy[1]['content'] ?? null) ? $spravy[1]['content'] : [];
-    $json = vyziva_odpoved($system, (string) ($kusy[0]['text'] ?? '')) ?? fotka_nakup_odpoved($system);
+    // Recept z fotky, výživa, fotka do nákupu: obsah používateľa je text, alebo zoznam kúskov (text, obrázok)
+    $obsah = $spravy[1]['content'] ?? '';
+    $uloha = is_string($obsah) ? $obsah : (string) ($obsah[0]['text'] ?? '');
+    $json = vyziva_odpoved($system, $uloha) ?? fotka_nakup_odpoved($system);
     if ($json !== null) {
         $vystup(['content' => $json], 'stop');
     }
