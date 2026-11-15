@@ -64,6 +64,10 @@ if (getenv('TEST_DB_NAME')) {
         $u = shopping_notify_text($pdo, $kto, 'Majki', $receptId, null, 2, 'hlasového asistenta');
         over(str_ends_with($u['text'] ?? '', '(2) (cez hlasového asistenta)'), 'Cez asistenta je to v upozornení', json_encode($u, JSON_UNESCAPED_UNICODE));
 
+        $u = shopping_notify_text($pdo, $kto, 'Majki', null, 'Zemiaky', 6, 'hlasového asistenta', 'Zemiakové placky');
+        over(($u['text'] ?? '') === 'Majki pridal(a) do nákupu suroviny na „Zemiakové placky" (6) (cez hlasového asistenta)'
+            && str_starts_with($u['tag'], 'nakup-jedlo-'), 'Suroviny z kuchárky: názov jedla, recept sa neukladá', json_encode($u, JSON_UNESCAPED_UNICODE));
+
         foreach (['Mlieko', 'Chlieb'] as $nazov) {
             shopping_add_item($pdo, $kto, null, $nazov, null, null, null);
         }

@@ -876,6 +876,19 @@ if ($mcpVDatabaze) {
     over(($vysledok($o)['structuredContent']['pridane'] ?? 0) === 4, 'Asistent pridá suroviny do nákupu', $o->popis());
     $o = $volaj('zobraz_nakup', []);
     over(str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), '150 g Múka hladká'), 'Asistent vidí nákup s prepočítaným množstvom', $o->popis());
+    // 2.9.3: suroviny z kuchárky do nákupu bez uloženia receptu.
+    $pocetReceptov = count(recepty_zo_stranky($p->get('index.php')->telo));
+    $o = $volaj('pridaj_do_nakupu', ['jedlo' => "Zemiakové placky $znacka", 'suroviny' => [
+        ['nazov' => 'hladká múka', 'mnozstvo' => 200, 'jednotka' => 'g'], ['nazov' => "Zemiaky $znacka", 'mnozstvo' => 1, 'jednotka' => 'kg'],
+    ]]);
+    over(($vysledok($o)['structuredContent']['pridane'] ?? 0) === 2 && in_array('Múka hladká', $vysledok($o)['structuredContent']['polozky'] ?? [], true)
+        && count(recepty_zo_stranky($p->get('index.php')->telo)) === $pocetReceptov,
+        'Asistent pridá suroviny z kuchárky do nákupu bez uloženia receptu', $o->popis());
+    $nakupText = (string) ($vysledok($volaj('zobraz_nakup', []))['content'][0]['text'] ?? '');
+    over(str_contains($nakupText, '350 g Múka hladká') && str_contains($nakupText, "Zemiaky $znacka"),
+        'Suroviny bez receptu sú v nákupe a zlúčia sa s rovnakými', $nakupText);
+    $o = $volaj('pridaj_do_nakupu', []);
+    over(($vysledok($o)['isError'] ?? false) === true, 'Bez receptu aj bez surovín asistent nič nepridá', $o->popis());
     $o = $mcp($kluc, 'tools/call', ['name' => 'zmaz_vsetko', 'arguments' => []]);
     over(($o->json()['error']['code'] ?? 0) === -32602, 'Neznámy nástroj sa odmietne', $o->popis());
     akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);

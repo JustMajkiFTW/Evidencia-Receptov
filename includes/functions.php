@@ -1845,18 +1845,26 @@ function po_odpovedi(?callable $uloha = null): void
  */
 const NAKUP_UPOZORNENIE_MINUT = 15;
 
-function shopping_notify(PDO $pdo, int $userId, string $kto, ?int $receptId, ?string $polozka, int $pocet = 0, string $cez = ''): void
+function shopping_notify(PDO $pdo, int $userId, string $kto, ?int $receptId, ?string $polozka, int $pocet = 0, string $cez = '', ?string $jedlo = null): void
 {
-    $upozornenie = shopping_notify_text($pdo, $userId, $kto, $receptId, $polozka, $pocet, $cez);
+    $upozornenie = shopping_notify_text($pdo, $userId, $kto, $receptId, $polozka, $pocet, $cez, $jedlo);
     if ($upozornenie !== null) {
         send_push_notification($pdo, null, 'Nákup 🛒', $upozornenie['text'], './?otvor=nakup', $userId, $upozornenie['tag']);
     }
 }
 
 /** Text a značka upozornenia na nákup (zvlášť kvôli testom). Návrat: ['text' => …, 'tag' => …] alebo null. */
-function shopping_notify_text(PDO $pdo, int $userId, string $kto, ?int $receptId, ?string $polozka, int $pocet = 0, string $cez = ''): ?array
+function shopping_notify_text(PDO $pdo, int $userId, string $kto, ?int $receptId, ?string $polozka, int $pocet = 0, string $cez = '', ?string $jedlo = null): ?array
 {
     $cez = $cez !== '' ? ' (cez ' . $cez . ')' : '';
+    // Suroviny na jedlo, ktoré v appke nie je (asistent z kuchárky, 2.9.3)
+    $jedlo = trim((string) $jedlo);
+    if ($receptId === null && $jedlo !== '') {
+        return [
+            'text' => $kto . ' pridal(a) do nákupu suroviny na „' . $jedlo . '"' . ($pocet > 0 ? ' (' . $pocet . ')' : '') . $cez,
+            'tag'  => 'nakup-jedlo-' . substr(md5(surovina_key($jedlo)), 0, 10),
+        ];
+    }
     if ($receptId !== null) {
         $recept = get_recipe($pdo, $receptId);
         return $recept ? [
