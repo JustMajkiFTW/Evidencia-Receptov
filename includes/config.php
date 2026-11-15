@@ -4,7 +4,9 @@
  * session ich PHP už neprijme (len vypíše varovanie), takže by sa vôbec
  * nepoužili. Preto sú tu, úplne na začiatku, a nie až na konci súboru.
  */
-if (session_status() === PHP_SESSION_NONE) {
+// APP_BEZ_SESSION: vstupy bez prihlásenia v prehliadači (mcp.php pre AI asistenta, verzia 2.6)
+// session nepotrebujú — každá požiadavka by inak založila nový súbor session.
+if (!defined('APP_BEZ_SESSION') && session_status() === PHP_SESSION_NONE) {
     // HTTPS priamo, alebo cez proxy hostingu, ktorá posiela X-Forwarded-Proto.
     $isHttps = (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
         || strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https'

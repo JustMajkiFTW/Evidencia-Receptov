@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/ai.php';
 require_once __DIR__ . '/includes/objednavky.php';
+require_once __DIR__ . '/includes/mcp.php'; // AI asistent cez MCP (verzia 2.6), vstup pre asistenta je mcp.php
 // ?recept=ID (odkaz z upozornenia) otvorí náhľad daného receptu. Ak treba najprv
 // prihlásenie, číslo receptu sa prenesie cez login.php a vráti späť sem.
 $openRecipeId = (isset($_GET['recept']) && ctype_digit((string) $_GET['recept'])) ? (int) $_GET['recept'] : 0;
@@ -34,7 +35,8 @@ $action = $_POST['action'] ?? $_GET['action'] ?? null;
 /* ------------------------------------------------------------------ */
 if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recipe', 'delete_photo', 'get_logs', 'rate_recipe', 'save_push_subscription',
         'shopping_get', 'shopping_add_recipe', 'shopping_add_item', 'shopping_toggle', 'shopping_delete', 'shopping_clear',
-        'ai_rozpoznaj', 'objednavky_get', 'objednavka_ulozit', 'objednavka_zmazat', 'objednavka_hodnotit'], true)
+        'ai_rozpoznaj', 'objednavky_get', 'objednavka_ulozit', 'objednavka_zmazat', 'objednavka_hodnotit',
+        'ai_pripojenia_get', 'ai_pripojenie_vytvor', 'ai_pripojenie_zrus'], true)
         && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -179,6 +181,21 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
             $result = ai_rozpoznaj($pdo, $userId, $_FILES['fotka'] ?? null, is_admin());
             break;
 
+        /* ---------------- AI asistent cez MCP (includes/mcp.php, verzia 2.6) ---------------- */
+        case 'ai_pripojenia_get':
+        case 'ai_pripojenie_vytvor':
+        case 'ai_pripojenie_zrus':
+            if (!ai_pripojenia_available($pdo)) {
+                $result = ['success' => false, 'error' => 'Pripojenie k AI asistentovi ešte nie je v databáze pripravené.'];
+            } elseif ($action === 'ai_pripojenie_vytvor') {
+                $result = ai_pripojenie_vytvor($pdo, $userId, (string) ($_POST['nazov'] ?? ''));
+            } elseif ($action === 'ai_pripojenie_zrus') {
+                $result = ai_pripojenie_zrus($pdo, $userId, (int) ($_POST['pripojenie_id'] ?? 0));
+            } else {
+                $result = ['success' => true, 'pripojenia' => ai_pripojenia_zoznam($pdo, $userId)];
+            }
+            break;
+
         /* ---------------- Nákupný zoznam ---------------- */
         case 'shopping_get':
         case 'shopping_add_recipe':
@@ -320,6 +337,8 @@ $objednavkyHodnotenia = objednavky_maju_hodnotenia($pdo); // verzia 2.5, bez mig
 // Recept z fotky: zapnuté, keď je v .env kľúč aspoň k jednej AI službe (includes/ai.php).
 $aiEnabled = ai_dostupne() && $currentUserId !== null;
 $aiZostava = $aiEnabled ? ai_zostava($pdo, $currentUserId) : null;
+// AI asistent (Claude…) cez MCP, verzia 2.6: bez sql/migracia-2.6.sql sa v nastaveniach neukáže.
+$aiAsistentEnabled = ai_pripojenia_available($pdo) && $currentUserId !== null;
 // Oslovenie v mobilnej hlavičke: krstné meno (prvé slovo celého mena), inak prihlasovacie meno.
 $menoOslovenie = trim((string) ($user['full_name'] ?? ''));
 $menoOslovenie = $menoOslovenie !== '' ? explode(' ', $menoOslovenie)[0] : (string) ($user['username'] ?? '');
@@ -362,7 +381,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=40">
+    <link rel="stylesheet" href="style.css?v=41">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -422,6 +441,11 @@ header('X-Recepty-Offline: 1');
         <button type="button" class="app-bocna-polozka app-bocna-nastavenie" onclick="setupPasskeyFromApp()" data-vyzaduje-siet>
             <i class="bi bi-fingerprint" aria-hidden="true"></i><span class="app-bocna-text">Prihlásenie odtlačkom</span>
         </button>
+        <?php if ($aiAsistentEnabled): ?>
+        <button type="button" class="app-bocna-polozka app-bocna-nastavenie" onclick="openAiAsistent()" data-vyzaduje-siet>
+            <i class="bi bi-stars" aria-hidden="true"></i><span class="app-bocna-text">AI asistent</span>
+        </button>
+        <?php endif; ?>
         <div class="app-bocna-pouzivatel">
             <span class="app-bocna-inicialy" aria-hidden="true"><?= htmlspecialchars($menoInicialy) ?></span>
             <span class="app-bocna-meno">
@@ -1436,6 +1460,13 @@ header('X-Recepty-Offline: 1');
                         <span class="viac-text">Upozornenia</span>
                         <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
                     </button>
+                    <?php if ($aiAsistentEnabled): ?>
+                    <button type="button" class="viac-riadok" onclick="openAiAsistent()" data-vyzaduje-siet>
+                        <i class="bi bi-stars viac-ikona" aria-hidden="true"></i>
+                        <span class="viac-text">AI asistent<small>Claude: recepty aj hlasom</small></span>
+                        <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
+                    </button>
+                    <?php endif; ?>
                     <?php if (is_admin()): ?>
                     <a href="admin/index.php" class="viac-riadok" data-vyzaduje-siet>
                         <i class="bi bi-gear viac-ikona" aria-hidden="true"></i>
@@ -1451,6 +1482,66 @@ header('X-Recepty-Offline: 1');
         </div>
     </div>
 </div>
+<?php if ($aiAsistentEnabled): ?>
+<!-- ================= MODAL: AI asistent (verzia 2.6) =================
+     Vlastná súkromná adresa pre Claude (MCP, mcp.php). Adresa sa ukáže len raz,
+     v databáze je iba jej odtlačok. Ovláda script.js (openAiAsistent). -->
+<div class="modal fade" id="aiAsistentModal" tabindex="-1" aria-hidden="true" aria-labelledby="aiAsistentTitle">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="aiAsistentTitle"><i class="bi bi-stars me-2 text-warning" aria-hidden="true"></i>AI asistent</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+            </div>
+            <div class="modal-body ai-asistent">
+                <p class="ai-asistent-uvod">Pripoj appku k asistentovi <strong>Claude</strong>. Potom mu stačí napísať alebo povedať napríklad:</p>
+                <ul class="ai-asistent-priklady">
+                    <li>„Nájdi recept na bábovku a ulož ho do Evidencie receptov.“</li>
+                    <li>„Kedy sme naposledy robili sviečkovú?“</li>
+                    <li>„Daj suroviny na guláš do nákupu.“</li>
+                    <li>„Zapíš, že sme dnes varili rizoto.“</li>
+                </ul>
+                <p class="ai-asistent-pozn">Všetko, čo asistent v appke urobí, sa zapíše pod tvojím menom.</p>
+
+                <h6 class="ai-asistent-krok"><span>1</span>Vytvor si adresu</h6>
+                <div id="aiAsistentNova">
+                    <label class="form-label small text-secondary" for="aiAsistentNazov">Pomenovanie (napr. Claude, Claude v telefóne)</label>
+                    <div class="ai-asistent-nova">
+                        <input type="text" id="aiAsistentNazov" class="form-control" value="Claude" maxlength="50" autocomplete="off">
+                        <button type="button" class="btn btn-primary fw-semibold" id="aiAsistentVytvor">Vytvoriť adresu</button>
+                    </div>
+                </div>
+                <div id="aiAsistentAdresaWrap" class="d-none">
+                    <div class="alert alert-warning small py-2 mb-2">
+                        <strong>Skopíruj si ju teraz</strong>, appka ju už znova neukáže. Nikomu ju neposielaj:
+                        kto ju má, môže v appke pridávať recepty pod tvojím menom.
+                    </div>
+                    <div class="ai-asistent-adresa">
+                        <input type="text" id="aiAsistentAdresa" class="form-control" readonly aria-label="Adresa pre AI asistenta">
+                        <button type="button" class="btn btn-primary fw-semibold" id="aiAsistentKopiruj">
+                            <i class="bi bi-clipboard me-1" aria-hidden="true"></i>Kopírovať
+                        </button>
+                    </div>
+                </div>
+
+                <h6 class="ai-asistent-krok"><span>2</span>Vlož ju do Claude</h6>
+                <ol class="ai-asistent-postup">
+                    <li>Otvor v prehliadači <a href="https://claude.ai/settings/connectors" target="_blank" rel="noopener">claude.ai → Nastavenia → Konektory</a>.</li>
+                    <li>Klikni na <strong>Pridať vlastný konektor</strong> (Add custom connector).</li>
+                    <li>Názov: <strong>Recepty</strong>, URL: vlož skopírovanú adresu a potvrď.</li>
+                    <li>V appke Claude v telefóne sa konektor objaví sám, potom už len povedz, čo chceš.</li>
+                </ol>
+                <p class="ai-asistent-pozn">Aj v bezplatnej verzii Claude sa dá pridať jeden vlastný konektor.
+                    Funguje to aj s inými asistentmi, ktorí podporujú vlastné MCP konektory.</p>
+
+                <h6 class="ai-asistent-krok ai-asistent-krok-bez-cisla">Tvoje pripojenia</h6>
+                <div id="aiAsistentZoznam" class="ai-asistent-zoznam" aria-live="polite"></div>
+                <div class="alert alert-danger py-2 small d-none mt-2" id="aiAsistentChyba"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <!-- ================= MODAL: Uvarené (dátum + voliteľná fotka) ================= -->
 <div class="modal fade" id="madeModal" tabindex="-1" aria-hidden="true" aria-labelledby="madeModalTitle">
     <div class="modal-dialog modal-dialog-centered">
@@ -1641,7 +1732,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=40"></script>
+<script src="script.js?v=41"></script>
 </body>
 </html>
 <?php

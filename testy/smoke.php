@@ -641,6 +641,125 @@ foreach (['id="viewPcUpravit"', 'id="viewPcHistoria"', 'id="viewPcZdielat"', 'id
 over(!$chybajuce, 'Náhľad receptu má akcie s popisom, zoradenie a počet receptov', implode(', ', $chybajuce));
 
 /* ---------------------------------------------------------------------- */
+/* 5d. AI asistent cez MCP (verzia 2.6, tabuľka z migracia-2.6.sql) —       */
+/*     adresa z appky, asistent sa pripojí, hľadá, pridá recept, zapíše     */
+/*     varenie; zrušená adresa už nefunguje. Bez migrácie nič nespadne.    */
+/* ---------------------------------------------------------------------- */
+echo "\nAI asistent (MCP)\n";
+$asistent = new Prehliadac($adresa); // ako Claude: bez cookies appky, len s adresou
+/** Jedna správa JSON-RPC na mcp.php. */
+$mcp = static function (string $kluc, string $metoda, array $parametre = [], ?int $id = 1) use ($asistent): Odpoved {
+    $sprava = ['jsonrpc' => '2.0', 'method' => $metoda] + ($parametre ? ['params' => $parametre] : []);
+    if ($id !== null) {
+        $sprava['id'] = $id;
+    }
+    return $asistent->postJson('mcp.php?kluc=' . $kluc, $sprava);
+};
+$stranka = $p->get('index.php')->telo;
+$o = $asistent->get('mcp.php');
+over($o->kod === 405 && isset($o->json()['error']), 'mcp.php otvorený v prehliadači (GET) odpovie 405 a JSON', $o->popis());
+
+if ($plny) {
+    over(str_contains($stranka, 'id="aiAsistentModal"') && str_contains($stranka, 'onclick="openAiAsistent()"'),
+        'Nastavenia ponúkajú AI asistenta (okno aj tlačidlo)');
+    $o = akcia($p, $csrf, 'ai_pripojenie_vytvor', ['nazov' => "Claude test $znacka"]);
+    $adresaMcp = (string) ($o->json()['adresa'] ?? '');
+    over(uspech($o) && preg_match('~/mcp\.php\?kluc=([a-f0-9]{48})$~', $adresaMcp, $m) === 1, 'Vytvorenie adresy pre asistenta', $o->popis());
+    $kluc = $m[1] ?? '';
+    $pripojenia = $o->json()['pripojenia'] ?? [];
+    over(in_array("Claude test $znacka", array_column($pripojenia, 'nazov'), true) && !str_contains(json_encode($pripojenia), $kluc),
+        'Pripojenie je v zozname a kľúč sa v zozname neukazuje');
+    $o = akcia($p, 'zly-token', 'ai_pripojenie_vytvor', ['nazov' => 'Bez tokenu']);
+    over($o->kod === 403, 'Vytvorenie adresy s neplatným tokenom sa odmietne', $o->popis());
+
+    $o = $mcp($kluc, 'initialize', ['protocolVersion' => '2025-06-18', 'capabilities' => new stdClass(),
+        'clientInfo' => ['name' => 'smoke-test', 'version' => '1']]);
+    $init = $o->json()['result'] ?? [];
+    over($o->kod === 200 && ($init['protocolVersion'] ?? '') === '2025-06-18' && isset($init['capabilities']['tools']),
+        'Asistent sa pripojí (initialize, verzia protokolu podľa klienta)', $o->popis());
+    over(str_contains((string) ($init['instructions'] ?? ''), 'Testovací') || str_contains((string) ($init['instructions'] ?? ''), $meno),
+        'Pokyny pre asistenta obsahujú meno používateľa');
+    $o = $mcp($kluc, 'notifications/initialized', [], null);
+    over($o->kod === 202 && trim($o->telo) === '', 'Oznámenie (bez id) dostane 202 bez odpovede', $o->popis());
+    $o = $mcp($kluc, 'tools/list');
+    $nastroje = array_column($o->json()['result']['tools'] ?? [], 'name');
+    over(!array_diff(['najdi_recepty', 'zobraz_recept', 'pridaj_recept', 'zapis_varenie', 'pridaj_do_nakupu', 'zobraz_nakup'], $nastroje),
+        'Asistent vidí všetky nástroje', implode(', ', $nastroje));
+
+    $volaj = static fn(string $nastroj, array $argumenty) => $mcp($kluc, 'tools/call', ['name' => $nastroj, 'arguments' => $argumenty]);
+    $vysledok = static fn(Odpoved $o): array => $o->json()['result'] ?? [];
+
+    $nazovMcp = "Bábovka od asistenta $znacka";
+    $o = $volaj('pridaj_recept', [
+        'nazov' => $nazovMcp, 'kategoria' => 'dezerty a pecenie', 'porcie' => 8, 'cas_pripravy' => 60,
+        'postup' => "1. Vymiešaj.\n2. Upeč.",
+        'suroviny' => [
+            ['nazov' => 'hladká múka', 'mnozstvo' => 300, 'jednotka' => 'g'],   // poradie slov → Múka hladká
+            ['nazov' => 'Kakao', 'mnozstvo' => 2, 'jednotka' => 'pl'],         // malé písmená v jednotke → PL
+            ['nazov' => 'Mlieko', 'mnozstvo' => 1, 'jednotka' => 'hrnček'],    // neznáma jednotka → poznámka
+            ['nazov' => "Asistentova surovina $znacka", 'mnozstvo' => 1, 'jednotka' => 'ks'],
+        ],
+    ]);
+    $r = $vysledok($o);
+    $mcpId = (int) ($r['structuredContent']['id'] ?? 0);
+    over($o->kod === 200 && ($r['isError'] ?? true) === false && $mcpId > 0, 'Asistent pridá recept', $o->popis());
+    over(in_array('Hladká múka → Múka hladká', $r['structuredContent']['naparovane_suroviny'] ?? [], true),
+        'Surovina s iným poradím slov sa napáruje na číselník', json_encode($r['structuredContent'] ?? null, JSON_UNESCAPED_UNICODE));
+    $recept = recepty_zo_stranky($p->get('index.php')->telo)[$mcpId] ?? null;
+    over(($recept['name'] ?? '') === $nazovMcp && ($recept['category'] ?? '') === 'Dezerty' && (int) ($recept['servings'] ?? 0) === 8,
+        'Recept od asistenta je v appke s kategóriou a porciami', json_encode($recept, JSON_UNESCAPED_UNICODE));
+    $surovinyMcp = array_column($recept['suroviny'] ?? [], null, 'nazov');
+    over(($surovinyMcp['Kakao']['jednotka'] ?? '') === 'PL' && ($surovinyMcp['Mlieko']['poznamka'] ?? '') === 'hrnček' && isset($surovinyMcp['Múka hladká']),
+        'Jednotky sa opravia (pl → PL, hrnček do poznámky)', json_encode($recept['suroviny'] ?? null, JSON_UNESCAPED_UNICODE));
+    $o = akcia($p, $csrf, 'get_logs', ['recipe_id' => $mcpId]);
+    over(str_contains($o->telo, "Claude test $znacka"), 'V histórii receptu je, že ho pridal asistent', $o->popis());
+
+    $o = $volaj('pridaj_recept', ['nazov' => mb_strtoupper($nazovMcp)]);
+    over(($vysledok($o)['isError'] ?? false) === true && !isset(recepty_zo_stranky($p->get('index.php')->telo)[$mcpId + 1]),
+        'Rovnaký recept druhýkrát sa neuloží (ochrana pred zdvojením)', $o->popis());
+    $o = $volaj('najdi_recepty', ['dotaz' => "babovka asistenta $znacka"]);
+    over(($vysledok($o)['structuredContent']['recepty'][0]['id'] ?? 0) === $mcpId, 'Asistent nájde recept bez diakritiky', $o->popis());
+    $o = $volaj('zobraz_recept', ['id' => $mcpId]);
+    over(str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), '300 g Múka hladká'), 'Asistent zobrazí recept so surovinami', $o->popis());
+    $o = $volaj('zapis_varenie', ['id' => $mcpId, 'datum' => $vcera]);
+    over(($vysledok($o)['isError'] ?? true) === false
+        && (recepty_zo_stranky($p->get('index.php')->telo)[$mcpId]['lastMadeDate'] ?? '') === $vcera, 'Asistent zapíše varenie', $o->popis());
+    $o = $volaj('zapis_varenie', ['id' => $mcpId, 'datum' => '2099-01-01']);
+    over(($vysledok($o)['isError'] ?? false) === true, 'Varenie v budúcnosti asistent nezapíše', $o->popis());
+    $o = $volaj('pridaj_do_nakupu', ['id' => $mcpId, 'porcie' => 4]);
+    over(($vysledok($o)['structuredContent']['pridane'] ?? 0) === 4, 'Asistent pridá suroviny do nákupu', $o->popis());
+    $o = $volaj('zobraz_nakup', []);
+    over(str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), '150 g Múka hladká'), 'Asistent vidí nákup s prepočítaným množstvom', $o->popis());
+    $o = $mcp($kluc, 'tools/call', ['name' => 'zmaz_vsetko', 'arguments' => []]);
+    over(($o->json()['error']['code'] ?? 0) === -32602, 'Neznámy nástroj sa odmietne', $o->popis());
+    akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);
+
+    $o = $mcp(str_repeat('0', 48), 'tools/list');
+    over($o->kod === 403 && isset($o->json()['error']), 'Neplatná adresa sa odmietne (403)', $o->popis());
+    $idPripojenia = 0;
+    foreach (akcia($p, $csrf, 'ai_pripojenia_get')->json()['pripojenia'] ?? [] as $pr) {
+        if ($pr['nazov'] === "Claude test $znacka") {
+            $idPripojenia = (int) $pr['id'];
+            over(!empty($pr['pouzite']), 'Pri pripojení sa ukazuje, kedy bolo naposledy použité');
+        }
+    }
+    $o = akcia($p, $csrf, 'ai_pripojenie_zrus', ['pripojenie_id' => $idPripojenia]);
+    over(uspech($o) && !in_array($idPripojenia, array_column($o->json()['pripojenia'] ?? [], 'id'), true), 'Zrušenie pripojenia', $o->popis());
+    $o = $mcp($kluc, 'tools/list');
+    over($o->kod === 403, 'Zrušená adresa už nefunguje', $o->popis());
+    foreach (akcia($p, $csrf, 'ai_pripojenia_get')->json()['pripojenia'] ?? [] as $pr) {
+        akcia($p, $csrf, 'ai_pripojenie_zrus', ['pripojenie_id' => $pr['id']]);
+    }
+    akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $mcpId]);
+} else {
+    over(!str_contains($stranka, 'id="aiAsistentModal"'), 'Bez migrácie 2.6 sa AI asistent v nastaveniach neukáže');
+    $o = akcia($p, $csrf, 'ai_pripojenie_vytvor', ['nazov' => 'Claude']);
+    over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Vytvorenie adresy bez migrácie sa odmietne a nespadne', $o->popis());
+    $o = $mcp(str_repeat('0', 48), 'tools/list');
+    over($o->kod === 503 && isset($o->json()['error']), 'mcp.php bez migrácie odpovie 503 a JSON', $o->popis());
+}
+
+/* ---------------------------------------------------------------------- */
 /* 6. Mazanie receptu                                                      */
 /* ---------------------------------------------------------------------- */
 echo "\nMazanie\n";

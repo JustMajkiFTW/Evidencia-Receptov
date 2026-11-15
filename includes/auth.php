@@ -7,7 +7,7 @@
  * registrácia neexistuje.
  */
 
-if (session_status() === PHP_SESSION_NONE) {
+if (!defined('APP_BEZ_SESSION') && session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 

@@ -277,6 +277,25 @@ CREATE TABLE IF NOT EXISTS `objednavky_hodnotenia` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------------------------------------------------
+-- AI asistent (od 2.6): Claude a iní cez MCP (mcp.php)
+-- ----------------------------------------------------------------------
+
+-- Pripojenia k AI asistentom: jeden riadok = jedna súkromná adresa používateľa.
+-- Z adresy je uložený len odtlačok (SHA-256), appka ju ukáže iba raz.
+CREATE TABLE IF NOT EXISTS `ai_pripojenia` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` int(10) UNSIGNED NOT NULL,
+  `nazov` varchar(50) NOT NULL DEFAULT 'Claude',  -- pomenovanie od používateľa (ukazuje sa aj v histórii)
+  `kluc_hash` char(64) NOT NULL,                 -- SHA-256 odtlačok tajného kľúča z adresy
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `last_used_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ai_pripojenia_hash` (`kluc_hash`),
+  KEY `idx_ai_pripojenia_user` (`user_id`),
+  CONSTRAINT `fk_ai_pripojenia_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ----------------------------------------------------------------------
 -- Základný zoznam surovín (418 položiek v 14 kategóriách)
 -- ----------------------------------------------------------------------
 

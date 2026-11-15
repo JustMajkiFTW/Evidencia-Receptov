@@ -24,6 +24,7 @@ Videá, ako sa pridáva recept (z fotky cez AI aj ručne), a ďalšie ukážky z
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty bez internetu** (len na čítanie).
 - **Recept z fotky.** AI (Gemini, Claude alebo OpenAI) z fotky jedla alebo kuchárky navrhne celý recept, ty ho skontroluješ a uložíš. Nepovinné.
+- **AI asistent (Claude).** Appka sa dá pripojiť k asistentovi Claude. Potom mu stačí napísať alebo povedať, nech recept nájde a uloží do appky, zapíše varenie alebo pridá suroviny do nákupu. Každý si v nastaveniach vytvorí vlastnú adresu a všetko sa zapisuje pod jeho menom. Nepovinné, pozri [AI asistent](#ai-asistent-claude).
 - **Rozloženie pre telefón** (spodná lišta Recepty, Objednané, Pridať, Nákup, Viac, formulár v troch krokoch) a **pre PC** (bočná ponuka), svetlý a tmavý vzhľad. Rýchle dvojité ťuknutie stránku na telefóne nepriblíži, zväčšiť sa dá dvoma prstami.
 - **Správa** používateľov, kategórií a surovín pre admina, v rovnakom vzhľade ako zvyšok appky (na PC bočná ponuka, na telefóne spodná lišta).
 
@@ -97,6 +98,28 @@ Vzor je v `includes/.env.example`. Súbor obsahuje heslá, preto nepatrí na Git
 
 Premenné `AI_ADRESA_…` slúžia len na testy, v prevádzke ich nevypĺňaj.
 
+## AI asistent (Claude)
+
+Appka má vstup pre AI asistentov cez **MCP** (Model Context Protocol): `mcp.php`. Asistent cez neho na pokyn používateľa, aj hlasom, robí to isté ako tlačidlá v appke. Nič netreba nastavovať v `.env`, stačí migrácia `sql/migracia-2.6.sql`.
+
+**Pripojenie (každý člen rodiny zvlášť):**
+
+1. V appke **Viac → AI asistent** (na PC **Nastavenia → AI asistent**) zvoľ **Vytvoriť adresu** a skopíruj ju. Appka ju ukáže len raz, v databáze je iba jej odtlačok.
+2. V prehliadači otvor [claude.ai → Nastavenia → Konektory](https://claude.ai/settings/connectors), zvoľ **Pridať vlastný konektor**, názov `Recepty` a ako URL vlož adresu.
+3. V mobilnej appke Claude sa konektor objaví sám. Bezplatná verzia Claude dovolí jeden vlastný konektor.
+
+Asistent koná pod menom toho, komu adresa patrí: recept od neho má v histórii poznámku „Pridané cez AI asistenta“ a ostatným príde upozornenie ako pri bežnom pridaní. Adresa sa dá v tom istom okne kedykoľvek zrušiť, jeden používateľ môže mať najviac 5 adries. Zablokovaný používateľ sa cez adresu nepripojí.
+
+| Nástroj | Čo robí |
+|---|---|
+| `najdi_recepty` | Hľadá podľa názvu, surovín alebo kategórie (bez ohľadu na diakritiku), aj „čo sme dlho nevarili". |
+| `zobraz_recept` | Celý recept so surovinami a postupom. |
+| `pridaj_recept` | Uloží nový recept. Suroviny napáruje na číselník (aj s iným poradím slov alebo preklepom), nové pridá. Rovnaký názov druhýkrát neuloží. |
+| `zapis_varenie` | Ako tlačidlo Uvarené, aj so spätným dátumom. |
+| `pridaj_do_nakupu`, `zobraz_nakup` | Suroviny receptu do nákupu (aj na iný počet porcií) a čo treba kúpiť. |
+
+Funguje to s každým asistentom, ktorý vie pripojiť vlastný MCP server cez adresu. Stav k novembru 2026: Claude áno (aj zadarmo), ChatGPT dovolí zapisovať len vo firemných plánoch, Gemini má vlastné appky zatiaľ len v Spark mimo EÚ.
+
 ## Nová verzia na serveri
 
 ### Automaticky cez GitHub
@@ -139,7 +162,7 @@ Kým migrácia nie je naimportovaná, appka beží ďalej, len bez nových funkc
 
 PHP 8.4 bez frameworku, MariaDB cez PDO, čistý JavaScript bez zostavovania, Bootstrap 5.3 a Bootstrap Icons z CDN. Jediná knižnica cez Composer je `web-auth/webauthn-lib` na biometriu.
 
-Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.php` s parametrom `action`, vracajú JSON a vyžadujú prihlásenie a CSRF token.
+Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.php` s parametrom `action`, vracajú JSON a vyžadujú prihlásenie a CSRF token. Výnimka je `mcp.php` pre AI asistenta: prijíma správy JSON-RPC (MCP, Streamable HTTP bez stavu, verzie protokolu 2024-11-05 až 2025-11-25) a namiesto prihlásenia overí tajný kľúč z adresy (`?kluc=…`, prípadne `Authorization: Bearer`).
 
 ### Súbory
 
@@ -149,6 +172,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `login.php`, `logout.php` | Prihlásenie a odhlásenie. |
 | `install.php` | Sprievodca prvou inštaláciou, potom sa maže. |
 | `cron.php` | Denné pripomienky, chránené kľúčom `CRON_KEY`. |
+| `mcp.php` | Vstup pre AI asistenta (MCP): overí kľúč z adresy a odpovie na správy JSON-RPC. Bez session a bez prihlásenia. |
 | `script.js` | Logika hlavnej stránky v prehliadači, aj rozloženie pre telefón a PC. Stránky Recepty a Objednané jedlo (`index.php#objednane`) sa prepínajú bez načítania, tlačidlo Späť v prehliadači funguje. Adresa `index.php?otvor=pridat`, `nakup`, `viac` alebo `objednavky` otvorí príslušné okno (odkazy zo Správy). |
 | `suroviny.js` | Výber surovín, kľúč suroviny, návrh pri preklepe a prepočet jednotiek. |
 | `theme.js`, `webauthn-client.js`, `style.css` | Motív a prepnutie na HTTPS, biometria v prehliadači, štýly. |
@@ -160,6 +184,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `includes/webpush.php` | Odosielanie upozornení (šifrovanie a podpis cez openssl a curl). |
 | `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok aj s fotkou, kto ich môže zmazať. |
 | `includes/ai.php` | Recept z fotky: volanie AI služieb, kontrola odpovede, párovanie surovín, denný limit. |
+| `includes/mcp.php` | AI asistent: adresy (vytvorenie, overenie, zrušenie), popis nástrojov pre asistenta a ich vykonanie nad funkciami appky. |
 | `includes/sprava.php` | Spoločné rozloženie stránok Správy: bočná ponuka na PC, tlačidlá častí a spodná lišta na telefóne. |
 | `webauthn/` | Serverová časť biometrie. |
 | `sql/` | `instalacia.sql` pre novú inštaláciu a `migracia-X.Y.sql` pre aktualizácie. |
@@ -178,6 +203,7 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 | Suroviny a nákup | `suroviny`, `recept_suroviny`, `recept_suroviny_zaloha`, `nakupny_zoznam` |
 | Recept z fotky | `ai_rozpoznania` (denný limit) |
 | Objednané jedlo | `objednane_jedla` (Wolt, Bolt Food…, s receptami nesúvisí), `objednavky_hodnotenia` |
+| AI asistent | `ai_pripojenia` (adresy pre Claude a iných, len odtlačky kľúčov) |
 
 | Migrácia | Čo pridá |
 |---|---|
@@ -187,6 +213,7 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 | `migracia-2.2.sql` | Tabuľku `objednane_jedla`. |
 | `migracia-2.4.sql` | Stĺpec `foto` v `objednane_jedla` (fotka objednávky). |
 | `migracia-2.5.sql` | Tabuľku `objednavky_hodnotenia` (hodnotenie objednávok hviezdičkami). |
+| `migracia-2.6.sql` | Tabuľku `ai_pripojenia` (AI asistent cez MCP). |
 
 ### Pravidlá pre novú verziu
 
@@ -202,7 +229,7 @@ Okrem pravidla o migráciách, ktoré len pridávajú, všetko ostatné skontrol
 
 ### Testy
 
-`testy/spusti-testy.sh` beží na GitHube pri každom nahratí do `main` a pred nahratím na server. Overí syntax PHP, pravidlá vyššie, novú inštaláciu, beh novej appky nad databázou predchádzajúcej verzie, migrácie a celý priechod appkou (`testy/smoke.php` sa prihlási, pridá a upraví recept, použije nákup, správu a ďalšie). Offline režim v prehliadači treba vyskúšať ručne.
+`testy/spusti-testy.sh` beží na GitHube pri každom nahratí do `main` a pred nahratím na server. Overí syntax PHP, pravidlá vyššie, novú inštaláciu, beh novej appky nad databázou predchádzajúcej verzie, migrácie a celý priechod appkou (`testy/smoke.php` sa prihlási, pridá a upraví recept, použije nákup, správu, pripojí sa ako AI asistent cez `mcp.php` a ďalšie). Offline režim v prehliadači treba vyskúšať ručne.
 
 Na vlastnom počítači (PHP 8.4.1+, bežiaca MariaDB, stiahnutý `vendor/`):
 
@@ -225,6 +252,7 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Upozornenia nechodia | Používateľ ich nepovolil, appka nebeží na HTTPS, alebo je v logu `PUSH ZLYHAL`. Na iPhone len v appke z plochy. |
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou alebo appka nebeží na HTTPS. |
 | Pri novom recepte sa „Naposledy varené“ neuložilo | Safari na iPhone ukazuje v prázdnom dátumovom poli dnešný dátum, hoci v ňom nič nie je. Použi tlačidlo Dnes / Včera alebo v kalendári ťukni na deň; pod poľom je napísané, čo sa uloží. |
+| Claude sa nevie pripojiť ku konektoru | Adresa bola zrušená alebo zle skopírovaná (v appke vytvor novú), alebo nie je spustená `migracia-2.6.sql`. V `includes/debug-log.txt` hľadaj `AI ASISTENT`. |
 | Po nahratí novej verzie starý vzhľad | V `sw.js` nebol zvýšený `CACHE_NAME`. |
 | Bez internetu sa ukáže „Si offline" | Appka sa v zariadení ešte neotvorila s internetom po prihlásení. |
 | V logu `FOTKY`, `KATEGÓRIE`, `SUROVINY`, `OBJEDNAVKY`… | V databáze chýba tabuľka, naimportuj migráciu. |
@@ -237,6 +265,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.6** AI asistent: appka sa dá pripojiť k Claude cez MCP (`mcp.php`). Asistent na pokyn, aj hlasom, nájde a zobrazí recept, uloží nový recept (suroviny napáruje na číselník, rovnaký názov druhýkrát neuloží), zapíše varenie a pridá suroviny do nákupu. Každý používateľ si vo Viac / Nastaveniach vytvorí vlastnú adresu (ukáže sa len raz, v databáze je odtlačok) a môže ju zrušiť, všetko sa zapisuje pod jeho menom a ostatným príde upozornenie. Migrácia `migracia-2.6.sql`.
 - **2.5.2** Šípka hore: keď sa stránka (recepty aj Objednané jedlo) posunie aspoň o obrazovku nižšie, vpravo dole sa ukáže okrúhle tlačidlo so šípkou, ktoré vráti na začiatok. Na telefóne je nad spodnou lištou, na PC v pravom dolnom rohu. Databáza sa nemení.
 - **2.5.1** Oprava „Naposledy varené“ pri pridávaní receptu: na iPhone sa dátum často neuložil (Safari ukazuje v prázdnom poli dnešný dátum, hoci v ňom nič nie je), a tak bol nový recept „ešte nevarený“. Pod poľom pribudli veľké tlačidlá Dnes, Včera a vymazať a text, čo sa naozaj uloží. Najvyšší dátum (dnes) sa nastaví pri každom otvorení formulára, aby appka otvorená v telefóne niekoľko dní neodmietla dnešný dátum. Databáza sa nemení.
 - **2.5** Objednané jedlo: klik na objednávku otvorí náhľad ako pri recepte (fotka, údaje, čo sme mali), upraviť a zmazať sa dá z neho. Hodnotenie hviezdičkami (každý jedno, priemer v zozname aj v náhľade). Upozornenie ostatným pri novej objednávke a autorovi pri hodnotení, ťuknutie otvorí náhľad objednávky (aj cez prihlásenie). Migrácia `migracia-2.5.sql`.

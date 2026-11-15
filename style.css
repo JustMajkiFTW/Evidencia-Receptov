@@ -2798,3 +2798,52 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 @media (prefers-reduced-motion: reduce) {
     .hore-tlacidlo, .hore-tlacidlo.je-videt { transition: none; }
 }
+
+/* ── AI asistent (verzia 2.6): adresa pre Claude, kroky, zoznam pripojení ── */
+.ai-asistent { font-size: 1rem; }
+.ai-asistent-uvod { margin-bottom: .5rem; }
+.ai-asistent-priklady { padding-left: 1.2rem; margin-bottom: .75rem; color: var(--app-text); }
+.ai-asistent-priklady li { margin-bottom: .25rem; font-style: italic; }
+.ai-asistent-pozn { font-size: .92rem; color: var(--app-muted-text); }
+.ai-asistent-krok {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin: 1.4rem 0 .7rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+.ai-asistent-krok span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--app-accent);
+    color: #fff;
+    font-size: .95rem;
+}
+.ai-asistent-nova, .ai-asistent-adresa { display: flex; gap: .5rem; }
+.ai-asistent-nova .form-control, .ai-asistent-adresa .form-control { min-height: 48px; flex: 1; min-width: 0; }
+.ai-asistent-nova .btn, .ai-asistent-adresa .btn { min-height: 48px; white-space: nowrap; border-radius: 12px; }
+.ai-asistent-adresa .form-control { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; }
+.ai-asistent-postup { padding-left: 1.3rem; }
+.ai-asistent-postup li { margin-bottom: .4rem; }
+.ai-asistent-zoznam { display: flex; flex-direction: column; gap: .5rem; }
+.ai-asistent-pripojenie {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .65rem .8rem;
+    border: 1px solid var(--app-border);
+    border-radius: 14px;
+    background: var(--app-plocha);
+}
+.ai-asistent-pripojenie-text { flex: 1; min-width: 0; }
+.ai-asistent-pripojenie-text strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-asistent-pripojenie-text small { color: var(--app-muted-text); }
+.ai-asistent-pripojenie .btn { min-height: 44px; border-radius: 12px; }
+@media (max-width: 420px) {
+    .ai-asistent-nova, .ai-asistent-adresa { flex-direction: column; }
+}

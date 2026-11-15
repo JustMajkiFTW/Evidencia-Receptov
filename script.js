@@ -3431,3 +3431,153 @@ window.aiRecept = (function initAiRecept() {
     });
     aktualizuj(); // obnovenie stránky v strede zoznamu
 })();
+
+/* ========================================================================
+   AI asistent (verzia 2.6) — súkromná adresa pre Claude (MCP, mcp.php).
+   Vytvorenie adresy (ukáže sa len raz), kopírovanie a zrušenie pripojení.
+   Otvára sa z Nastavení na PC a z okna Viac na telefóne.
+   ======================================================================== */
+const aiAsistent = (function initAiAsistent() {
+    const modalEl = document.getElementById('aiAsistentModal');
+    if (!modalEl) return null;
+    const $ = (id) => document.getElementById(id);
+    const zoznamEl = $('aiAsistentZoznam');
+    const chybaEl = $('aiAsistentChyba');
+    const vytvorBtn = $('aiAsistentVytvor');
+
+    function ukazChybu(text) {
+        chybaEl.textContent = text || '';
+        chybaEl.classList.toggle('d-none', !text);
+    }
+
+    /** „2026-11-15 12:03:00" → „15. 11. 2026" */
+    const datum = (hodnota) => formatSkDate(String(hodnota || '').slice(0, 10));
+
+    function vykresli(pripojenia) {
+        zoznamEl.replaceChildren();
+        if (!pripojenia.length) {
+            const prazdne = document.createElement('p');
+            prazdne.className = 'ai-asistent-pozn mb-0';
+            prazdne.textContent = 'Zatiaľ žiadne. Vytvor si adresu v kroku 1.';
+            zoznamEl.append(prazdne);
+            return;
+        }
+        pripojenia.forEach((p) => {
+            const riadok = document.createElement('div');
+            riadok.className = 'ai-asistent-pripojenie';
+            const text = document.createElement('div');
+            text.className = 'ai-asistent-pripojenie-text';
+            const nazov = document.createElement('strong');
+            nazov.textContent = p.nazov;
+            const info = document.createElement('small');
+            info.textContent = 'vytvorené ' + datum(p.vytvorene) + ' · '
+                + (p.pouzite ? 'naposledy použité ' + datum(p.pouzite) : 'ešte nepoužité');
+            text.append(nazov, info);
+            const zrus = document.createElement('button');
+            zrus.type = 'button';
+            zrus.className = 'btn btn-outline-danger fw-semibold';
+            zrus.textContent = 'Zrušiť';
+            zrus.setAttribute('aria-label', 'Zrušiť pripojenie ' + p.nazov);
+            zrus.addEventListener('click', () => zrusit(p, zrus));
+            riadok.append(text, zrus);
+            zoznamEl.append(riadok);
+        });
+    }
+
+    async function nacitaj() {
+        zoznamEl.innerHTML = '<div class="text-secondary small py-2"><span class="spinner-border spinner-border-sm me-2"></span>Načítavam…</div>';
+        try {
+            const data = await appPost('ai_pripojenia_get');
+            if (data.success) vykresli(data.pripojenia || []);
+            else ukazChybu(data.error || 'Pripojenia sa nepodarilo načítať.');
+        } catch (err) {
+            ukazChybu('Chyba pripojenia k serveru.');
+        }
+    }
+
+    async function zrusit(p, btn) {
+        if (!confirm('Zrušiť pripojenie „' + p.nazov + '"? Asistent s touto adresou sa už do appky nedostane.')) return;
+        btn.disabled = true;
+        ukazChybu('');
+        try {
+            const data = await appPost('ai_pripojenie_zrus', { pripojenie_id: p.id });
+            if (data.success) {
+                vykresli(data.pripojenia || []);
+                showToast('Pripojenie je zrušené.');
+            } else {
+                ukazChybu(data.error || 'Pripojenie sa nepodarilo zrušiť.');
+                btn.disabled = false;
+            }
+        } catch (err) {
+            ukazChybu('Chyba pripojenia k serveru.');
+            btn.disabled = false;
+        }
+    }
+
+    vytvorBtn.addEventListener('click', async () => {
+        vytvorBtn.disabled = true;
+        ukazChybu('');
+        try {
+            const data = await appPost('ai_pripojenie_vytvor', { nazov: $('aiAsistentNazov').value });
+            if (data.success) {
+                $('aiAsistentAdresa').value = data.adresa;
+                $('aiAsistentAdresaWrap').classList.remove('d-none');
+                $('aiAsistentNova').classList.add('d-none');
+                vykresli(data.pripojenia || []);
+            } else {
+                ukazChybu(data.error || 'Adresu sa nepodarilo vytvoriť.');
+            }
+        } catch (err) {
+            ukazChybu('Chyba pripojenia k serveru.');
+        } finally {
+            vytvorBtn.disabled = false;
+        }
+    });
+
+    $('aiAsistentKopiruj').addEventListener('click', async () => {
+        const pole = $('aiAsistentAdresa');
+        try {
+            await navigator.clipboard.writeText(pole.value);
+        } catch (err) {
+            // Starší prehliadač alebo bez povolenia: označíme text, nech sa dá skopírovať ručne.
+            pole.focus();
+            pole.select();
+            if (!document.execCommand || !document.execCommand('copy')) {
+                showToast('Adresu podrž prstom a skopíruj ručne.', true);
+                return;
+            }
+        }
+        showToast('Adresa je skopírovaná.');
+    });
+    $('aiAsistentAdresa').addEventListener('focus', (e) => e.target.select());
+
+    // Po zatvorení okna sa adresa zabudne — pri ďalšom otvorení sa už neukáže.
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        $('aiAsistentAdresa').value = '';
+        $('aiAsistentAdresaWrap').classList.add('d-none');
+        $('aiAsistentNova').classList.remove('d-none');
+        ukazChybu('');
+    });
+
+    return {
+        otvor() {
+            const ukaz = () => {
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+                nacitaj();
+            };
+            // Z okna Viac (telefón): najprv ho zavrieť, dve okná naraz Bootstrap nezvláda.
+            const otvorene = document.querySelector('.modal.show');
+            if (otvorene && otvorene !== modalEl) {
+                otvorene.addEventListener('hidden.bs.modal', ukaz, { once: true });
+                bootstrap.Modal.getInstance(otvorene)?.hide();
+            } else {
+                ukaz();
+            }
+        },
+    };
+})();
+
+/** Nastavenia → AI asistent (PC aj okno Viac na telefóne). */
+function openAiAsistent() {
+    if (aiAsistent) aiAsistent.otvor();
+}
