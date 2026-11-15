@@ -1052,7 +1052,10 @@ html[data-offline] .recipe-card .rating-star { cursor: default; }
     .modal .form-text { font-size: .95rem !important; }
     .modal-footer { gap: .5rem; flex-wrap: nowrap; }
     .modal-footer > .btn,
-    .modal-footer > .dropdown > .btn { min-height: 54px; font-size: 1.05rem; padding: 0 1rem; margin: 0; }
+    .modal-footer > .dropdown > .btn,
+    .modal-footer > .dropup > .btn { min-height: 54px; font-size: 1.05rem; padding: 0 1rem; margin: 0; }
+    /* Menu v pätičke okna (Vymazať v nákupe, 3.2.1): veľké položky na ťuknutie */
+    .modal-footer .dropdown-item { padding: .85rem 1.15rem; font-size: 1.05rem; }
     #recipeModal .modal-footer > .btn,
     #madeModal .modal-footer > .btn { flex: 1 1 0; }
     /* Formulár receptu na celú obrazovku: <form> obaľuje hlavičku, telo aj pätičku,

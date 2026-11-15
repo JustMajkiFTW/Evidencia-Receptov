@@ -444,7 +444,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=47">
+    <link rel="stylesheet" href="style.css?v=48">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -1461,7 +1461,8 @@ header('X-Recepty-Offline: 1');
                 <div id="shoppingList" aria-live="polite"></div>
             </div>
             <div class="modal-footer justify-content-between">
-                <div class="dropdown">
+                <!-- dropup (3.2.1): tlačidlo je na spodku okna, menu smerom dole by skončilo pod spodnou lištou telefónu -->
+                <div class="dropup">
                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                         Vymazať
                     </button>
