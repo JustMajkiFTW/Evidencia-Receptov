@@ -224,7 +224,8 @@ function mcp_nastroje(PDO $pdo): array
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
-                    'dotaz'     => ['type' => 'string', 'description' => 'Hľadané slová, napr. „sviečková" alebo „kuracie ryža". Každé slovo musí sedieť.'],
+                    'dotaz'     => ['type' => 'string', 'description' => 'Hľadané slová, napr. „sviečková" alebo „kuracie ryža". Každé slovo musí sedieť, '
+                        . 'pád nevadí (napíš ich tak, ako ich človek povedal — „kuraciu cigánsku" nájde „Kuracia cigánska"). Keď presný recept nie je, appka vráti podobné.'],
                     'kategoria' => ['type' => 'string', 'description' => 'Len recepty z tejto kategórie. Kategórie: ' . $kategorieText . '.'],
                     'zoradenie' => ['type' => 'string', 'enum' => ['naposledy_varene', 'najdlhsie_nevarene', 'hodnotenie', 'nazov'],
                         'description' => 'Poradie výsledkov (predvolene naposledy_varene).'],
@@ -458,7 +459,8 @@ function mcp_najdi_recepty(PDO $pdo, array $a): array
     $kategorie = get_recipe_categories($pdo);
     $suroviny = get_all_recipe_suroviny($pdo);
     $hodnotenia = get_recipe_ratings_summary($pdo);
-    $slova = array_filter(explode(' ', surovina_key(is_string($a['dotaz'] ?? null) ? $a['dotaz'] : '')));
+    $dotaz = is_string($a['dotaz'] ?? null) ? trim($a['dotaz']) : '';
+    $slova = hladanie_slova($dotaz);
     $kategoria = null;
     if (is_string($a['kategoria'] ?? null) && trim($a['kategoria']) !== '') {
         $kategoria = mcp_kategoria($pdo, $a['kategoria']);
@@ -470,22 +472,30 @@ function mcp_najdi_recepty(PDO $pdo, array $a): array
     $limit = mcp_cele_cislo($a['limit'] ?? null);
     $limit = ($limit !== null && $limit >= 1) ? min($limit, MCP_MAX_VYSLEDKOV) : 15;
 
-    $najdene = [];
-    foreach (get_all_recipes($pdo) as $r) {
-        $id = (int) $r['id'];
-        $nazvySurovin = array_column($suroviny[$id] ?? [], 'nazov');
+    // 2.9: slová v hocijakom páde („kuraciu cigánsku"). Keď nič, druhé kolo pripustí preklep,
+    // ale už len v názve, surovinách a kategórii (v dlhom postupe by „podobné" sedelo na všeličo).
+    $sedi = static function (array $r, bool $podobne) use ($kategoria, $kategorie, $suroviny, $slova, $dotaz): bool {
         if ($kategoria !== null && surovina_key((string) $r['category']) !== surovina_key($kategoria)) {
-            continue;
+            return false;
         }
-        if ($slova) {
-            $text = ' ' . surovina_key($r['name'] . ' ' . implode(' ', $nazvySurovin) . ' '
-                . recipe_category_label($kategorie, $r['category']) . ' ' . ($r['ingredients'] ?? '')) . ' ';
-            foreach ($slova as $slovo) {
-                if (!str_contains($text, $slovo)) {
-                    continue 2;
-                }
-            }
+        if (!$slova) {
+            return true;
         }
+        $text = $r['name'] . ' ' . implode(' ', array_column($suroviny[(int) $r['id']] ?? [], 'nazov')) . ' '
+            . recipe_category_label($kategorie, $r['category']) . ($podobne ? '' : ' ' . ($r['ingredients'] ?? ''));
+        return hladanie_zhoda($dotaz, $text, $podobne);
+    };
+    $recepty = get_all_recipes($pdo);
+    $podobne = false;
+    $vybrane = array_filter($recepty, static fn($r) => $sedi($r, false));
+    if (!$vybrane && $slova) {
+        $podobne = true;
+        $vybrane = array_filter($recepty, static fn($r) => $sedi($r, true));
+    }
+
+    $najdene = [];
+    foreach ($vybrane as $r) {
+        $id = (int) $r['id'];
         $najdene[] = [
             'id'               => $id,
             'nazov'            => $r['name'],
@@ -494,7 +504,7 @@ function mcp_najdi_recepty(PDO $pdo, array $a): array
             'dni_od_varenia'   => days_since($r['last_made_date']),
             'hodnotenie'       => $hodnotenia[$id]['avg'] ?? null,
             'pocet_hodnoteni'  => $hodnotenia[$id]['count'] ?? 0,
-            'suroviny'         => array_slice($nazvySurovin, 0, 15),
+            'suroviny'         => array_slice(array_column($suroviny[$id] ?? [], 'nazov'), 0, 15),
             'odkaz'            => mcp_odkaz_receptu($id),
         ];
     }
@@ -522,10 +532,11 @@ function mcp_najdi_recepty(PDO $pdo, array $a): array
         . ($r['kategoria'] !== '' ? ' [' . $r['kategoria'] . ']' : '')
         . ' — ' . mcp_kedy_varene($r['naposledy_varene'])
         . ($r['hodnotenie'] !== null ? ', hodnotenie ' . mcp_cislo($r['hodnotenie']) . '/5' : ''), $najdene);
-    $uvod = 'Našiel som ' . mcp_sklonuj($spolu, 'recept', 'recepty', 'receptov')
+    $uvod = ($podobne ? 'Presne „' . $dotaz . '" v appke nie je, ale našiel som podobn' . ($spolu === 1 ? 'ý ' : 'é ') : 'Našiel som ')
+        . mcp_sklonuj($spolu, 'recept', 'recepty', 'receptov')
         . ($spolu > count($najdene) ? ', ukazujem prvých ' . count($najdene) : '') . ':';
 
-    return ['text' => $uvod . "\n" . implode("\n", $riadky), 'data' => ['pocet' => $spolu, 'recepty' => $najdene]];
+    return ['text' => $uvod . "\n" . implode("\n", $riadky), 'data' => ['pocet' => $spolu, 'podobne' => $podobne, 'recepty' => $najdene]];
 }
 
 function mcp_zobraz_recept(PDO $pdo, array $a): array
@@ -765,6 +776,9 @@ function mcp_pridaj_do_nakupu(PDO $pdo, array $pripojenie, array $a): array
     if (!$vysledok['success']) {
         return ['chyba' => $vysledok['error'] ?? 'Suroviny sa nepodarilo pridať do nákupu.'];
     }
+    $pocet = (int) $vysledok['added'];
+    po_odpovedi(static fn() => shopping_notify($pdo, $pripojenie['user_id'], $pripojenie['meno'], $id, null, $pocet,
+        $pripojenie['cez'] ?? $pripojenie['nazov']));
     $zaklad = !empty($recept['servings']) ? (int) $recept['servings'] : null;
     $naPorcie = ($porcie && $zaklad) ? ' (prepočítané na ' . mcp_sklonuj($porcie, 'porciu', 'porcie', 'porcií') . ')' : ($porcie && !$zaklad
         ? ' (recept nemá zadané porcie, množstvá sú ako v recepte)' : '');

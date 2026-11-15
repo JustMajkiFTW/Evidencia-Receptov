@@ -339,6 +339,10 @@ function asistent_prepis(array $subor): array
         }
         if ($vysledok !== null) {
             $text = trim(preg_replace('/^["„“”\'\s]+|["„“”\'\s]+$/u', '', $vysledok) ?? '');
+            // Z ticha AI „prepíše" len bodky alebo poznámku v zátvorke („...", „[ticho]") — to nie je otázka (2.8.1).
+            if (preg_match('/^[\p{P}\p{S}\s]*$/u', $text) || preg_match('/^[\[(][^\])]{0,40}[\])]$/u', $text)) {
+                $text = '';
+            }
             debug_log('AI ASISTENT prepis ' . $sluzba . ' (' . $model . '): ' . sprintf('%.1f s', microtime(true) - $zaciatok) . ', ' . mb_strlen($text) . ' znakov');
             return ['ok' => true, 'text' => $text];
         }

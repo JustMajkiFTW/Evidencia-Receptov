@@ -15,7 +15,7 @@
 // obsahuje CSRF token a dáta viazané na session. Ostatné PHP stránky (login,
 // admin, webauthn) idú vždy len na sieť. Bump CACHE_NAME pri každej zmene
 // statických súborov.
-const CACHE_NAME = 'recepty-static-v45';
+const CACHE_NAME = 'recepty-static-v47';
 const STRANKA_CACHE = 'recepty-stranka';   // posledná kópia index.php (prežije aktualizáciu appky)
 const FOTKY_CACHE = 'recepty-fotky';       // fotky receptov (prežijú aktualizáciu appky)
 const MAX_FOTIEK = 250;                    // ~200 kB na fotku → najviac okolo 50 MB
@@ -318,6 +318,11 @@ self.addEventListener('push', (event) => {
         badge: 'app-icons/icon-192.png?v=4',
         data: { url: data.url || './' },
     };
+    // Nákup (2.9): rovnaká značka nahradí predošlé upozornenie, telefón aj tak zapípa.
+    if (data.tag) {
+        options.tag = data.tag;
+        options.renotify = true;
+    }
 
     event.waitUntil(self.registration.showNotification(title, options));
 });

@@ -8,6 +8,7 @@
 #   3. pravidlá pre novú verziu (testy/kontrola-pravidiel.sh),
 #   4. novú inštaláciu: sql/instalacia.sql (aj dvakrát po sebe), celý priechod appkou
 #      a hlasového asistenta s falošnou AI (testy/falosna-ai.php) pre Gemini, Claude aj OpenAI,
+#      hľadanie so skloňovaním a text upozornenia na nákup (testy/hladanie.php),
 #   5. databázu z predchádzajúcej verzie BEZ migrácie — appka na nej musí bežať,
 #   6. migrácie na tej istej databáze (aj dvakrát po sebe), znova priechod appkou
 #      a či sa štruktúra po migrácii zhoduje s novou inštaláciou.
@@ -224,6 +225,10 @@ if priprav_databazu "$DB_NOVA" && import_dvakrat "$DB_NOVA" sql/instalacia.sql "
     db_app "$DB_NOVA" admin "$ADMIN_MENO" "$ADMIN_HESLO"
     prechod_appkou "$DB_NOVA" plny
     asistent_s_falosnou_ai "$DB_NOVA"
+    nadpis "Hľadanie so skloňovaním a upozornenie na nákup (testy/hladanie.php)"
+    if ! TEST_DB_USER="$APP_DB_USER" TEST_DB_PASS="$APP_DB_PASS" TEST_DB_NAME="$DB_NOVA" "$PHP" testy/hladanie.php; then
+        zlyhanie "Hľadanie alebo upozornenie na nákup má zlyhané kontroly (výpis vyššie)."
+    fi
 else
     zlyhanie "Testovaciu databázu sa nepodarilo pripraviť."
 fi

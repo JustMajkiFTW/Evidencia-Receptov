@@ -2808,22 +2808,65 @@ const hodnotenieReceptov = (function initRecipeRatings() {
         return Array.from(tbody.querySelectorAll('.recipe-row'));
     }
 
+    /* Hľadanie so skloňovaním (2.9): „kuraciu cigánsku" nájde „Kuracia cigánska".
+       Rovnaké pravidlá ako hladanie_zhoda() v includes/functions.php — koncovky musia sedieť. */
+    const KONCOVKY = ['ieho', 'iemu', 'iach', 'ovia', 'ami', 'ach', 'ych', 'ymi', 'ymu', 'eho', 'emu', 'ich', 'imi', 'iam', 'ovi', 'ove',
+        'ov', 'om', 'ou', 'ej', 'ym', 'im', 'mi', 'ia', 'ie', 'iu', 'ii', 'a', 'e', 'i', 'o', 'u', 'y'];
+    const kmen = (slovo) => {
+        const k = KONCOVKY.find((c) => slovo.length - c.length >= 3 && slovo.endsWith(c));
+        return k ? slovo.slice(0, -k.length) : slovo;
+    };
+    const slovaTextu = (text) => text.split(/[^a-z0-9]+/).filter(Boolean);
+    function levenshtein(a, b) {
+        let predosly = Array.from({ length: b.length + 1 }, (_, i) => i);
+        for (let i = 1; i <= a.length; i++) {
+            const riadok = [i];
+            for (let j = 1; j <= b.length; j++) {
+                riadok[j] = Math.min(predosly[j] + 1, riadok[j - 1] + 1, predosly[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            }
+            predosly = riadok;
+        }
+        return predosly[b.length];
+    }
+    function slovoSedi(slovo, slova, podobne) {
+        const k = kmen(slovo);
+        const kratky = k.length < 4; // „mak|u" nesmie nájsť „makaróny"
+        return slova.some((w) => {
+            if (w.startsWith(slovo)) return true;
+            if (w.startsWith(k) && (!kratky || w.length <= k.length + 3)) return true;
+            if (podobne && k.length >= 4) {
+                const povolene = k.length >= 7 ? 2 : 1;
+                const kw = kmen(w);
+                return Math.abs(kw.length - k.length) <= povolene && levenshtein(k, kw) <= povolene;
+            }
+            return false;
+        });
+    }
+    /** query aj text sú už bez diakritiky (normKey). */
+    function sedi(query, text, podobne) {
+        if (!query || text.includes(query)) return true;
+        const slova = slovaTextu(text);
+        const celyText = ' ' + slova.join(' ') + ' ';
+        return slovaTextu(query).every((slovo) => (slovo.length < 3
+            ? celyText.includes(slovo)
+            : celyText.includes(slovo) || slovoSedi(slovo, slova, podobne)));
+    }
+
     function applyFilters() {
         // Bez diakritiky a veľkých písmen — rovnako sú pripravené aj data-search-* atribúty.
         const rawQuery = searchInput?.value || '';
         const query = window.Suroviny ? window.Suroviny.normKey(rawQuery) : rawQuery.toLowerCase().trim();
         const category = categorySelect ? categorySelect.value : '';
 
-        getRows().forEach(row => {
-            const name = row.dataset.searchName || '';
-            const ingredients = row.dataset.searchIngredients || '';
-            const rowCategory = row.dataset.category || '';
-
-            const matchesSearch = !query || name.includes(query) || ingredients.includes(query);
-            const matchesCategory = !category || rowCategory === category;
-
-            row.classList.toggle('d-none', !(matchesSearch && matchesCategory));
-        });
+        const vyhovuje = (row, podobne) => {
+            // S preklepom len v názve — v dlhom postupe by „podobné" sedelo na všeličo.
+            const text = (row.dataset.searchName || '') + (podobne ? '' : ' ' + (row.dataset.searchIngredients || ''));
+            return (!category || (row.dataset.category || '') === category) && sedi(query, text, podobne);
+        };
+        const rows = getRows();
+        // Keď nič nesedí, skúsi sa ešte s preklepom („rezne" → „Vyprážaný rezeň").
+        const podobne = !!query && !rows.some((row) => vyhovuje(row, false));
+        rows.forEach((row) => row.classList.toggle('d-none', !vyhovuje(row, podobne)));
         ukazPocet();
     }
 
@@ -3749,6 +3792,7 @@ const asistent = (function initAsistent() {
 
     // Safari zahodí čítanie spustené hneď po cancel() — po zastavení sa chvíľu počká.
     let poslednyCancel = 0;
+    let poslednaRec = 0; // kedy naposledy dočítal — iPhone potom chvíľu drží zvuk pre seba
     let kontrolaStartu = null;
 
     /** $rucne = ťuknutie na „prečítať" (číta sa aj pri vypnutom čítaní nahlas). */
@@ -3758,7 +3802,10 @@ const asistent = (function initAsistent() {
         if (!casti.length) return;
         nastavStav('hovori');
         let zacalo = false;
-        const koniec = () => { if (stav === 'hovori') nastavStav('caka'); };
+        const koniec = () => {
+            poslednaRec = Date.now();
+            if (stav === 'hovori') nastavStav('caka');
+        };
         const spusti = () => {
             casti.forEach((cast, i) => {
                 const u = new SpeechSynthesisUtterance(cast);
@@ -3808,7 +3855,20 @@ const asistent = (function initAsistent() {
         const u = new SpeechSynthesisUtterance(' ');
         u.volume = 0;
         u.lang = 'sk-SK';
+        u.onend = () => { poslednaRec = Date.now(); };
         speechSynthesis.speak(u);
+    }
+
+    /** iPhone (2.8.1): čítanie nahlas stlmí mikrofón (chyba WebKitu 218815) — pred nahrávaním
+     *  sa čítanie zastaví a chvíľu sa počká, kým telefón prepne zvuk späť na mikrofón. */
+    async function pockajNaKoniecReci() {
+        if (!mozeHovorit) return;
+        if (speechSynthesis.speaking || speechSynthesis.pending) {
+            speechSynthesis.cancel();
+            poslednyCancel = Date.now();
+        }
+        const odReci = Date.now() - Math.max(poslednyCancel, poslednaRec);
+        if (odReci < 500) await new Promise((hotovo) => setTimeout(hotovo, 500 - odReci));
     }
 
     /* ---------- Rozpoznanie reči ---------- */
@@ -3827,36 +3887,85 @@ const asistent = (function initAsistent() {
     /* ---------- Nahrávanie (iPhone): zvuk sa prepíše na serveri ---------- */
     let ticho = null; // sledovanie ticha: po 1,5 s ticha (keď už hovoril) sa nahrávanie samo ukončí
 
+    /**
+     * Meria hlasitosť nahrávky. Vráti { zastav(), vysledok() } alebo null.
+     * Ticho sa vyhodnocuje len vtedy, keď meranie naozaj beží — na iPhone býva zvuk v prehliadači
+     * najprv „uspaný" a bez resume() by meranie ukazovalo stále nulu a nahrávku utlo po 8 s.
+     */
     function sledujTicho(stream, priTichu) {
+        let kontext;
         try {
             const Kontext = window.AudioContext || window.webkitAudioContext;
-            const kontext = new Kontext();
+            kontext = new Kontext();
+            if (kontext.state === 'suspended' && kontext.resume) kontext.resume().catch(() => { /* ostane bez merania */ });
             const analyzer = kontext.createAnalyser();
             analyzer.fftSize = 1024;
             kontext.createMediaStreamSource(stream).connect(analyzer);
             const vzorky = new Uint8Array(analyzer.fftSize);
-            const zaciatok = Date.now();
+            let zaciatok = 0;  // od kedy meranie beží
             let hovoril = false;
-            let tichoOd = Date.now();
+            let tichoOd = 0;
+            let najviac = 0;
+            let meralo = false;
             const interval = setInterval(() => {
+                if (kontext.state !== 'running') return;
+                const teraz = Date.now();
+                if (!meralo) {
+                    meralo = true;
+                    zaciatok = tichoOd = teraz;
+                }
                 analyzer.getByteTimeDomainData(vzorky);
                 let sucet = 0;
                 for (const v of vzorky) sucet += ((v - 128) / 128) ** 2;
                 const hlasitost = Math.sqrt(sucet / vzorky.length);
+                if (hlasitost > najviac) najviac = hlasitost;
                 if (hlasitost > 0.035) {
                     hovoril = true;
-                    tichoOd = Date.now();
-                } else if ((hovoril && Date.now() - tichoOd > 1500) || (!hovoril && Date.now() - zaciatok > 8000)) {
+                    tichoOd = teraz;
+                } else if ((hovoril && teraz - tichoOd > 1500) || (!hovoril && teraz - zaciatok > 8000)) {
                     priTichu();
                 }
             }, 100);
-            ticho = { zastav() { clearInterval(interval); try { kontext.close(); } catch (err) { /* nič */ } } };
+            return {
+                zastav() { clearInterval(interval); try { kontext.close(); } catch (err) { /* nič */ } },
+                vysledok: () => ({ meralo, najviac, stavZvuku: kontext.state }),
+            };
         } catch (err) {
-            ticho = null; // bez sledovania ticha: ukončí sa ťuknutím alebo po 30 s
+            try { kontext && kontext.close(); } catch (e) { /* nič */ }
+            return null; // bez sledovania ticha: ukončí sa ťuknutím alebo po 30 s
         }
     }
 
+    /** Pre admina: čo sa nahralo (dĺžka, veľkosť, hlasitosť) — pomôže, keď prepis nevychádza. */
+    function popisNahravky(diag) {
+        const casti = [
+            (diag.sekundy).toFixed(1).replace('.', ',') + ' s',
+            Math.round(diag.bajty / 1024) + ' kB',
+            diag.typ || '?',
+            diag.meralo ? 'hlasitosť max ' + diag.najviac.toFixed(3) : 'hlasitosť sa nedala zmerať (' + diag.stavZvuku + ')',
+        ];
+        if (diag.stlmeny) casti.push('mikrofón bol stlmený');
+        return 'Nahrávka: ' + casti.join(', ');
+    }
+
+    function adminNahravka(blob, diag) {
+        if (!window.APP_IS_ADMIN) return;
+        const el = document.createElement('div');
+        el.className = 'asistent-meta';
+        el.textContent = popisNahravky(diag);
+        const prehraj = document.createElement('audio');
+        prehraj.controls = true;
+        prehraj.preload = 'none';
+        prehraj.src = URL.createObjectURL(blob);
+        prehraj.className = 'd-block w-100 mt-1';
+        el.append(prehraj);
+        rozhovorEl.append(el);
+        rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
+    }
+
     async function nahravaj() {
+        nastavStav('pocuva', 'Zapínam mikrofón…');
+        await pockajNaKoniecReci();
         let stream;
         try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -3866,6 +3975,13 @@ const asistent = (function initAsistent() {
             nastavStav('caka', 'Mikrofón nie je povolený. Povoľ ho pri ďalšom ťuknutí, alebo to nadiktuj do poľa mikrofónom na klávesnici.');
             return;
         }
+        if (!modalEl.classList.contains('show')) { // okno medzitým zavrel
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+        }
+        const stopa = stream.getAudioTracks()[0];
+        let stlmeny = !!(stopa && stopa.muted);
+        if (stopa) stopa.addEventListener('mute', () => { stlmeny = true; });
         const typ = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
         let zaznam;
         try {
@@ -3882,6 +3998,7 @@ const asistent = (function initAsistent() {
         zaznam.ondataavailable = (e) => { if (e.data && e.data.size) kusy.push(e.data); };
         zaznam.onstop = () => {
             clearTimeout(maxCas);
+            const meranie = ticho ? ticho.vysledok() : { meralo: false, najviac: 0, stavZvuku: 'nie je' };
             if (ticho) ticho.zastav();
             ticho = null;
             nahravanie = null;
@@ -3889,8 +4006,16 @@ const asistent = (function initAsistent() {
             stream.getTracks().forEach((t) => t.stop());
             if (zrusene) return;
             const blob = new Blob(kusy, { type: (zaznam.mimeType || typ || 'audio/mp4').split(';')[0] });
+            const diag = { sekundy: (Date.now() - zaciatok) / 1000, bajty: blob.size, typ: blob.type, stlmeny, ...meranie };
+            adminNahravka(blob, diag);
             if (Date.now() - zaciatok < 700 || blob.size < 1500) {
                 nastavStav('caka', 'Nič som nepočul. Ťukni na mikrofón a skús to znova.');
+                return;
+            }
+            // Meranie bežalo a nezachytilo ani šepot → mikrofón dával ticho (napr. stlmený po čítaní nahlas).
+            // Takú nahrávku neposielame — AI by z ticha „prepísala" len bodky.
+            if (stlmeny || (meranie.meralo && meranie.najviac < 0.01)) {
+                nastavStav('caka', 'Mikrofón nič nezachytil. Ťukni naň a skús to znova. Ak to nepomôže, zavri asistenta a otvor ho znova.');
                 return;
             }
             posliZvuk(blob);
@@ -3901,7 +4026,7 @@ const asistent = (function initAsistent() {
         };
         zaznam.start();
         nastavStav('pocuva');
-        sledujTicho(stream, () => nahravanie && nahravanie.stop());
+        ticho = sledujTicho(stream, () => nahravanie && nahravanie.stop());
     }
 
     function pocuvaj() {
@@ -3967,7 +4092,9 @@ const asistent = (function initAsistent() {
     }
 
     mikrofon.addEventListener('click', () => {
-        odomkniHlas();
+        // Pri nahrávaní (iPhone) sa hlas neodomyká tu — tiché čítanie tesne pred zapnutím mikrofónu
+        // ho stlmí a nahrá sa ticho. Odomkne sa už pri otvorení asistenta.
+        if (rezim !== 'nahravanie') odomkniHlas();
         if (stav === 'pocuva') {
             if (nahravanie) nahravanie.stop(); // dokončí sa v onstop a pošle
             else rozpoznavanie?.stop(); // dokončí sa v onend a pošle
@@ -4081,6 +4208,7 @@ const asistent = (function initAsistent() {
 
     return {
         otvor() {
+            odomkniHlas(); // ťuknutie na otvorenie: iPhone potom dovolí čítať odpovede aj samé
             const otvorene = document.querySelector('.modal.show');
             const ukaz = () => bootstrap.Modal.getOrCreateInstance(modalEl).show();
             if (otvorene && otvorene !== modalEl) {

@@ -374,6 +374,11 @@ if ($rezim === 'asistent') {
             'Nahrávka z iPhonu sa prepíše a asistent odpovie', $o->popis());
         $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka('')]);
         over(($o->json()['success'] ?? null) === false && ($o->json()['prepis'] ?? null) === '', 'Nahrávka bez reči sa slušne odmietne', $o->popis());
+        // 2.8.1: z tichej nahrávky (stlmený mikrofón na iPhone) vráti AI len „..." — to nie je otázka.
+        foreach (['...', '…', '[ticho]'] as $bodky) {
+            $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka($bodky)]);
+            over(($o->json()['success'] ?? null) === false && ($o->json()['prepis'] ?? null) === '', "Prepis „{$bodky}\" sa berie ako ticho", $o->popis());
+        }
     } else {
         over(($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['error'] ?? ''), 'Gemini alebo OpenAI'),
             'Bez Gemini/OpenAI appka povie, že prepis hlasu nejde', $o->popis());
@@ -837,6 +842,14 @@ if ($mcpVDatabaze) {
         'Rovnaký recept druhýkrát sa neuloží (ochrana pred zdvojením)', $o->popis());
     $o = $volaj('najdi_recepty', ['dotaz' => "babovka asistenta $znacka"]);
     over(($vysledok($o)['structuredContent']['recepty'][0]['id'] ?? 0) === $mcpId, 'Asistent nájde recept bez diakritiky', $o->popis());
+    // 2.9: v inom páde („bábovku") aj s preklepom („babofku" — vtedy appka povie, že je to podobný recept).
+    $o = $volaj('najdi_recepty', ['dotaz' => "bábovku od asistenta $znacka"]);
+    over(($vysledok($o)['structuredContent']['recepty'][0]['id'] ?? 0) === $mcpId && ($vysledok($o)['structuredContent']['podobne'] ?? null) === false,
+        'Asistent nájde recept aj v inom páde („bábovku")', $o->popis());
+    $o = $volaj('najdi_recepty', ['dotaz' => "babofku od asistenta $znacka"]);
+    over(($vysledok($o)['structuredContent']['recepty'][0]['id'] ?? 0) === $mcpId && ($vysledok($o)['structuredContent']['podobne'] ?? null) === true
+        && str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), 'podobný'),
+        'S preklepom asistent ponúkne podobný recept', $o->popis());
     $o = $volaj('zobraz_recept', ['id' => $mcpId]);
     over(str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), '300 g Múka hladká'), 'Asistent zobrazí recept so surovinami', $o->popis());
     $o = $volaj('zapis_varenie', ['id' => $mcpId, 'datum' => $vcera]);

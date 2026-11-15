@@ -247,7 +247,13 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
 
             if ($action === 'shopping_add_recipe') {
                 $target = parse_servings($_POST['servings'] ?? null);
-                $result = shopping_add_recipe($pdo, (int) ($_POST['recipe_id'] ?? 0), $userId, $target);
+                $receptId = (int) ($_POST['recipe_id'] ?? 0);
+                $result = shopping_add_recipe($pdo, $receptId, $userId, $target);
+                if ($result['success']) { // upozornenie ostatným (2.9), odošle sa až po odpovedi
+                    $kto = $user['full_name'] ?? $user['username'] ?? 'Niekto';
+                    $pocet = (int) $result['added'];
+                    po_odpovedi(static fn() => shopping_notify($pdo, $userId, $kto, $receptId, null, $pocet));
+                }
             } elseif ($action === 'shopping_add_item') {
                 $surovinaId = (int) ($_POST['surovina_id'] ?? 0);
                 $nazov = surovina_display_name((string) ($_POST['nazov'] ?? ''));
@@ -268,6 +274,11 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
                     shopping_add_item($pdo, $userId, null, $nazov, null, null, null);
                 } else {
                     $result = ['success' => false, 'error' => 'Napíš, čo treba kúpiť.'];
+                }
+                if ($result['success']) { // upozornenie ostatným (2.9), odošle sa až po odpovedi
+                    $kto = $user['full_name'] ?? $user['username'] ?? 'Niekto';
+                    $polozka = $surovina ? $surovina['nazov'] : $nazov;
+                    po_odpovedi(static fn() => shopping_notify($pdo, $userId, $kto, null, $polozka));
                 }
             } elseif ($action === 'shopping_toggle') {
                 $pdo->prepare('UPDATE nakupny_zoznam SET kupene = ? WHERE id = ?')
@@ -1832,7 +1843,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=45"></script>
+<script src="script.js?v=47"></script>
 </body>
 </html>
 <?php

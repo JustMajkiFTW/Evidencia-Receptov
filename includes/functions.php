@@ -748,6 +748,91 @@ function surovina_key(string $text): string
     return trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
 }
 
+/* ======================================================================
+   Hľadanie so skloňovaním (2.9): „kuraciu cigánsku" nájde „Kuracia cigánska".
+   Slovo z otázky sa zbaví slovenskej koncovky (kuraci|u → kurac) a porovná
+   sa so začiatkami slov v texte. Keď ani to nič nenájde, hľadanie_zhoda()
+   s $podobne = true pripustí aj preklep či vypadnutú samohlásku
+   (rezne ↔ rezeň, palaciniek ↔ palacinky). Rovnaké pravidlá má hľadanie
+   receptov v script.js (HLADANIE_KONCOVKY tam musia sedieť s týmito).
+   ====================================================================== */
+
+/** Koncovky pádov a čísel bez diakritiky, od najdlhších. */
+const HLADANIE_KONCOVKY = [
+    'ieho', 'iemu', 'iach', 'ovia',
+    'ami', 'ach', 'ych', 'ymi', 'ymu', 'eho', 'emu', 'ich', 'imi', 'iam', 'ovi', 'ove',
+    'ov', 'om', 'ou', 'ej', 'ym', 'im', 'mi', 'ia', 'ie', 'iu', 'ii',
+    'a', 'e', 'i', 'o', 'u', 'y',
+];
+
+/** Kmeň slova (už bez diakritiky, malými): koncovka preč, aspoň 3 písmená ostanú. */
+function hladanie_kmen(string $slovo): string
+{
+    $dlzka = strlen($slovo);
+    foreach (HLADANIE_KONCOVKY as $koncovka) {
+        $k = strlen($koncovka);
+        if ($dlzka - $k >= 3 && str_ends_with($slovo, $koncovka)) {
+            return substr($slovo, 0, $dlzka - $k);
+        }
+    }
+    return $slovo;
+}
+
+/** Slová textu bez diakritiky a interpunkcie. */
+function hladanie_slova(string $text): array
+{
+    return array_values(array_filter(preg_split('/[^a-z0-9]+/', surovina_key($text)) ?: [], static fn($s) => $s !== ''));
+}
+
+/** Sedí slovo z otázky na niektoré slovo textu? */
+function hladanie_slovo_sedi(string $slovo, array $slovaTextu, bool $podobne): bool
+{
+    $kmen = hladanie_kmen($slovo);
+    $kratky = strlen($kmen) < 4; // „mak|u" nesmie nájsť „makaróny"
+    foreach ($slovaTextu as $w) {
+        if (str_starts_with($w, $slovo)) {
+            return true; // ako doteraz: začiatok slova („kurac" → „kuracia")
+        }
+        if (str_starts_with($w, $kmen) && (!$kratky || strlen($w) <= strlen($kmen) + 3)) {
+            return true;
+        }
+        if ($podobne && strlen($kmen) >= 4) {
+            $povolene = strlen($kmen) >= 7 ? 2 : 1;
+            $kmenW = hladanie_kmen($w);
+            if (abs(strlen($kmenW) - strlen($kmen)) <= $povolene && levenshtein($kmen, $kmenW) <= $povolene) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Sedia všetky slová otázky na text? Slovo kratšie ako 3 písmená (s, z, na…) stačí
+ * nájsť kdekoľvek v texte, ako doteraz. $podobne = pripustiť aj preklep.
+ */
+function hladanie_zhoda(string $otazka, string $text, bool $podobne = false): bool
+{
+    $slova = hladanie_slova($otazka);
+    if (!$slova) {
+        return true;
+    }
+    $slovaTextu = hladanie_slova($text);
+    $celyText = ' ' . implode(' ', $slovaTextu) . ' ';
+    foreach ($slova as $slovo) {
+        if (strlen($slovo) < 3) {
+            if (!str_contains($celyText, $slovo)) {
+                return false;
+            }
+            continue;
+        }
+        if (!str_contains($celyText, $slovo) && !hladanie_slovo_sedi($slovo, $slovaTextu, $podobne)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /** Názov suroviny tak, ako sa uloží a zobrazí: bez zbytočných medzier, s veľkým prvým písmenom. */
 function surovina_display_name(string $text): string
 {
@@ -1653,7 +1738,7 @@ function log_recipe_action(PDO $pdo, int $recipeId, int $userId, string $action,
  * Odosiela sa vlastným kódom v includes/webpush.php (openssl + curl) — appka
  * už nepotrebuje knižnicu minishlink/web-push vo vendor/.
  */
-function send_push_notification(PDO $pdo, ?int $userId, string $title, string $body, string $url = './', ?int $excludeUserId = null): void
+function send_push_notification(PDO $pdo, ?int $userId, string $title, string $body, string $url = './', ?int $excludeUserId = null, ?string $tag = null): void
 {
     try {
         $sql = 'SELECT * FROM push_subscriptions';
@@ -1679,11 +1764,12 @@ function send_push_notification(PDO $pdo, ?int $userId, string $title, string $b
             return;
         }
 
-        $payload = json_encode([
+        $payload = json_encode(array_filter([
             'title' => $title,
             'body' => $body,
             'url' => $url,
-        ], JSON_UNESCAPED_UNICODE);
+            'tag' => $tag, // rovnaká značka = nové upozornenie nahradí predošlé (nákup, 2.9)
+        ], static fn($v) => $v !== null), JSON_UNESCAPED_UNICODE);
 
         foreach ($subs as $sub) {
             $result = webpush_send(
@@ -1711,6 +1797,91 @@ function send_push_notification(PDO $pdo, ?int $userId, string $title, string $b
         // zhodiť samotné pridanie/ohodnotenie receptu — len to zalogujeme.
         debug_log('PUSH ZLYHAL: ' . $e->getMessage());
     }
+}
+
+/**
+ * Úloha, ktorá sa spustí až po odoslaní odpovede (2.9) — napr. upozornenia do telefónov,
+ * aby pridanie do nákupu nečakalo, kým sa odošlú. Kde server odpoveď skôr ukončiť nevie
+ * (vstavaný server PHP v testoch), úloha sa urobí na konci požiadavky ako doteraz.
+ */
+function po_odpovedi(?callable $uloha = null): void
+{
+    static $ulohy = [];
+    if ($uloha !== null) {
+        if (!$ulohy) {
+            register_shutdown_function('po_odpovedi');
+        }
+        $ulohy[] = $uloha;
+        return;
+    }
+    if (!$ulohy) {
+        return;
+    }
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+    ignore_user_abort(true);
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    } elseif (function_exists('litespeed_finish_request')) {
+        litespeed_finish_request();
+    }
+    foreach ($ulohy as $u) {
+        try {
+            $u();
+        } catch (Throwable $e) {
+            debug_log('Úloha po odpovedi zlyhala: ' . $e->getMessage());
+        }
+    }
+    $ulohy = [];
+}
+
+/**
+ * Upozornenie ostatným, že niekto pridal niečo do nákupu (2.9). Ťuknutie otvorí nákupný zoznam.
+ * - recept: „Majki pridal(a) do nákupu suroviny na „Guláš" (7)"
+ * - položka: „Majki pridal(a) do nákupu: Mlieko, Chlieb" — všetky jeho položky za posledných
+ *   15 minút, ktoré ešte nie sú kúpené. Upozornenia majú jednu značku na človeka, takže v telefóne
+ *   ostane jedno so všetkým, nie desať za sebou.
+ */
+const NAKUP_UPOZORNENIE_MINUT = 15;
+
+function shopping_notify(PDO $pdo, int $userId, string $kto, ?int $receptId, ?string $polozka, int $pocet = 0, string $cez = ''): void
+{
+    $upozornenie = shopping_notify_text($pdo, $userId, $kto, $receptId, $polozka, $pocet, $cez);
+    if ($upozornenie !== null) {
+        send_push_notification($pdo, null, 'Nákup 🛒', $upozornenie['text'], './?otvor=nakup', $userId, $upozornenie['tag']);
+    }
+}
+
+/** Text a značka upozornenia na nákup (zvlášť kvôli testom). Návrat: ['text' => …, 'tag' => …] alebo null. */
+function shopping_notify_text(PDO $pdo, int $userId, string $kto, ?int $receptId, ?string $polozka, int $pocet = 0, string $cez = ''): ?array
+{
+    $cez = $cez !== '' ? ' (cez ' . $cez . ')' : '';
+    if ($receptId !== null) {
+        $recept = get_recipe($pdo, $receptId);
+        return $recept ? [
+            'text' => $kto . ' pridal(a) do nákupu suroviny na „' . $recept['name'] . '"' . ($pocet > 0 ? ' (' . $pocet . ')' : '') . $cez,
+            'tag'  => 'nakup-recept-' . $receptId,
+        ] : null;
+    }
+    $polozka = trim((string) $polozka);
+    if ($polozka === '') {
+        return null;
+    }
+    $stmt = $pdo->prepare('SELECT nazov FROM nakupny_zoznam
+        WHERE pridal = ? AND kupene = 0 AND zdroj IS NULL AND created_at >= NOW() - INTERVAL ' . NAKUP_UPOZORNENIE_MINUT . ' MINUTE
+        ORDER BY id');
+    $stmt->execute([$userId]);
+    $nazvy = [];
+    foreach (array_merge($stmt->fetchAll(PDO::FETCH_COLUMN), [$polozka]) as $nazov) {
+        $nazvy[surovina_key((string) $nazov)] ??= (string) $nazov;
+    }
+    $nazvy = array_values($nazvy);
+    return [
+        'text' => $kto . ' pridal(a) do nákupu: ' . implode(', ', array_slice($nazvy, 0, 6))
+            . (count($nazvy) > 6 ? ' a ďalšie (' . (count($nazvy) - 6) . ')' : '') . $cez,
+        'tag'  => 'nakup-polozky-' . $userId,
+    ];
 }
 
 /* ======================================================================
