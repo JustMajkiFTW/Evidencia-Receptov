@@ -224,6 +224,7 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Fotka sa nenahrá | Do `uploads/recipes/` (pri objednanom jedle `uploads/objfood/`) sa nedá zapisovať alebo chýba rozšírenie `gd`. |
 | Upozornenia nechodia | Používateľ ich nepovolil, appka nebeží na HTTPS, alebo je v logu `PUSH ZLYHAL`. Na iPhone len v appke z plochy. |
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou alebo appka nebeží na HTTPS. |
+| Pri novom recepte sa „Naposledy varené“ neuložilo | Safari na iPhone ukazuje v prázdnom dátumovom poli dnešný dátum, hoci v ňom nič nie je. Použi tlačidlo Dnes / Včera alebo v kalendári ťukni na deň; pod poľom je napísané, čo sa uloží. |
 | Po nahratí novej verzie starý vzhľad | V `sw.js` nebol zvýšený `CACHE_NAME`. |
 | Bez internetu sa ukáže „Si offline" | Appka sa v zariadení ešte neotvorila s internetom po prihlásení. |
 | V logu `FOTKY`, `KATEGÓRIE`, `SUROVINY`, `OBJEDNAVKY`… | V databáze chýba tabuľka, naimportuj migráciu. |
@@ -236,6 +237,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.5.1** Oprava „Naposledy varené“ pri pridávaní receptu: na iPhone sa dátum často neuložil (Safari ukazuje v prázdnom poli dnešný dátum, hoci v ňom nič nie je), a tak bol nový recept „ešte nevarený“. Pod poľom pribudli veľké tlačidlá Dnes, Včera a vymazať a text, čo sa naozaj uloží. Najvyšší dátum (dnes) sa nastaví pri každom otvorení formulára, aby appka otvorená v telefóne niekoľko dní neodmietla dnešný dátum. Databáza sa nemení.
 - **2.5** Objednané jedlo: klik na objednávku otvorí náhľad ako pri recepte (fotka, údaje, čo sme mali), upraviť a zmazať sa dá z neho. Hodnotenie hviezdičkami (každý jedno, priemer v zozname aj v náhľade). Upozornenie ostatným pri novej objednávke a autorovi pri hodnotení, ťuknutie otvorí náhľad objednávky (aj cez prihlásenie). Migrácia `migracia-2.5.sql`.
 - **2.4** Fotka pri objednanom jedle: vo formulári Odfotiť alebo Z galérie (na PC Vybrať fotku), v zozname miniatúra, pri Naposledy objednané fotka poslednej objednávky. Fotky sa ukladajú do `uploads/objfood/` a spracujú sa rovnako ako fotky receptov (zmenšenie, JPEG). Pri novej fotke, odstránení alebo zmazaní objednávky sa starý súbor zmaže. Migrácia `migracia-2.4.sql`.
 - **2.3.1** Objednané jedlo: namiesto foodora je na výber Bistro.sk (červený krúžok „Bi“). Staršie záznamy z foodora sa ukazujú ako Iné. Databáza sa nemení.

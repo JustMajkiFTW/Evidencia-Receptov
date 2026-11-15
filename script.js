@@ -1876,6 +1876,65 @@ const madeDialog = (function initMadeDialog() {
 })();
 
 /* ========================================================================
+   „Naposledy varené" vo formulári receptu (verzia 2.5.1).
+   Safari na iPhone ukazuje v prázdnom dátumovom poli dnešný dátum, hoci
+   v ňom nič nie je — recept sa potom uložil ako ešte nevarený. Preto:
+   tlačidlá Dnes / Včera / vymazať, ktoré dátum nastavia naisto, a pod poľom
+   text, čo sa naozaj uloží. Najvyšší dátum (dnes) sa nastaví pri každom
+   otvorení formulára — appka môže byť v telefóne otvorená aj niekoľko dní.
+   ======================================================================== */
+const naposledyVarene = (function initNaposledyVarene() {
+    const pole = document.getElementById('recipeLastMade');
+    const stav = document.getElementById('recipeLastMadeStav');
+    if (!pole || !stav) return null;
+    const tlacidla = Array.from(document.querySelectorAll('.datum-rychle-tlacidlo'));
+
+    function vcera() {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function datumTlacidla(btn) {
+        if (btn.dataset.datum === 'dnes') return todayISO();
+        if (btn.dataset.datum === 'vcera') return vcera();
+        return '';
+    }
+
+    function obnov() {
+        const dnes = todayISO();
+        pole.max = dnes;
+        const hodnota = pole.value;
+        tlacidla.forEach((btn) => {
+            const aktivne = !!btn.dataset.datum && datumTlacidla(btn) === hodnota;
+            btn.classList.toggle('is-active', aktivne);
+            btn.setAttribute('aria-pressed', aktivne ? 'true' : 'false');
+            if (!btn.dataset.datum) btn.disabled = !hodnota; // Vymazať len keď je čo
+        });
+        stav.classList.remove('je-chyba', 'je-vyplnene');
+        if (!hodnota) {
+            stav.textContent = 'Nevyplnené — recept sa uloží ako ešte nevarený.';
+        } else if (hodnota > dnes) {
+            stav.textContent = 'Dátum nemôže byť v budúcnosti.';
+            stav.classList.add('je-chyba');
+        } else {
+            const kedy = hodnota === dnes ? ' (dnes)' : hodnota === vcera() ? ' (včera)' : '';
+            stav.textContent = 'Uloží sa: ' + formatSkDate(hodnota) + kedy;
+            stav.classList.add('je-vyplnene');
+        }
+    }
+
+    tlacidla.forEach((btn) => btn.addEventListener('click', () => {
+        pole.value = datumTlacidla(btn);
+        pole.dispatchEvent(new Event('change', { bubbles: true }));
+    }));
+    pole.addEventListener('input', obnov);
+    pole.addEventListener('change', obnov);
+
+    return { obnov };
+})();
+
+/* ========================================================================
    Modal "Pridať / upraviť recept" — jeden modal pre obe akcie.
    Volaj openRecipeModal() bez parametra pre pridanie nového receptu,
    alebo openRecipeModal({...}) s dátami existujúceho receptu pre úpravu.
@@ -1932,6 +1991,10 @@ function openRecipeModal(data = null) {
 
     // Recept z fotky (verzia 1.8): tlačidlo „Vyplniť z fotky" len pri novom recepte, banner preč.
     if (window.aiRecept) window.aiRecept.pripravFormular(!data);
+
+    // „Naposledy varené" (verzia 2.5.1): aktuálny dnešok ako najvyšší dátum a popis pod poľom.
+    // Musí byť pred formularKroky.reset — ten podľa vyplneného dátumu otvorí „Viac možností".
+    if (naposledyVarene) naposledyVarene.obnov();
 
     // Telefón (verzia 1.9): sprievodca začína krokom 1; pri úprave sa dá uložiť z každého kroku.
     if (formularKroky) formularKroky.reset(!!data);

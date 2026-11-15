@@ -362,7 +362,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=38">
+    <link rel="stylesheet" href="style.css?v=39">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -1082,7 +1082,15 @@ header('X-Recepty-Offline: 1');
                     <div class="formular-krok formular-viac" data-krok="3" id="recipeNaposledyPole">
                     <div class="mb-1">
                         <label class="form-label small text-secondary" for="recipeLastMade">Naposledy varené <span class="opacity-50">(nepovinné)</span></label>
-                        <input type="date" name="last_made_date" id="recipeLastMade" class="form-control" max="<?= app_today() ?>">
+                        <input type="date" name="last_made_date" id="recipeLastMade" class="form-control" max="<?= app_today() ?>" aria-describedby="recipeLastMadeStav">
+                        <!-- Dnes / Včera nastavia dátum naisto: Safari na iPhone ukazuje v prázdnom
+                             poli dnešný dátum, hoci v ňom nič nie je (verzia 2.5.1). -->
+                        <div class="datum-rychle" role="group" aria-label="Rýchly výber dátumu varenia">
+                            <button type="button" class="btn datum-rychle-tlacidlo" data-datum="dnes">Dnes</button>
+                            <button type="button" class="btn datum-rychle-tlacidlo" data-datum="vcera">Včera</button>
+                            <button type="button" class="btn datum-rychle-tlacidlo" data-datum="">Vymazať</button>
+                        </div>
+                        <div class="datum-stav" id="recipeLastMadeStav" aria-live="polite"></div>
                     </div>
                     </div>
 
@@ -1628,7 +1636,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=38"></script>
+<script src="script.js?v=39"></script>
 </body>
 </html>
 <?php

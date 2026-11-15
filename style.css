@@ -2732,3 +2732,28 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
     .spodna-lista.ma-5-poloziek .spodna-lista-polozka { font-size: .8rem; }
     .spodna-lista.ma-5-poloziek .spodna-lista-pridat { width: 50px; }
 }
+
+/* ── „Naposledy varené" vo formulári receptu (verzia 2.5.1): Dnes / Včera / vymazať
+      a text pod poľom, čo sa naozaj uloží. Veľké tlačidlá aj pre starších. ── */
+.datum-rychle { display: flex; gap: .5rem; margin-top: .5rem; }
+.datum-rychle-tlacidlo {
+    flex: 1;
+    min-height: 48px;
+    border-radius: 14px;
+    border: 1px solid var(--app-border);
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-weight: 600;
+}
+.datum-rychle-tlacidlo[data-datum=""] { color: var(--app-muted-text); font-weight: 500; }
+.datum-rychle-tlacidlo:disabled { opacity: .45; }
+.datum-rychle-tlacidlo:hover { border-color: var(--app-accent); color: var(--app-text); }
+.datum-rychle-tlacidlo.is-active,
+.datum-rychle-tlacidlo.is-active:hover {
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+}
+.datum-stav { margin-top: .4rem; font-size: .95rem; color: var(--app-muted-text); }
+.datum-stav.je-vyplnene { color: var(--app-text); font-weight: 600; }
+.datum-stav.je-chyba { color: var(--bs-danger); font-weight: 600; }
