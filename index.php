@@ -199,6 +199,9 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
                 $vysledokPrepisu = asistent_prepis($_FILES['zvuk']);
                 if (!$vysledokPrepisu['ok']) {
                     $result = ['success' => false, 'error' => $vysledokPrepisu['chyba']];
+                    if (is_admin() && ($vysledokPrepisu['detail'] ?? '') !== '') {
+                        $result['meta'] = 'Prepis zlyhal: ' . $vysledokPrepisu['detail']; // admin vidí prečo (2.9.1)
+                    }
                     break;
                 }
                 if ($vysledokPrepisu['text'] === '') {
@@ -1843,7 +1846,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=47"></script>
+<script src="script.js?v=48"></script>
 </body>
 </html>
 <?php

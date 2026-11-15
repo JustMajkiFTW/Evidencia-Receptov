@@ -374,7 +374,15 @@ if ($rezim === 'asistent') {
             'Nahrávka z iPhonu sa prepíše a asistent odpovie', $o->popis());
         $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka('')]);
         over(($o->json()['success'] ?? null) === false && ($o->json()['prepis'] ?? null) === '', 'Nahrávka bez reči sa slušne odmietne', $o->popis());
-        // 2.8.1: z tichej nahrávky (stlmený mikrofón na iPhone) vráti AI len „..." — to nie je otázka.
+        if ($sluzba === 'Gemini') {
+            // 2.9.1: preťažený prvý model → prepíše ďalší; odpoveď bez textu → admin vidí prečo.
+            $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka("PREPIS503 nájdi $znacka")]);
+            over(($o->json()['prepis'] ?? '') === "PREPIS503 nájdi $znacka", 'Keď je prvý model preťažený, nahrávku prepíše ďalší', $o->popis());
+            $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka('BEZTEXTU')]);
+            over(($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['meta'] ?? ''), 'OTHER')
+                && str_contains((string) ($o->json()['meta'] ?? ''), 'gemini-zaloha'), 'Admin vidí, prečo prepis zlyhal (každý model)', $o->popis());
+        }
+        // 2.9: z tichej nahrávky (stlmený mikrofón na iPhone) vráti AI len „..." — to nie je otázka.
         foreach (['...', '…', '[ticho]'] as $bodky) {
             $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka($bodky)]);
             over(($o->json()['success'] ?? null) === false && ($o->json()['prepis'] ?? null) === '', "Prepis „{$bodky}\" sa berie ako ticho", $o->popis());

@@ -302,22 +302,42 @@ function asistent_prepis(array $subor): array
     foreach (ai_poradie() as $sluzba) {
         $zaciatok = microtime(true);
         if ($sluzba === 'gemini') {
-            $model = asistent_modely('gemini')[0];
+            // 2.9.1: skúsi sa každý model z AI_ASISTENT_MODEL_GEMINI (inak AI_MODEL_GEMINI), nielen prvý —
+            // preťažený alebo minutý model inak znamenal „nepodarilo sa prepísať".
             $vysledok = null;
-            foreach (['minimal', 'low', null] as $uroven) {
-                $telo = ['contents' => [['role' => 'user', 'parts' => [
-                    ['inline_data' => ['mime_type' => $mime, 'data' => base64_encode($data)]], ['text' => $pokyn],
-                ]]]];
-                if ($uroven !== null) {
-                    $telo['generationConfig'] = ['thinkingConfig' => ['thinkingLevel' => $uroven]];
+            foreach (asistent_modely('gemini') as $model) {
+                $zaciatok = microtime(true);
+                foreach (['minimal', 'low', null] as $uroven) {
+                    $telo = ['contents' => [['role' => 'user', 'parts' => [
+                        ['inline_data' => ['mime_type' => $mime, 'data' => base64_encode($data)]], ['text' => $pokyn],
+                    ]]]];
+                    if ($uroven !== null) {
+                        $telo['generationConfig'] = ['thinkingConfig' => ['thinkingLevel' => $uroven]];
+                    }
+                    [$kod, $odpoved, $chybaCurl] = ai_http_post(ai_adresa('gemini') . '/models/' . rawurlencode($model) . ':generateContent',
+                        ['x-goog-api-key: ' . ai_env(AI_KLUCE_ENV['gemini'])], $telo, 30);
+                    if ($kod === 400 && $uroven !== null) {
+                        continue; // model nepozná nastavenie premýšľania — skúsi sa bez neho
+                    }
+                    break;
                 }
-                [$kod, $odpoved, $chybaCurl] = ai_http_post(ai_adresa('gemini') . '/models/' . rawurlencode($model) . ':generateContent',
-                    ['x-goog-api-key: ' . ai_env(AI_KLUCE_ENV['gemini'])], $telo, 30);
-                if ($kod === 400 && $uroven !== null) {
-                    continue;
+                if ($kod === 200) {
+                    $json = json_decode($odpoved, true);
+                    $vysledok = ai_text_odpovede('gemini', $json);
+                    if ($vysledok === null) {
+                        // 200 bez textu: zablokované alebo prázdne — povieme prečo
+                        $dovod = $json['promptFeedback']['blockReason'] ?? $json['candidates'][0]['finishReason'] ?? 'bez kandidátov';
+                        $chyby[] = 'Gemini: ' . $model . ' — odpoveď bez textu (' . $dovod . ')';
+                    }
+                } else {
+                    $chyby[] = 'Gemini: ' . $model . ' — ' . ai_popis_chyby($kod, $odpoved, $chybaCurl);
                 }
-                $vysledok = $kod === 200 ? ai_text_odpovede('gemini', json_decode($odpoved, true)) : null;
-                break;
+                if ($vysledok !== null) {
+                    break;
+                }
+            }
+            if ($vysledok === null) {
+                continue; // chyby sú už zapísané, ďalšia služba v poradí
             }
         } elseif ($sluzba === 'openai') {
             $model = ai_env('AI_PREPIS_MODEL_OPENAI') ?: 'gpt-4o-mini-transcribe';
@@ -339,7 +359,7 @@ function asistent_prepis(array $subor): array
         }
         if ($vysledok !== null) {
             $text = trim(preg_replace('/^["„“”\'\s]+|["„“”\'\s]+$/u', '', $vysledok) ?? '');
-            // Z ticha AI „prepíše" len bodky alebo poznámku v zátvorke („...", „[ticho]") — to nie je otázka (2.8.1).
+            // Z ticha AI „prepíše" len bodky alebo poznámku v zátvorke („...", „[ticho]") — to nie je otázka (2.9).
             if (preg_match('/^[\p{P}\p{S}\s]*$/u', $text) || preg_match('/^[\[(][^\])]{0,40}[\])]$/u', $text)) {
                 $text = '';
             }
@@ -350,7 +370,7 @@ function asistent_prepis(array $subor): array
     }
     debug_log('AI ASISTENT prepis nedokončil: ' . ($chyby ? implode('; ', $chyby) : 'žiadna služba nevie prepisovať zvuk'));
     return ['ok' => false, 'chyba' => $chyby ? 'Nahrávku sa teraz nepodarilo prepísať. Skús to znova alebo to napíš.'
-        : 'Na prepis hlasu treba v nastaveniach kľúč Gemini alebo OpenAI.'];
+        : 'Na prepis hlasu treba v nastaveniach kľúč Gemini alebo OpenAI.', 'detail' => implode(' · ', $chyby)];
 }
 
 /** Je dnešný limit otázok minutý? (kontroluje sa pred prepisom, aby sa zbytočne neplatil) */

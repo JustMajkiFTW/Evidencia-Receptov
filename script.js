@@ -4129,6 +4129,16 @@ const asistent = (function initAsistent() {
         await spytajSa(formData, null, bublinaOtazky);
     }
 
+    /** Len pre admina: ktorá AI odpovedala, koľko trvali kroky, prípadne prečo zlyhala. */
+    function ukazMeta(text) {
+        if (!text) return;
+        const meta = document.createElement('div');
+        meta.className = 'asistent-meta';
+        meta.textContent = text;
+        rozhovorEl.append(meta);
+        rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
+    }
+
     async function spytajSa(formData, text, bublinaOtazky) {
         formData.append('action', 'asistent');
         formData.append('csrf_token', csrfToken());
@@ -4153,19 +4163,13 @@ const asistent = (function initAsistent() {
                     rozhovorEl.append(tlacidloExportu(data.export));
                     rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
                 }
-                if (data.meta) {
-                    // len pre admina: ktorá AI odpovedala a koľko trvali jednotlivé kroky
-                    const meta = document.createElement('div');
-                    meta.className = 'asistent-meta';
-                    meta.textContent = data.meta;
-                    rozhovorEl.append(meta);
-                    rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
-                }
+                ukazMeta(data.meta || data.detail);
                 nastavStav('caka');
                 hovor(data.odpoved);
             } else {
                 const sprava = data.error || 'Niečo sa pokazilo, skús to znova.';
                 bublina('asistent', sprava, true);
+                ukazMeta(data.meta || data.detail); // admin vidí aj pri chybe, čo zlyhalo (2.9.1)
                 nastavStav('caka');
                 hovor(sprava);
             }

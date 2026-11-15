@@ -127,8 +127,17 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
         if (!str_starts_with((string) ($zvuk['mime_type'] ?? ''), 'audio/')) {
             chyba(400, 'Unsupported MIME type: ' . ($zvuk['mime_type'] ?? ''));
         }
+        $prepis = prepis_nahravky((string) base64_decode((string) $zvuk['data']));
+        // 2.9.1: „PREPIS503" — prvý model je preťažený, appka má skúsiť ďalší model z AI_MODEL_GEMINI.
+        if (str_contains($prepis, 'PREPIS503') && $m[1] === 'gemini-bez-premyslania') {
+            chyba(503, 'The model is overloaded. Please try again later.');
+        }
+        // „BEZTEXTU" — odpoveď 200 bez textu (napr. zablokovaná), admin má vidieť dôvod.
+        if (str_contains($prepis, 'BEZTEXTU')) {
+            odpovedz(200, ['candidates' => [['finishReason' => 'OTHER']]]);
+        }
         odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [
-            ['text' => '„' . prepis_nahravky((string) base64_decode((string) $zvuk['data'])) . '"'],
+            ['text' => '„' . $prepis . '"'],
         ]], 'finishReason' => 'STOP']]]);
     }
     over_nastroje(array_column($telo['tools'][0]['functionDeclarations'] ?? [], 'name'));
