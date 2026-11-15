@@ -13,6 +13,10 @@
  * - Denný limit AI_ASISTENT_DENNY_LIMIT (predvolene 100 otázok na používateľa),
  *   počíta sa v tabuľke ai_rozpoznania (poskytovateľ „asistent:…"), zvlášť od fotiek.
  * - Keď služba zlyhá skôr, než asistent niečo zapísal, skúsi sa ďalšia v poradí.
+ * - Rýchlosť (2.7.3): premýšľanie modelu najkratšie, aké model pozná (minimal → low →
+ *   bez nastavenia), pred záložným pokusom sa čaká najviac AI_TIMEOUT_PRED_ZALOHOU.
+ *   Iný (rýchlejší) model len pre asistenta: AI_ASISTENT_MODEL_GEMINI / _CLAUDE / _OPENAI.
+ *   Čas každého volania AI aj nástrojov sa zapíše do záznamu (AI ASISTENT … za … s).
  */
 
 const ASISTENT_MAX_KOL = 6;               // koľkokrát smie AI v jednej odpovedi zavolať nástroje
@@ -20,6 +24,23 @@ const ASISTENT_MAX_HISTORIA = 12;         // posledné správy rozhovoru, ktoré
 const ASISTENT_MAX_TEXT = 1000;           // znakov na jednu otázku
 const ASISTENT_DENNY_LIMIT_PREDVOLENY = 100;
 const ASISTENT_ZAPISUJUCE = ['pridaj_recept', 'zapis_varenie', 'pridaj_do_nakupu'];
+
+/** Modely pre asistenta: AI_ASISTENT_MODEL_GEMINI=model1,model2 alebo tie isté ako pri fotke. */
+function asistent_modely(string $sluzba): array
+{
+    $nastavene = ai_env('AI_ASISTENT_MODEL_' . strtoupper($sluzba));
+    $modely = $nastavene !== '' ? (preg_split('/[\s,;]+/', $nastavene, -1, PREG_SPLIT_NO_EMPTY) ?: []) : [];
+    return $modely ?: ai_modely($sluzba);
+}
+
+/** Jedno volanie AI s meraním času (do $casy pribudne „1,8 s"). */
+function asistent_post(string $url, array $hlavicky, array $telo, int $timeout, array &$casy): array
+{
+    $zaciatok = microtime(true);
+    $vysledok = ai_http_post($url, $hlavicky, $telo, $timeout);
+    $casy[] = round(microtime(true) - $zaciatok, 1);
+    return $vysledok;
+}
 
 function asistent_denny_limit(): int
 {
@@ -114,12 +135,14 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
     $pokyny = asistent_pokyny($pripojenie);
 
     // Vykonanie nástroja: tie isté funkcie ako cez MCP. Zapisuje sa, čo asistent urobil.
-    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false];
+    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'nastroje_s' => 0.0];
     $vykonaj = static function (string $nazov, array $argumenty) use ($pdo, $pripojenie, $nastroje, &$stav): array {
         if (!in_array($nazov, array_column($nastroje, 'name'), true)) {
             return ['text' => 'Neznámy nástroj ' . $nazov . '.', 'chyba' => true];
         }
+        $zaciatok = microtime(true);
         $vysledok = mcp_vykonaj($pdo, $pripojenie, $nazov, $argumenty);
+        $stav['nastroje_s'] += microtime(true) - $zaciatok;
         $chyba = !empty($vysledok['isError']);
         $zapisuje = in_array($nazov, ASISTENT_ZAPISUJUCE, true);
         if ($zapisuje) {
@@ -136,7 +159,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
 
     $pokusy = [];
     foreach (ai_poradie() as $sluzba) {
-        foreach (ai_modely($sluzba) as $model) {
+        foreach (asistent_modely($sluzba) as $model) {
             $pokusy[] = [$sluzba, $model];
         }
     }
@@ -144,22 +167,33 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
 
     $chyby = [];
     $zlyKluc = [];
-    foreach ($pokusy as [$sluzba, $model]) {
+    $zaciatokCelku = microtime(true);
+    foreach ($pokusy as $i => [$sluzba, $model]) {
         if (isset($zlyKluc[$sluzba])) {
             continue;
         }
-        $zaciatok = microtime(true);
+        // Keď je ešte záložný pokus, na pomalý (preťažený) model sa nečaká celú minútu.
+        $timeout = $i === count($pokusy) - 1 ? AI_TIMEOUT_SEKUND : AI_TIMEOUT_PRED_ZALOHOU;
+        $casy = [];
         $vysledok = match ($sluzba) {
-            'gemini' => asistent_gemini($model, $pokyny, $spravy, $nastroje, $vykonaj),
-            'claude' => asistent_claude($model, $pokyny, $spravy, $nastroje, $vykonaj),
-            default  => asistent_openai($model, $pokyny, $spravy, $nastroje, $vykonaj),
+            'gemini' => asistent_gemini($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
+            'claude' => asistent_claude($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
+            default  => asistent_openai($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
         };
         if ($vysledok['ok']) {
             asistent_zapis_pouzitie($pdo, $pripojenie['user_id'], $sluzba, true, $chyby ? implode('; ', $chyby) : null);
-            debug_log('AI ASISTENT ' . $sluzba . ' (' . $model . '): odpoveď za ' . sprintf('%.1f s', microtime(true) - $zaciatok)
-                . ($stav['akcie'] ? ', nástroje: ' . implode(', ', array_column($stav['akcie'], 'nastroj')) : ''));
+            $trvanie = round(microtime(true) - $zaciatokCelku, 1);
+            $rozpis = 'volania AI ' . implode(' + ', array_map(static fn($c) => str_replace('.', ',', (string) $c) . ' s', $casy))
+                . ', nástroje ' . str_replace('.', ',', (string) round($stav['nastroje_s'], 1)) . ' s';
+            debug_log('AI ASISTENT ' . $sluzba . ' (' . $model . '): odpoveď za ' . sprintf('%.1f s', $trvanie) . ' (' . $rozpis . ')'
+                . ($stav['akcie'] ? ', nástroje: ' . implode(', ', array_column($stav['akcie'], 'nastroj')) : '')
+                . ($chyby ? ', predtým: ' . implode('; ', $chyby) : ''));
             $odpoved = trim($vysledok['text']);
+            $meta = AI_NAZVY[$sluzba] . ' · ' . str_replace('.', ',', (string) $trvanie) . ' s';
             return [
+                'trvanie' => $trvanie,
+                // Pre admina rozpis času pod odpoveďou — podľa neho sa dá zistiť, čo asistenta brzdí.
+                'meta'    => $podrobnosti ? $meta . ' (' . $model . ': ' . $rozpis . ($chyby ? '; predtým zlyhalo: ' . implode('; ', $chyby) : '') . ')' : null,
                 'success' => true,
                 'odpoved' => $odpoved !== '' ? $odpoved : 'Hotovo.',
                 'zmeny'   => $stav['zmeny'],
@@ -171,7 +205,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         if (!empty($vysledok['zly_kluc'])) {
             $zlyKluc[$sluzba] = true;
         }
-        $chyby[] = AI_NAZVY[$sluzba] . ': ' . $vysledok['chyba'];
+        $chyby[] = AI_NAZVY[$sluzba] . ': ' . $vysledok['chyba'] . ($casy ? ' (' . str_replace('.', ',', (string) array_sum($casy)) . ' s)' : '');
         debug_log('AI ASISTENT ' . $sluzba . ' nedokončil: ' . $vysledok['chyba']);
         // Keď už asistent niečo zapísal, ďalšia služba by to mohla urobiť druhýkrát.
         if ($stav['konal']) {
@@ -194,11 +228,11 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
 }
 
 /** Chyba volania služby v jednotnom tvare (ako ai_zavolaj). */
-function asistent_chyba_sluzby(string $model, int $kod, string $telo, string $chybaCurl): array
+function asistent_chyba_sluzby(string $model, int $kod, string $telo, string $chybaCurl, int $timeout = AI_TIMEOUT_SEKUND): array
 {
     $chyba = $model . ' — ' . ai_popis_chyby($kod, $telo, $chybaCurl);
     if ($chybaCurl !== '' && str_contains(strtolower($chybaCurl), 'timed out')) {
-        $chyba = $model . ' — neodpovedal do ' . AI_TIMEOUT_SEKUND . ' sekúnd';
+        $chyba = $model . ' — neodpovedal do ' . $timeout . ' sekúnd';
     }
     return ['ok' => false, 'chyba' => $chyba, 'zly_kluc' => in_array($kod, [401, 403], true)];
 }
@@ -206,20 +240,22 @@ function asistent_chyba_sluzby(string $model, int $kod, string $telo, string $ch
 /* ----------------------------------------------------------------------
    Claude (Messages API): tool_use → tool_result, kým nepríde text.
    ---------------------------------------------------------------------- */
-function asistent_claude(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj): array
+function asistent_claude(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
 {
     $sprava = array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'assistant' : 'user', 'content' => $s['text']], $spravy);
     $tools = array_map(static fn($n) => ['name' => $n['name'], 'description' => $n['description'], 'input_schema' => $n['schema']], $nastroje);
 
     for ($kolo = 0; $kolo <= ASISTENT_MAX_KOL; $kolo++) {
-        [$kod, $telo, $chybaCurl] = ai_http_post(
+        [$kod, $telo, $chybaCurl] = asistent_post(
             ai_adresa('claude') . '/messages',
             ['x-api-key: ' . ai_env(AI_KLUCE_ENV['claude']), 'anthropic-version: 2023-06-01'],
             ['model' => $model, 'max_tokens' => 4000, 'system' => $pokyny, 'tools' => $tools, 'messages' => $sprava]
-                + ($kolo === ASISTENT_MAX_KOL ? ['tool_choice' => ['type' => 'none']] : [])
+                + ($kolo === ASISTENT_MAX_KOL ? ['tool_choice' => ['type' => 'none']] : []),
+            $timeout,
+            $casy
         );
         if ($kod !== 200) {
-            return asistent_chyba_sluzby($model, $kod, $telo, $chybaCurl);
+            return asistent_chyba_sluzby($model, $kod, $telo, $chybaCurl, $timeout);
         }
         $data = json_decode($telo, true);
         $bloky = is_array($data['content'] ?? null) ? $data['content'] : [];
@@ -243,7 +279,7 @@ function asistent_claude(string $model, string $pokyny, array $spravy, array $na
    Gemini (generateContent): functionCall → functionResponse. Odpoveď modelu
    sa posiela späť bez zmeny (Gemini 3 vyžaduje vrátiť „thoughtSignature").
    ---------------------------------------------------------------------- */
-function asistent_gemini(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj): array
+function asistent_gemini(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
 {
     $obsah = array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'model' : 'user', 'parts' => [['text' => $s['text']]]], $spravy);
     $deklaracie = [];
@@ -254,7 +290,8 @@ function asistent_gemini(string $model, string $pokyny, array $spravy, array $na
         }
         $deklaracie[] = $d;
     }
-    $rychlo = true; // krátke premýšľanie; keď ho model nepozná (400), skúsi sa bez neho
+    // Čo najkratšie premýšľanie: „minimal" vedia len niektoré modely, pri 400 sa skúsi „low", potom bez nastavenia.
+    $urovne = ['minimal', 'low', null];
 
     for ($kolo = 0; $kolo <= ASISTENT_MAX_KOL; $kolo++) {
         $telo = [
@@ -263,21 +300,23 @@ function asistent_gemini(string $model, string $pokyny, array $spravy, array $na
             'tools'             => [['functionDeclarations' => $deklaracie]],
             'toolConfig'        => ['functionCallingConfig' => ['mode' => $kolo === ASISTENT_MAX_KOL ? 'NONE' : 'AUTO']],
         ];
-        if ($rychlo) {
-            $telo['generationConfig'] = ['thinkingConfig' => ['thinkingLevel' => 'low']];
+        if ($urovne[0] !== null) {
+            $telo['generationConfig'] = ['thinkingConfig' => ['thinkingLevel' => $urovne[0]]];
         }
-        [$kod, $odpoved, $chybaCurl] = ai_http_post(
+        [$kod, $odpoved, $chybaCurl] = asistent_post(
             ai_adresa('gemini') . '/models/' . rawurlencode($model) . ':generateContent',
             ['x-goog-api-key: ' . ai_env(AI_KLUCE_ENV['gemini'])],
-            $telo
+            $telo,
+            $timeout,
+            $casy
         );
-        if ($kod === 400 && $rychlo) {
-            $rychlo = false;
+        if ($kod === 400 && $urovne[0] !== null) {
+            array_shift($urovne);
             $kolo--;
             continue;
         }
         if ($kod !== 200) {
-            return asistent_chyba_sluzby($model, $kod, $odpoved, $chybaCurl);
+            return asistent_chyba_sluzby($model, $kod, $odpoved, $chybaCurl, $timeout);
         }
         $data = json_decode($odpoved, true);
         $obsahModelu = $data['candidates'][0]['content'] ?? null;
@@ -324,13 +363,13 @@ function asistent_schema_gemini(array $schema): array
    OpenAI (Responses API): function_call → function_call_output, ďalšie kolo
    nadväzuje cez previous_response_id.
    ---------------------------------------------------------------------- */
-function asistent_openai(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj): array
+function asistent_openai(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
 {
     $vstup = array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'assistant' : 'user', 'content' => $s['text']], $spravy);
     $tools = array_map(static fn($n) => ['type' => 'function', 'name' => $n['name'], 'description' => $n['description'],
         'parameters' => $n['schema'], 'strict' => false], $nastroje);
     $predosla = null;
-    $rychlo = true;
+    $urovne = ['minimal', 'low', null]; // ako pri Gemini: najkratšie premýšľanie, ktoré model pozná
 
     for ($kolo = 0; $kolo <= ASISTENT_MAX_KOL; $kolo++) {
         $telo = ['model' => $model, 'instructions' => $pokyny, 'input' => $vstup, 'tools' => $tools, 'max_output_tokens' => 4000,
@@ -338,17 +377,18 @@ function asistent_openai(string $model, string $pokyny, array $spravy, array $na
         if ($predosla !== null) {
             $telo['previous_response_id'] = $predosla;
         }
-        if ($rychlo) {
-            $telo['reasoning'] = ['effort' => 'low'];
+        if ($urovne[0] !== null) {
+            $telo['reasoning'] = ['effort' => $urovne[0]];
         }
-        [$kod, $odpoved, $chybaCurl] = ai_http_post(ai_adresa('openai') . '/responses', ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV['openai'])], $telo);
-        if ($kod === 400 && $rychlo) {
-            $rychlo = false;
+        [$kod, $odpoved, $chybaCurl] = asistent_post(ai_adresa('openai') . '/responses',
+            ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV['openai'])], $telo, $timeout, $casy);
+        if ($kod === 400 && $urovne[0] !== null) {
+            array_shift($urovne);
             $kolo--;
             continue;
         }
         if ($kod !== 200) {
-            return asistent_chyba_sluzby($model, $kod, $odpoved, $chybaCurl);
+            return asistent_chyba_sluzby($model, $kod, $odpoved, $chybaCurl, $timeout);
         }
         $data = json_decode($odpoved, true);
         $volania = array_values(array_filter(is_array($data['output'] ?? null) ? $data['output'] : [],

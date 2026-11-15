@@ -3630,7 +3630,16 @@ const asistent = (function initAsistent() {
     const IKONA = { caka: 'bi-mic-fill', pocuva: 'bi-stop-fill', premysla: 'bi-hourglass-split', hovori: 'bi-volume-mute-fill' };
     const POPIS_TLACIDLA = { caka: 'Hovoriť', pocuva: 'Skončiť a poslať', premysla: 'Asistent premýšľa', hovori: 'Prestať čítať' };
 
+    let casovac = null; // počas premýšľania ukazuje ubehnuté sekundy, nech je vidno, že sa niečo deje
     function nastavStav(novy, sprava) {
+        clearInterval(casovac);
+        if (novy === 'premysla') {
+            const zaciatok = Date.now();
+            casovac = setInterval(() => {
+                const sekundy = Math.round((Date.now() - zaciatok) / 1000);
+                if (stav === 'premysla' && sekundy >= 2) stavEl.textContent = 'Chvíľku, premýšľam… ' + sekundy + ' s';
+            }, 1000);
+        }
         stav = novy;
         modalEl.dataset.stav = novy;
         mikrofon.querySelector('i').className = 'bi ' + IKONA[novy];
@@ -3860,6 +3869,14 @@ const asistent = (function initAsistent() {
                 historia.push({ rola: 'pouzivatel', text }, { rola: 'asistent', text: data.odpoved });
                 historia = historia.slice(-12);
                 bublina('asistent', data.odpoved);
+                if (data.meta) {
+                    // len pre admina: ktorá AI odpovedala a koľko trvali jednotlivé kroky
+                    const meta = document.createElement('div');
+                    meta.className = 'asistent-meta';
+                    meta.textContent = data.meta;
+                    rozhovorEl.append(meta);
+                    rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
+                }
                 nastavStav('caka');
                 hovor(data.odpoved);
             } else {

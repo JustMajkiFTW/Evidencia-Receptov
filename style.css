@@ -2920,6 +2920,7 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
     justify-content: center;
 }
 .asistent-precitaj:active { transform: scale(.94); }
+.asistent-meta { align-self: flex-start; margin: -.35rem 0 0 .5rem; font-size: .8rem; color: var(--app-muted-text); }
 .asistent-pata {
     display: flex;
     flex-direction: column;

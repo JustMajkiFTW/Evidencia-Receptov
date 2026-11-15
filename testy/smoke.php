@@ -327,6 +327,8 @@ if ($rezim === 'asistent') {
     over(uspech($o) && str_contains((string) ($o->json()['odpoved'] ?? ''), 'Ahoj') && ($o->json()['zmeny'] ?? null) === false,
         'Asistent odpovie bez nástroja', $o->popis());
     over(($o->json()['poskytovatel'] ?? '') === $sluzba, "Odpovedala služba $sluzba", $o->popis());
+    over(str_contains((string) ($o->json()['meta'] ?? ''), 'volania AI') && is_numeric($o->json()['trvanie'] ?? null),
+        'Admin vidí rozpis času odpovede (služba, volania AI, nástroje)', $o->popis());
 
     $nazov = "Bábovka od hlasu $znacka";
     $o = $spytaj("Ulož recept $nazov");
