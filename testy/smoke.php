@@ -740,9 +740,13 @@ $stranka = $p->get('index.php')->telo;
 $o = $asistent->get('mcp.php');
 over($o->kod === 405 && isset($o->json()['error']), 'mcp.php otvorený v prehliadači (GET) odpovie 405 a JSON', $o->popis());
 
+// Tabuľka ai_pripojenia je od 2.6. Databáza „predchádzajúcej verzie" ju môže už mať (keď je vydaná 2.6
+// a testuje sa novšia verzia) — vtedy sa overí celé pripojenie, inak len to, že bez nej nič nespadne.
+$mcpVDatabaze = str_contains($stranka, 'id="aiAsistentModal"');
 if ($plny) {
-    over(str_contains($stranka, 'id="aiAsistentModal"') && str_contains($stranka, 'onclick="openAiAsistent()"'),
-        'Nastavenia ponúkajú AI asistenta (okno aj tlačidlo)');
+    over($mcpVDatabaze && str_contains($stranka, 'onclick="openAiAsistent()"'), 'Nastavenia ponúkajú pripojenie k Claude (okno aj tlačidlo)');
+}
+if ($mcpVDatabaze) {
     $o = akcia($p, $csrf, 'ai_pripojenie_vytvor', ['nazov' => "Claude test $znacka"]);
     $adresaMcp = (string) ($o->json()['adresa'] ?? '');
     over(uspech($o) && preg_match('~/mcp\.php\?kluc=([a-f0-9]{48})$~', $adresaMcp, $m) === 1, 'Vytvorenie adresy pre asistenta', $o->popis());
@@ -833,7 +837,8 @@ if ($plny) {
     }
     akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $mcpId]);
 } else {
-    over(!str_contains($stranka, 'id="aiAsistentModal"'), 'Bez migrácie 2.6 sa AI asistent v nastaveniach neukáže');
+    info('Databáza nemá tabuľku ai_pripojenia (migrácia 2.6), overí sa, že bez nej nič nespadne');
+    over(!str_contains($stranka, 'onclick="openAiAsistent()"'), 'Bez migrácie 2.6 sa pripojenie k Claude v nastaveniach neukáže');
     $o = akcia($p, $csrf, 'ai_pripojenie_vytvor', ['nazov' => 'Claude']);
     over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Vytvorenie adresy bez migrácie sa odmietne a nespadne', $o->popis());
     $o = $mcp(str_repeat('0', 48), 'tools/list');
