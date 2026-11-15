@@ -402,6 +402,38 @@ body {
 .suroviny-view-qty { font-weight: 600; font-variant-numeric: tabular-nums; }
 .suroviny-view-note { color: var(--app-muted); font-size: .875em; }
 
+/* ── Výživové hodnoty v náhľade receptu (verzia 3.0) ── */
+.vyziva-dlazdice {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .5rem;
+}
+.vyziva-dlazdica {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: .6rem .3rem;
+    border-radius: 12px;
+    background: var(--app-accent-soft);
+    text-align: center;
+    min-width: 0;
+}
+.vyziva-dlazdica strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.vyziva-dlazdica span { font-size: .8rem; color: var(--app-muted-text, var(--app-muted)); }
+.vyziva-dlazdica.je-kcal strong { color: var(--app-accent); }
+.vyziva-dalsie { margin-top: .5rem; }
+.vyziva-poznamka { margin-top: .25rem; color: var(--app-muted-text, var(--app-muted)); }
+@media (max-width: 360px) {
+    .vyziva-dlazdice { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Správa → Suroviny: polia výživových hodnôt */
+.vyziva-polia {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+    gap: .5rem;
+}
+.vyziva-polia label { display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; }
+
 /* ── Prepočet porcií v náhľade receptu ── */
 .suroviny-view-head {
     display: flex;

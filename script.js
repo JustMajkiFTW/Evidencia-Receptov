@@ -2062,6 +2062,8 @@ function openRecipeViewModal(data) {
         renderViewSuroviny(data, data.servings || null);
     }
 
+    renderVyziva(data.vyziva);
+
     // Kým recept nemá suroviny vybrané zo zoznamu, sú stále len v tomto texte.
     const ingredientsLabel = document.getElementById('viewRecipeIngredientsLabel');
     if (ingredientsLabel) {
@@ -2125,6 +2127,44 @@ function mobilneNahlad(data) {
     if (hodnotenie && typeof hodnotenieReceptov !== 'undefined') {
         hodnotenie.classList.toggle('d-none', !hodnotenieReceptov.skopirujStav(data.id, hodnotenie));
     }
+}
+
+/**
+ * Výživové hodnoty v náhľade receptu (verzia 3.0): štyri hlavné hodnoty ako dlaždice,
+ * ostatné riadkom pod nimi a poznámka, zo koľkých surovín je odhad. Počíta server
+ * (vyziva_receptu v includes/vyziva.php), na porciu — prepočet porcií ich nemení.
+ */
+function renderVyziva(vyziva) {
+    const sekcia = document.getElementById('viewRecipeVyziva');
+    if (!sekcia) return;
+    sekcia.classList.toggle('d-none', !vyziva);
+    if (!vyziva) return;
+    const h = vyziva.hodnoty;
+    const cislo = (n) => String(n).replace('.', ',');
+    document.getElementById('viewRecipeVyzivaNadpis').textContent =
+        vyziva.na === 'porciu' ? 'Výživové hodnoty na porciu' : 'Výživové hodnoty celého receptu';
+    const hlavne = document.getElementById('viewRecipeVyzivaHlavne');
+    hlavne.replaceChildren(...[
+        ['kcal', cislo(h.kcal), 'kcal'],
+        ['bielkoviny', cislo(h.bielkoviny) + ' g', 'bielkoviny'],
+        ['sacharidy', cislo(h.sacharidy) + ' g', 'sacharidy'],
+        ['tuky', cislo(h.tuky) + ' g', 'tuky'],
+    ].map(([trieda, hodnota, popis]) => {
+        const el = document.createElement('div');
+        el.className = 'vyziva-dlazdica je-' + trieda;
+        const b = document.createElement('strong');
+        b.textContent = hodnota;
+        const s = document.createElement('span');
+        s.textContent = popis;
+        el.append(b, s);
+        return el;
+    }));
+    document.getElementById('viewRecipeVyzivaDalsie').textContent =
+        'z toho cukry ' + cislo(h.cukry) + ' g · nasýtené tuky ' + cislo(h.nasytene) + ' g · vláknina ' + cislo(h.vlaknina) + ' g · soľ ' + cislo(h.sol) + ' g';
+    const chyba = [...(vyziva.bez_mnozstva || []), ...(vyziva.bez_hodnot || [])];
+    document.getElementById('viewRecipeVyzivaPoznamka').textContent = chyba.length
+        ? 'Všeobecný odhad. Nezarátané (bez množstva alebo hodnôt): ' + chyba.join(', ') + '.'
+        : 'Všeobecný odhad zo všetkých surovín.';
 }
 
 /** „200 g" / „2" / „" — množstvo s jednotkou pre náhľad a zdieľanie. */

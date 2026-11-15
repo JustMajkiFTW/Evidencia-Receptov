@@ -18,6 +18,7 @@
  */
 
 require_once __DIR__ . '/kucharky.php'; // kuchárky v PDF (2.8): nástroj hladaj_v_kucharkach
+require_once __DIR__ . '/vyziva.php';   // výživové hodnoty (3.0): v zobraz_recept, odhad po uložení receptu
 
 /** Verzie protokolu MCP, ktoré server pozná (prvá = najnovšia). */
 const MCP_VERZIE_PROTOKOLU = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -240,7 +241,9 @@ function mcp_nastroje(PDO $pdo): array
         [
             'name'        => 'zobraz_recept',
             'title'       => 'Zobraz recept',
-            'description' => 'Celý recept z appky: suroviny s množstvami, postup, porcie, čas prípravy, kategória, kedy sa naposledy varil a odkaz do appky.',
+            'description' => 'Celý recept z appky: suroviny s množstvami, postup, porcie, čas prípravy, kategória, kedy sa naposledy varil, odkaz do appky '
+                . 'a výživové hodnoty na porciu (kcal, bielkoviny, sacharidy, tuky… — všeobecný odhad zo surovín, tak to aj povedz). '
+                . 'Použi aj na otázky typu „koľko kalórií má…", „koľko bielkovín má…".',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => ['id' => $idReceptu],
@@ -590,6 +593,7 @@ function mcp_zobraz_recept(PDO $pdo, array $a): array
         'hodnotenie'       => $hodnotenie['avg'] ?? null,
         'pridal'           => $autor->fetchColumn() ?: null,
         'odkaz'            => mcp_odkaz_receptu($id),
+        'vyziva'           => vyziva_receptu($suroviny, isset($r['servings']) && $r['servings'] !== null ? (int) $r['servings'] : null, vyziva_vsetky($pdo)),
     ];
 
     $text = [$r['name'] . ' (#' . $id . ')'];
@@ -605,6 +609,12 @@ function mcp_zobraz_recept(PDO $pdo, array $a): array
     }
     if (trim((string) $data['postup']) !== '') {
         $text[] = "\nPostup / poznámky:\n" . trim($data['postup']);
+    }
+    if ($data['vyziva']) {
+        $v = $data['vyziva'];
+        $nezaratane = array_merge($v['bez_mnozstva'], $v['bez_hodnot']);
+        $text[] = "\nVýživové hodnoty " . ($v['na'] === 'porciu' ? 'na porciu' : 'na celý recept') . ' (všeobecný odhad'
+            . ($nezaratane ? ', nezarátané: ' . implode(', ', $nezaratane) : '') . '): ' . vyziva_text($v) . '.';
     }
     if ($data['odkaz_na_web'] !== '') {
         $text[] = "\nPôvodný recept: " . $data['odkaz_na_web'];
@@ -748,6 +758,7 @@ function mcp_pridaj_recept(PDO $pdo, array $pripojenie, array $a): array
         return ['chyba' => $vysledok['error'] ?? 'Recept sa nepodarilo uložiť.'];
     }
     $id = (int) $vysledok['id'];
+    vyziva_dopln_recept($pdo, $id); // výživové hodnoty nových surovín, AI až po odpovedi (3.0)
 
     // V histórii receptu bude vidno, že ho pridal asistent (pod menom používateľa).
     // 'poznamka' a 'cez' posiela hlasový asistent v appke (2.7), pri MCP sa skladajú z názvu pripojenia.

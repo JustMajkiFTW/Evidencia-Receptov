@@ -355,11 +355,12 @@ function ai_popis_chyby(int $kod, string $telo, string $chybaCurl): string
  * potom vyberie z textu).
  * Návrat: ['ok' => true, 'data' => array] alebo ['ok' => false, 'chyba' => string].
  */
-function ai_zavolaj(string $sluzba, string $model, string $pokyny, array $fotka, array $schema, int $timeout = AI_TIMEOUT_SEKUND): array
+function ai_zavolaj(string $sluzba, string $model, string $pokyny, ?array $fotka, array $schema, int $timeout = AI_TIMEOUT_SEKUND, ?string $uloha = null): array
 {
+    // Bez fotky (3.0: odhad výživových hodnôt) ide len text úlohy.
     $kluc = ai_env(AI_KLUCE_ENV[$sluzba]);
     $adresa = ai_adresa($sluzba);
-    $uloha = 'Rozpoznaj túto fotku podľa pokynov a vráť JSON.';
+    $uloha ??= 'Rozpoznaj túto fotku podľa pokynov a vráť JSON.';
 
     // 2 = schéma + krátke premýšľanie, 1 = len schéma, 0 = nič navyše
     foreach ([2, 1, 0] as $uroven) {
@@ -382,10 +383,10 @@ function ai_zavolaj(string $sluzba, string $model, string $pokyny, array $fotka,
                         'systemInstruction' => ['parts' => [['text' => $pokyny]]],
                         'contents' => [[
                             'role' => 'user',
-                            'parts' => [
-                                ['inline_data' => ['mime_type' => $fotka['mime'], 'data' => $fotka['data']]],
-                                ['text' => $uloha],
-                            ],
+                            'parts' => array_merge(
+                                $fotka ? [['inline_data' => ['mime_type' => $fotka['mime'], 'data' => $fotka['data']]]] : [],
+                                [['text' => $uloha]]
+                            ),
                         ]],
                         'generationConfig' => $config,
                     ],
@@ -400,10 +401,10 @@ function ai_zavolaj(string $sluzba, string $model, string $pokyny, array $fotka,
                     'system' => $pokyny,
                     'messages' => [[
                         'role' => 'user',
-                        'content' => [
-                            ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $fotka['mime'], 'data' => $fotka['data']]],
-                            ['type' => 'text', 'text' => $uloha],
-                        ],
+                        'content' => array_merge(
+                            $fotka ? [['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $fotka['mime'], 'data' => $fotka['data']]]] : [],
+                            [['type' => 'text', 'text' => $uloha]]
+                        ),
                     ]],
                 ];
                 if ($soSchemou) {
@@ -427,10 +428,10 @@ function ai_zavolaj(string $sluzba, string $model, string $pokyny, array $fotka,
                     'max_output_tokens' => 8000,
                     'input' => [[
                         'role' => 'user',
-                        'content' => [
-                            ['type' => 'input_text', 'text' => $uloha],
-                            ['type' => 'input_image', 'image_url' => 'data:' . $fotka['mime'] . ';base64,' . $fotka['data']],
-                        ],
+                        'content' => array_merge(
+                            [['type' => 'input_text', 'text' => $uloha]],
+                            $fotka ? [['type' => 'input_image', 'image_url' => 'data:' . $fotka['mime'] . ';base64,' . $fotka['data']]] : []
+                        ),
                     ]],
                 ];
                 if ($soSchemou) {
@@ -468,7 +469,7 @@ function ai_zavolaj(string $sluzba, string $model, string $pokyny, array $fotka,
             return ['ok' => false, 'chyba' => $model . ' — nečitateľná odpoveď'];
         }
         // Čas odpovede v zázname chýb pomôže, keď bude rozpoznanie pomalé.
-        debug_log('AI ' . $sluzba . ' (' . $model . '): rozpoznané za ' . $trvanie);
+        debug_log('AI ' . $sluzba . ' (' . $model . '): ' . ($fotka ? 'rozpoznané' : 'odpovedal') . ' za ' . $trvanie);
         return ['ok' => true, 'data' => $data];
     }
     return ['ok' => false, 'chyba' => $model . ' — požiadavku odmietol aj v najjednoduchšej podobe'];

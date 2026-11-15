@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/ai.php';
 require_once __DIR__ . '/includes/objednavky.php';
 require_once __DIR__ . '/includes/mcp.php'; // AI asistent cez MCP (verzia 2.6), vstup pre asistenta je mcp.php
 require_once __DIR__ . '/includes/asistent.php'; // hlasový asistent priamo v appke (verzia 2.7)
+require_once __DIR__ . '/includes/vyziva.php'; // výživové hodnoty (verzia 3.0)
 // ?recept=ID (odkaz z upozornenia) otvorí náhľad daného receptu. Ak treba najprv
 // prihlásenie, číslo receptu sa prenesie cez login.php a vráti späť sem.
 $openRecipeId = (isset($_GET['recept']) && ctype_digit((string) $_GET['recept'])) ? (int) $_GET['recept'] : 0;
@@ -87,6 +88,7 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
     $result = add_recipe($pdo, $userId, $_POST['name'] ?? '', $ingredients, $url, $prep_time, $category, $last_made, $newImagePath, $surovinyRows, $servings, $photoDate);
 
     if ($result['success']) {
+        vyziva_dopln_recept($pdo, (int) ($result['id'] ?? 0)); // výživové hodnoty nových surovín — AI až po odpovedi (3.0)
         $addedByName = $user['full_name'] ?? $user['username'] ?? 'Niekto';
         $recipeName = trim($_POST['name'] ?? '');
         send_push_notification(
@@ -105,6 +107,9 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
         case 'update_recipe':
             $recipeId = (int)($_POST['recipe_id'] ?? 0);
             $result = update_recipe($pdo, $recipeId, $userId, $_POST['name'] ?? '', $ingredients, $url, $prep_time, $category, $last_made, $newImagePath, $removeImage, $surovinyRows, $servings, $photoDate);
+            if ($result['success']) {
+                vyziva_dopln_recept($pdo, $recipeId); // výživové hodnoty nových surovín (3.0)
+            }
             echo json_encode($result);
             exit;
 
@@ -375,6 +380,7 @@ $shoppingEnabled = shopping_available($pdo);
 $shoppingCount = shopping_open_count($pdo);
 $allSuroviny = get_all_suroviny($pdo);
 $recipeSuroviny = get_all_recipe_suroviny($pdo);
+$recipeVyziva = vyziva_vsetky($pdo); // výživové hodnoty surovín (3.0), bez migrácie prázdne
 $photosEnabled = recipes_have_photos($pdo);
 $recipePhotos = get_recipe_photos($pdo);
 $recipeCategories = get_recipe_categories($pdo); // z tabuľky kategorie_receptov, bez migrácie základný zoznam
@@ -432,7 +438,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=45">
+    <link rel="stylesheet" href="style.css?v=46">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -653,7 +659,9 @@ header('X-Recepty-Offline: 1');
                         'photos' => $photos,
                         'badgeText' => $badgeText,
                         'badgeClass' => $badgeClass,
-                        'createdBy' => $r['created_by_username'] ?? ''
+                        'createdBy' => $r['created_by_username'] ?? '',
+                        // 3.0: výživa na porciu (odhad zo surovín), null = nedá sa spočítať
+                        'vyziva' => vyziva_receptu($suroviny, !empty($r['servings']) ? (int) $r['servings'] : null, $recipeVyziva),
                 ], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP);
 
                 $ratingInfo = $ratingsSummary[$r['id']] ?? ['avg' => 0, 'count' => 0];
@@ -1400,6 +1408,14 @@ header('X-Recepty-Offline: 1');
                     <ul id="viewRecipeSuroviny" class="suroviny-view-list"></ul>
                 </div>
 
+                <!-- Výživové hodnoty (verzia 3.0): odhad zo surovín, vyplní renderVyziva() v script.js -->
+                <section id="viewRecipeVyziva" class="recipe-vyziva mb-3 d-none" aria-labelledby="viewRecipeVyzivaNadpis">
+                    <div class="form-label small text-secondary mb-1" id="viewRecipeVyzivaNadpis">Výživové hodnoty na porciu</div>
+                    <div class="vyziva-dlazdice" id="viewRecipeVyzivaHlavne"></div>
+                    <div class="vyziva-dalsie small" id="viewRecipeVyzivaDalsie"></div>
+                    <div class="vyziva-poznamka small" id="viewRecipeVyzivaPoznamka"></div>
+                </section>
+
                 <div id="viewRecipeIngredientsWrap" class="mb-2 d-none">
                     <label class="form-label small text-secondary d-block" id="viewRecipeIngredientsLabel">Suroviny / Poznámky</label>
                     <div id="viewRecipeIngredients" class="small" style="white-space: pre-wrap;"></div>
@@ -1846,7 +1862,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=48"></script>
+<script src="script.js?v=49"></script>
 </body>
 </html>
 <?php

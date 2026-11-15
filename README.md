@@ -17,6 +17,7 @@ Videá, ako sa pridáva recept (z fotky cez AI aj ručne), a ďalšie ukážky z
 - **Recepty** s kategóriou, časom prípravy, porciami, postupom a **galériou fotiek** (každé varenie môže mať vlastnú fotku s dátumom).
 - **Suroviny z číselníka.** Vyhľadávanie ignoruje veľké písmená a diakritiku, pri preklepe appka ponúkne „Nemysleli ste Paradajky?“.
 - **Hľadanie receptov po slovensky.** Nezáleží na páde ani na diakritike: „kuraciu cigánsku“ nájde „Kuracia cigánska“, „gulášu“ nájde „Hovädzí guláš“. Keď nič nesedí presne, appka skúsi podobné názvy („rezne“ → „Vyprážaný rezeň“). Platí v hľadaní aj pre hlasového asistenta.
+- **Výživové hodnoty na porciu** (kcal, bielkoviny, sacharidy, tuky, cukry, nasýtené tuky, vláknina, soľ) ako všeobecný odhad zo surovín. Hodnoty surovín doplní AI samo, admin ich môže opraviť. Pozri [Výživové hodnoty](#výživové-hodnoty).
 - **Prepočet porcií** s prevodom jednotiek (2000 g → 2 kg, 0,5 PL → 1½ ČL).
 - **Spoločný nákupný zoznam.** Zlúči suroviny z viacerých receptov, dá sa odškrtávať a poslať do Google Keep. Zmeny od ostatných sa ukážu do pár sekúnd a keď niekto niečo pridá, ostatným príde upozornenie.
 - **Uvarené, hodnotenie a história.** Pri recepte je vidno, kedy sa naposledy varil, a po 90 dňoch appka pripomenie, že by sa hodil zopakovať.
@@ -128,6 +129,17 @@ Rodinné kuchárky v PDF sa dajú dať appke „prečítať". Potrebuje `sql/mig
 
 PDF musí obsahovať text (dá sa v ňom označiť text). Naskenované kuchárky bez textu sa označia ako **Bez textu (sken)**. Priečinok `kucharky/` je z internetu zablokovaný (`.htaccess`), PDF nie sú na GitHube a nasadenie ich nenahráva ani nemaže. V Správe sa dá hľadanie vyskúšať, kniha prečítať znova (po výmene súboru) alebo zmazať aj so súborom.
 
+## Výživové hodnoty
+
+V náhľade receptu sú výživové hodnoty **na porciu** (pri recepte bez porcií za celý recept): energia, bielkoviny, sacharidy (z toho cukry), tuky (z toho nasýtené), vláknina a soľ. Je to **všeobecný odhad**, nie údaj z etikety. Potrebuje `sql/migracia-3.0.sql` a kľúč k AI v `.env` (ten istý ako pri recepte z fotky).
+
+1. Každá surovina má v tabuľke `suroviny_vyziva` hodnoty na 100 g a údaje na prepočet: hustotu (koľko gramov má 1 ml — pre ml, l, lyžice a šálku), hmotnosť jedného kusu (ks, plátok, strúčik) a balenia. Štipka sa ráta ako 0,5 g.
+2. Hodnoty odhadne AI — samo po uložení receptu (len pre jeho nové suroviny, až po odpovedi, takže ukladanie nečaká), cez `cron.php` (najviac 120 surovín) alebo tlačidlom **Doplniť chýbajúce cez AI** v Správe → Suroviny.
+3. Appka z nich spočíta recept: množstvo × hodnota na 100 g, sčíta a vydelí porciami. Prepočet porcií v náhľade výživu na porciu nemení. Suroviny bez množstva („podľa chuti") alebo bez hodnôt sa nezarátajú a pod hodnotami je napísané, ktoré to sú.
+4. V Správe → Suroviny je pri každej surovine **Výživové hodnoty**: hodnoty sa dajú opraviť (napr. podľa etikety). Ručne zadané hodnoty AI už neprepíše.
+
+Hlasový asistent aj Claude dostanú výživu v nástroji `zobraz_recept`, takže odpovedia aj na „koľko kalórií má porcia guláša?". Bez migrácie 3.0 appka beží ďalej, len výživu neukazuje.
+
 ## AI asistent (Claude)
 
 Appka má vstup pre AI asistentov cez **MCP** (Model Context Protocol): `mcp.php`. Asistent cez neho na pokyn používateľa, aj hlasom, robí to isté ako tlačidlá v appke. Nič netreba nastavovať v `.env`, stačí migrácia `sql/migracia-2.6.sql`.
@@ -202,7 +214,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `index.php` | Hlavná stránka so všetkými oknami a spracovanie všetkých akcií. |
 | `login.php`, `logout.php` | Prihlásenie a odhlásenie. |
 | `install.php` | Sprievodca prvou inštaláciou, potom sa maže. |
-| `cron.php` | Denné pripomienky a spracovanie nových kuchárok v PDF, chránené kľúčom `CRON_KEY`. |
+| `cron.php` | Denné pripomienky, spracovanie nových kuchárok v PDF a doplnenie výživových hodnôt surovín, chránené kľúčom `CRON_KEY`. |
 | `mcp.php` | Vstup pre AI asistenta (MCP): overí kľúč z adresy a odpovie na správy JSON-RPC. Bez session a bez prihlásenia. |
 | `script.js` | Logika hlavnej stránky v prehliadači, aj rozloženie pre telefón a PC. Stránky Recepty a Objednané jedlo (`index.php#objednane`) sa prepínajú bez načítania, tlačidlo Späť v prehliadači funguje. Adresa `index.php?otvor=pridat`, `nakup`, `viac` alebo `objednavky` otvorí príslušné okno (odkazy zo Správy). |
 | `suroviny.js` | Výber surovín, kľúč suroviny, návrh pri preklepe a prepočet jednotiek. |
@@ -216,6 +228,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok aj s fotkou, kto ich môže zmazať. |
 | `includes/ai.php` | Recept z fotky: volanie AI služieb, kontrola odpovede, párovanie surovín, denný limit. |
 | `includes/asistent.php` | Hlasový asistent: rozhovor s AI (Gemini, Claude, OpenAI) s volaním nástrojov appky, prepis nahrávky z iPhonu, text do poznámok, denný limit. |
+| `includes/vyziva.php` | Výživové hodnoty: prepočet dávok na gramy, výpočet receptu na porciu, odhad hodnôt surovín cez AI, uloženie a kontrola. |
 | `includes/kucharky.php` | Kuchárky v PDF: nahratie, čítanie textu po stranách, fulltextové hľadanie. |
 | `includes/kniznice/pdfparser/` | Pribalená knižnica smalot/pdfparser 2.13.1 (LGPL-3.0) na čítanie PDF, bez Composera. |
 | `kucharky/` | PDF kuchárky (nie sú na GitHube, z internetu zablokované). |
@@ -224,7 +237,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `webauthn/` | Serverová časť biometrie. |
 | `sql/` | `instalacia.sql` pre novú inštaláciu a `migracia-X.Y.sql` pre aktualizácie. |
 | `uploads/recipes/`, `uploads/objfood/` | Fotky receptov a fotky objednaného jedla. |
-| `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. `testy/falosna-ai.php` je falošná AI služba pre test hlasového asistenta, `testy/hladanie.php` test hľadania so skloňovaním a textu upozornenia na nákup. |
+| `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. `testy/falosna-ai.php` je falošná AI služba pre test hlasového asistenta, `testy/hladanie.php` test hľadania so skloňovaním a textu upozornenia na nákup, `testy/vyziva.php` test výživových hodnôt. |
 | `ukazky/` | Ukážkové fotky appky: náhľad v tomto README a galéria v `ukazky/README.md`. Na server sa nenahrávajú. |
 
 ### Databáza
@@ -235,7 +248,7 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 |---|---|
 | Účty | `users`, `login_attempts`, `auth_tokens` (Zostať prihlásený), `webauthn_credentials`, `push_subscriptions` |
 | Recepty | `recipes`, `recipe_logs` (história), `recipe_ratings`, `recipe_photos` (galéria), `kategorie_receptov` |
-| Suroviny a nákup | `suroviny`, `recept_suroviny`, `recept_suroviny_zaloha`, `nakupny_zoznam` |
+| Suroviny a nákup | `suroviny`, `suroviny_vyziva` (výživové hodnoty na 100 g), `recept_suroviny`, `recept_suroviny_zaloha`, `nakupny_zoznam` |
 | Recept z fotky | `ai_rozpoznania` (denný limit) |
 | Objednané jedlo | `objednane_jedla` (Wolt, Bolt Food…, s receptami nesúvisí), `objednavky_hodnotenia` |
 | AI asistent | `ai_pripojenia` (adresy pre Claude a iných, len odtlačky kľúčov) |
@@ -251,6 +264,7 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 | `migracia-2.5.sql` | Tabuľku `objednavky_hodnotenia` (hodnotenie objednávok hviezdičkami). |
 | `migracia-2.6.sql` | Tabuľku `ai_pripojenia` (AI asistent cez MCP). |
 | `migracia-2.8.sql` | Tabuľky `kucharky` a `kucharky_strany` (kuchárky v PDF). |
+| `migracia-3.0.sql` | Tabuľku `suroviny_vyziva` (výživové hodnoty surovín). |
 
 ### Pravidlá pre novú verziu
 
@@ -266,7 +280,7 @@ Okrem pravidla o migráciách, ktoré len pridávajú, všetko ostatné skontrol
 
 ### Testy
 
-`testy/spusti-testy.sh` beží na GitHube pri každom nahratí do `main` a pred nahratím na server. Overí syntax PHP, pravidlá vyššie, novú inštaláciu, beh novej appky nad databázou predchádzajúcej verzie, migrácie a celý priechod appkou (`testy/smoke.php` sa prihlási, pridá a upraví recept, použije nákup, správu, pripojí sa ako AI asistent cez `mcp.php` a ďalšie) a hlasového asistenta s falošnou AI službou (`testy/falosna-ai.php`) pre Gemini, Claude aj OpenAI vrátane prepnutia na záložnú službu, a hľadanie so skloňovaním aj text upozornenia na nákup (`testy/hladanie.php`). Offline režim v prehliadači treba vyskúšať ručne.
+`testy/spusti-testy.sh` beží na GitHube pri každom nahratí do `main` a pred nahratím na server. Overí syntax PHP, pravidlá vyššie, novú inštaláciu, beh novej appky nad databázou predchádzajúcej verzie, migrácie a celý priechod appkou (`testy/smoke.php` sa prihlási, pridá a upraví recept, použije nákup, správu, pripojí sa ako AI asistent cez `mcp.php` a ďalšie) a hlasového asistenta s falošnou AI službou (`testy/falosna-ai.php`) pre Gemini, Claude aj OpenAI vrátane prepnutia na záložnú službu, a hľadanie so skloňovaním aj text upozornenia na nákup (`testy/hladanie.php`) a výživové hodnoty (`testy/vyziva.php`). Offline režim v prehliadači treba vyskúšať ručne.
 
 Na vlastnom počítači (PHP 8.4.1+, bežiaca MariaDB, stiahnutý `vendor/`):
 
@@ -302,6 +316,7 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Asistent odpovedá pomaly | Ako admin uvidíš pod odpoveďou, koľko trvali volania AI (bývajú dve: zistiť, čo treba, a odpovedať). Ak je pomalá AI, skús rýchlejší model v `AI_ASISTENT_MODEL_GEMINI` (napr. `gemini-flash-lite-latest`) alebo iné `AI_PORADIE`. |
 | Asistent hlási, že neodpovedá | V `includes/debug-log.txt` hľadaj `AI ASISTENT` (zlý kľúč, minutý kredit, výpadok služby). |
 | Claude sa nevie pripojiť ku konektoru | Adresa bola zrušená alebo zle skopírovaná (v appke vytvor novú), alebo nie je spustená `migracia-2.6.sql`. V `includes/debug-log.txt` hľadaj `AI ASISTENT`. |
+| Recept nemá výživové hodnoty | Chýba migrácia `migracia-3.0.sql`, kľúč k AI, alebo suroviny ešte nemajú hodnoty (Správa → Suroviny → Doplniť chýbajúce cez AI). Recept musí mať suroviny vybrané zo zoznamu aj s množstvami; v `includes/debug-log.txt` hľadaj `VÝŽIVA`. |
 | Po nahratí novej verzie starý vzhľad | V `sw.js` nebol zvýšený `CACHE_NAME`. |
 | Bez internetu sa ukáže „Si offline" | Appka sa v zariadení ešte neotvorila s internetom po prihlásení. |
 | V logu `FOTKY`, `KATEGÓRIE`, `SUROVINY`, `OBJEDNAVKY`… | V databáze chýba tabuľka, naimportuj migráciu. |
@@ -314,6 +329,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **3.0** Výživové hodnoty: v náhľade receptu sú kcal, bielkoviny, sacharidy, tuky, cukry, nasýtené tuky, vláknina a soľ na porciu ako všeobecný odhad zo surovín. Hodnoty surovín na 100 g (aj hustota, hmotnosť kusu a balenia na prepočet ml, lyžíc a kusov) doplní AI samo po uložení receptu, cronom alebo tlačidlom v Správe → Suroviny, kde sa dajú aj ručne opraviť. Asistent aj Claude vedia povedať, koľko kalórií či bielkovín má porcia. Migrácia `migracia-3.0.sql`.
 - **2.9.3** Nákup z kuchárky bez uloženia receptu: keď asistent (v appke aj Claude) pridáva do nákupu suroviny receptu, ktorý v appke nie je (z kuchárky, z webu, vlastný návrh, alebo len „pridaj mlieko a chlieb"), pridá ich rovno do nákupu — recept neuloží a ostatným príde len upozornenie na nákup („… pridal(a) do nákupu suroviny na „Zemiakové placky""). Suroviny sa napárujú na zoznam appky a zlúčia s rovnakými v nákupe. Recepty z českých kuchárok asistent vždy prekladá do slovenčiny (názov, suroviny aj postup) a v kuchárkach hľadá slovensky aj česky. Databáza sa nemení.
 - **2.9.2** Hlasový asistent nezapisuje z nejasnej reči: skomolený prepis („robili koracu cigánsko") zapísal varenie. Asistent teraz zapisuje (varenie, nákup, recept) len na jasný pokyn, pri otázke „kedy sme robili…" len hľadá a pri nezrozumiteľnej vete sa opýta. Keď po zápise zlyhá, povie presne, čo zapísal. Prepis nahrávky dostane názvy receptov z appky, aby ich AI napísala správne (Gemini aj OpenAI). Databáza sa nemení.
 - **2.9.1** Prepis hlasu z iPhonu: keď prvý model Gemini nahrávku neprepíše (preťažený, minutý limit, prázdna odpoveď), skúsia sa ďalšie modely z `AI_ASISTENT_MODEL_GEMINI` (inak `AI_MODEL_GEMINI`), potom ďalšia služba v poradí. Keď prepis aj tak zlyhá, admin vidí v okne asistenta presný dôvod pri každom modeli (aj keď zlyhá samotný asistent). Databáza sa nemení.

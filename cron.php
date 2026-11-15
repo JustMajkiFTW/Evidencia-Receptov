@@ -26,6 +26,13 @@ if ($expected === false || strlen($expected) < 16 || !hash_equals($expected, $gi
 $sent = send_due_recipe_reminder($pdo, false);
 echo $sent !== null ? "Pripomienka odoslaná: {$sent}\n" : "Dnes nie je čo pripomenúť.\n";
 
+// Výživové hodnoty (3.0): surovinám bez hodnôt ich odhadne AI (najviac 3 otázky, najprv suroviny z receptov).
+require_once __DIR__ . '/includes/vyziva.php';
+if (vyziva_available($pdo) && ai_dostupne()) {
+    $vyziva = vyziva_dopln_ai($pdo, null, 3);
+    echo 'Výživové hodnoty doplnené: ' . $vyziva['doplnene'] . ($vyziva['chyba'] ? ' (' . $vyziva['chyba'] . ')' : '') . "\n";
+}
+
 // Kuchárky v PDF (2.8): nové a zmenené PDF z priečinka kucharky/ sa spracujú samy (najviac 3 naraz).
 require_once __DIR__ . '/includes/kucharky.php';
 if (kucharky_available($pdo)) {

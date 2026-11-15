@@ -3,11 +3,13 @@
  * Správa surovín (len admin): zaradenie do kategórie, oprava názvu,
  * zlúčenie dvoch surovín (preklep, iný názov tej istej veci) a zmazanie
  * nepoužívanej. Predvolene ukazuje suroviny bez kategórie — to sú tie,
- * ktoré pribudli pri písaní receptov. Databázu netreba meniť.
+ * ktoré pribudli pri písaní receptov. Od 3.0 aj výživové hodnoty surovín
+ * (odhad AI, oprava ručne) — tie potrebujú migráciu 3.0.
  */
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/sprava.php';
+require_once __DIR__ . '/../includes/vyziva.php';
 require_admin();
 
 $userId = (int) get_current_user_id($pdo);
@@ -46,6 +48,23 @@ if ($dostupne && $_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $error = $vysledok['error'];
             }
+        } elseif ($action === 'vyziva_ulozit' && vyziva_available($pdo)) {
+            // 3.0: ručná oprava výživových hodnôt — AI ich potom už neprepíše
+            $surovina = get_surovina($pdo, (int) ($_POST['surovina_id'] ?? 0));
+            $problem = $surovina ? vyziva_uloz($pdo, (int) $surovina['id'], $_POST, 'rucne') : 'Surovina neexistuje.';
+            if ($problem === null) {
+                $message = "Výživové hodnoty suroviny „{$surovina['nazov']}“ uložené.";
+            } else {
+                $error = $problem;
+            }
+        } elseif ($action === 'vyziva_doplnit' && vyziva_available($pdo)) {
+            $vysledok = vyziva_dopln_ai($pdo, null, 3);
+            if ($vysledok['chyba'] !== null && $vysledok['doplnene'] === 0) {
+                $error = $vysledok['chyba'];
+            } else {
+                $message = 'AI doplnilo výživové hodnoty ' . $vysledok['doplnene'] . ' surovinám.'
+                    . ($vysledok['chyba'] !== null ? ' ' . $vysledok['chyba'] : '');
+            }
         } elseif ($action === 'surovina_zmazat') {
             $vysledok = delete_surovina($pdo, (int) ($_POST['surovina_id'] ?? 0));
             if ($vysledok['success']) {
@@ -61,6 +80,9 @@ $suroviny = $dostupne ? get_suroviny_for_admin($pdo, $hladaj) : [];
 $bezKategorie = $dostupne ? count(get_suroviny_for_admin($pdo, '', 1000)) : 0;
 $kategorie = $dostupne ? get_surovina_categories($pdo) : [];
 $vsetkySuroviny = $dostupne ? get_all_suroviny($pdo) : [];
+$vyzivaDostupna = $dostupne && vyziva_available($pdo);
+$vyziva = $vyzivaDostupna ? vyziva_vsetky($pdo) : [];
+$vyzivaStav = $vyzivaDostupna ? vyziva_stav($pdo) : null;
 $csrfToken = csrf_token();
 $adresa = 'suroviny.php' . ($hladaj !== '' ? '?hladaj=' . rawurlencode($hladaj) : '');
 
@@ -104,6 +126,33 @@ sprava_zaciatok($pdo, 'suroviny', 'Suroviny');
         Suroviny pridané pri písaní receptov nemajú kategóriu, preto sú v nákupnom zozname v skupine „Ostatné“.
         Zaraď ich, oprav preklep v názve, alebo zlúč dve suroviny, ktoré sú to isté. Zmeny sa prejavia vo všetkých receptoch aj v nákupnom zozname.
     </p>
+
+    <?php if ($vyzivaStav !== null): ?>
+        <div class="sprava-upozornenie vyziva-stav">
+            <i class="bi bi-heart-pulse" aria-hidden="true"></i>
+            <div>
+                <strong>Výživové hodnoty</strong> (všeobecný odhad na 100 g, z neho appka počíta recept na porciu):
+                <?php if ($vyzivaStav['chyba'] === 0): ?>
+                    všetky suroviny z receptov ich majú.
+                <?php else: ?>
+                    chýbajú pri <?= $vyzivaStav['chyba'] ?> z <?= $vyzivaStav['v_receptoch'] ?> surovín z receptov.
+                <?php endif; ?>
+                Doplní ich AI samo po uložení receptu (a cronom); opraviť sa dajú pri surovine nižšie — ručne zadané AI neprepíše.
+                <?php if ($vyzivaStav['vsetky_chyba'] > 0 && ai_dostupne()): ?>
+                    <form method="post" action="<?= htmlspecialchars($adresa) ?>" class="mt-2">
+                        <input type="hidden" name="action" value="vyziva_doplnit">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                        <input type="hidden" name="hladaj" value="<?= htmlspecialchars($hladaj) ?>">
+                        <button type="submit" class="btn sprava-tlacidlo sprava-vedlajsie">
+                            <i class="bi bi-stars" aria-hidden="true"></i>Doplniť chýbajúce cez AI (<?= min($vyzivaStav['vsetky_chyba'], 3 * VYZIVA_DAVKA_AI) ?> z <?= $vyzivaStav['vsetky_chyba'] ?>)
+                        </button>
+                    </form>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php elseif ($dostupne): ?>
+        <p class="sprava-popis">Výživové hodnoty surovín budú k dispozícii po spustení migrácie <code>sql/migracia-3.0.sql</code>.</p>
+    <?php endif; ?>
 
     <form method="get" action="suroviny.php" class="sprava-hladanie" role="search">
         <div class="sprava-hladanie-pole">
@@ -161,6 +210,48 @@ sprava_zaciatok($pdo, 'suroviny', 'Suroviny');
                         <?= sprava_pocet_receptov($s['receptov']) ?><?= $s['v_nakupe'] ? ' · v nákupe' : '' ?>
                     </span>
                     <div class="sprava-akcie">
+                        <?php if ($vyzivaDostupna):
+                            $v = $vyziva[(int) $s['id']] ?? null; ?>
+                        <details class="sprava-rozbal surovina-vyziva">
+                            <summary class="btn sprava-tlacidlo sprava-vedlajsie">
+                                <i class="bi bi-heart-pulse" aria-hidden="true"></i><?= $v
+                                    ? (int) round($v['kcal']) . ' kcal / 100 g' . ($v['zdroj'] === 'rucne' ? ' · ručne' : ' · odhad AI')
+                                    : 'Bez výživových hodnôt' ?>
+                            </summary>
+                            <form method="post" action="<?= htmlspecialchars($adresa) ?>" class="sprava-rozbal-form vyziva-form">
+                                <input type="hidden" name="action" value="vyziva_ulozit">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                <input type="hidden" name="hladaj" value="<?= htmlspecialchars($hladaj) ?>">
+                                <input type="hidden" name="surovina_id" value="<?= $s['id'] ?>">
+                                <p class="form-label mb-1">Na 100 g suroviny <?= htmlspecialchars($s['nazov']) ?>:</p>
+                                <div class="vyziva-polia">
+                                    <?php foreach (VYZIVA_POLIA as $pole): ?>
+                                        <label>
+                                            <span><?= htmlspecialchars(VYZIVA_NAZVY[$pole]) ?> (<?= $pole === 'kcal' ? 'kcal' : 'g' ?>)</span>
+                                            <input type="text" inputmode="decimal" name="<?= $pole ?>" class="form-control" required
+                                                   value="<?= $v ? htmlspecialchars(vyziva_cislo($v[$pole])) : '' ?>">
+                                        </label>
+                                    <?php endforeach; ?>
+                                    <label>
+                                        <span>Hustota (g v 1 ml)</span>
+                                        <input type="text" inputmode="decimal" name="hustota" class="form-control"
+                                               value="<?= htmlspecialchars(vyziva_cislo($v['hustota'] ?? 1)) ?>">
+                                    </label>
+                                    <label>
+                                        <span>1 kus (g)</span>
+                                        <input type="text" inputmode="decimal" name="gramy_kus" class="form-control" placeholder="—"
+                                               value="<?= isset($v['gramy_kus']) ? htmlspecialchars(vyziva_cislo($v['gramy_kus'])) : '' ?>">
+                                    </label>
+                                    <label>
+                                        <span>1 balenie (g)</span>
+                                        <input type="text" inputmode="decimal" name="gramy_balenie" class="form-control" placeholder="—"
+                                               value="<?= isset($v['gramy_balenie']) ? htmlspecialchars(vyziva_cislo($v['gramy_balenie'])) : '' ?>">
+                                    </label>
+                                </div>
+                                <button type="submit" class="btn sprava-tlacidlo sprava-hlavne"><i class="bi bi-check-lg" aria-hidden="true"></i>Uložiť hodnoty</button>
+                            </form>
+                        </details>
+                        <?php endif; ?>
                         <details class="sprava-rozbal surovina-zlucit">
                             <summary class="btn sprava-tlacidlo sprava-vedlajsie"><i class="bi bi-intersect" aria-hidden="true"></i>Zlúčiť s inou…</summary>
                             <form method="post" action="<?= htmlspecialchars($adresa) ?>" class="sprava-rozbal-form surovina-zlucit-form"

@@ -343,6 +343,11 @@ if ($rezim === 'asistent') {
     $o = akcia($p, $csrf, 'get_logs', ['recipe_id' => $receptId]);
     over(in_array('Pridané cez hlasového asistenta', array_column($o->json()['logs'] ?? [], 'note'), true),
         'V histórii je, že recept pridal hlasový asistent', $o->popis());
+    // 3.0: po uložení receptu AI odhadne výživové hodnoty jeho surovín (falošná AI: 200 kcal / 100 g, 1 ks = 50 g).
+    // Múka 300 g + Vajcia 4 ks (200 g) + Kakao 2 PL (30 g) = 530 g → 1060 kcal / 8 porcií = 133 kcal
+    $vyziva = recepty_zo_stranky($p->get('index.php')->telo)[$receptId]['vyziva'] ?? null;
+    over(($vyziva['hodnoty']['kcal'] ?? 0) === 133 && ($vyziva['zaratane'] ?? 0) === 3,
+        'Po uložení receptu AI doplní výživové hodnoty surovín', json_encode($vyziva, JSON_UNESCAPED_UNICODE));
 
     $o = $spytaj('Čo treba kúpiť?');
     over(uspech($o) && str_starts_with((string) ($o->json()['odpoved'] ?? ''), 'Hotovo.') && ($o->json()['zmeny'] ?? null) === false,
@@ -1137,6 +1142,30 @@ $o = $suroviny(['action' => 'surovina_zlucit', 'z_id' => $paradajkyId, 'do_id' =
 over(str_contains(hlaska_spravy($o->telo), 'samú so sebou'), 'Surovinu nejde zlúčiť samú so sebou', hlaska_spravy($o->telo));
 $o = $p->post('admin/suroviny.php', ['action' => 'surovina_zmazat', 'surovina_id' => $paradajkyId, 'csrf_token' => 'zly']);
 over(str_contains(hlaska_spravy($o->telo), 'Vypršala platnosť formulára'), 'Úprava surovín s neplatným tokenom sa odmietne');
+// Výživové hodnoty (3.0): ručné zadanie v Správe a výpočet receptu na porciu.
+$hodnotyParadajok = ['kcal' => '20', 'bielkoviny' => '1', 'sacharidy' => '3', 'cukry' => '2,6', 'tuky' => '0,2', 'nasytene' => '0',
+    'vlaknina' => '1,2', 'sol' => '0,01', 'hustota' => '', 'gramy_kus' => '100', 'gramy_balenie' => ''];
+if ($plny) {
+    $o = $p->get('admin/suroviny.php?hladaj=paradajky');
+    over(str_contains($o->telo, 'Výživové hodnoty') && str_contains($o->telo, 'value="vyziva_ulozit"'), 'Správa surovín ukáže výživové hodnoty', $o->popis());
+    $o = $suroviny(['action' => 'vyziva_ulozit', 'surovina_id' => $paradajkyId, 'cukry' => '5'] + $hodnotyParadajok);
+    over(str_contains(hlaska_spravy($o->telo), 'Cukry nemôžu'), 'Cukry viac ako sacharidy sa odmietnu', hlaska_spravy($o->telo));
+    $o = $suroviny(['action' => 'vyziva_ulozit', 'surovina_id' => $paradajkyId] + $hodnotyParadajok);
+    over(str_contains(hlaska_spravy($o->telo), 'uložené'), 'Výživové hodnoty suroviny sa uložia ručne', hlaska_spravy($o->telo));
+    // Šalát: Paradajky 300 g + 1 ks (100 g), 2 porcie → 400 g × 20 kcal / 100 g / 2 = 40 kcal, bielkoviny 2 g
+    $vyziva = recepty_zo_stranky($p->get('index.php')->telo)[$preklepRecept]['vyziva'] ?? null;
+    over(($vyziva['hodnoty']['kcal'] ?? 0) === 40 && abs(($vyziva['hodnoty']['bielkoviny'] ?? 0) - 2) < 0.001 && ($vyziva['na'] ?? '') === 'porciu'
+        && ($vyziva['zaratane'] ?? 0) === 2, 'Náhľad receptu má výživu na porciu (gramy aj kusy)', json_encode($vyziva, JSON_UNESCAPED_UNICODE));
+    over(str_contains($p->get('index.php')->telo, 'id="viewRecipeVyziva"'), 'V náhľade receptu je miesto na výživové hodnoty');
+} else {
+    $o = $p->get('admin/suroviny.php');
+    over(str_contains($o->telo, 'migracia-3.0.sql') && !str_contains($o->telo, 'value="vyziva_ulozit"'),
+        'Bez migrácie 3.0 Správa surovín povie, že výživa potrebuje migráciu', $o->popis());
+    $o = $suroviny(['action' => 'vyziva_ulozit', 'surovina_id' => $paradajkyId] + $hodnotyParadajok);
+    over($o->kod === 200 && bez_chyby($o), 'Bez migrácie uloženie výživy nič nerozbije', $o->popis());
+    $recept = recepty_zo_stranky($p->get('index.php')->telo)[$preklepRecept] ?? [];
+    over(array_key_exists('vyziva', $recept) && $recept['vyziva'] === null, 'Bez migrácie recept výživu nemá', json_encode($recept['vyziva'] ?? 'chýba'));
+}
 akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);
 akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $preklepRecept]);
 $o = (new Prehliadac($adresa))->get('admin/suroviny.php');

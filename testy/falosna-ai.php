@@ -87,6 +87,21 @@ function rozhodni(string $otazka, string $predoslaOdpoved): array
     return ['text' => 'Ahoj, ako ti môžem pomôcť?'];
 }
 
+/**
+ * Odhad výživových hodnôt (3.0): pre každý riadok „id: názov" z úlohy rovnaké hodnoty na 100 g
+ * (200 kcal, 10 g bielkovín…, 1 ks = 50 g), aby test vedel prepočet overiť. Inak null.
+ */
+function vyziva_odpoved(string $pokyny, string $uloha): ?string
+{
+    if (!str_contains($pokyny, 'Odhadni výživové hodnoty')) {
+        return null;
+    }
+    preg_match_all('/^(\d+): /m', $uloha, $m);
+    $riadky = array_map(static fn($id) => ['id' => (int) $id, 'kcal' => 200, 'bielkoviny' => 10, 'sacharidy' => 20, 'cukry' => 5,
+        'tuky' => 8, 'nasytene' => 3, 'vlaknina' => 2, 'sol' => 0.5, 'hustota' => 1, 'gramy_kus' => 50, 'gramy_balenie' => 0], $m[1]);
+    return json_encode(['suroviny' => $riadky], JSON_UNESCAPED_UNICODE);
+}
+
 /** Prvý riadok výsledku nástroja do záverečnej odpovede. */
 function hotovo(string $vysledok): string
 {
@@ -124,6 +139,12 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
     // Model, ktorý „nepozná" krátke premýšľanie: appka to má skúsiť znova bez neho.
     if ($m[1] === 'gemini-bez-premyslania' && isset($telo['generationConfig']['thinkingConfig'])) {
         chyba(400, 'thinkingLevel is not supported for this model.');
+    }
+    $casti = $telo['contents'][0]['parts'] ?? [];
+    $vyziva = vyziva_odpoved((string) ($telo['systemInstruction']['parts'][0]['text'] ?? ''),
+        (string) ($casti ? ($casti[count($casti) - 1]['text'] ?? '') : ''));
+    if ($vyziva !== null) {
+        odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [['text' => $vyziva]]], 'finishReason' => 'STOP']]]);
     }
     // Prepis hlasu: zvuk v inline_data, bez nástrojov.
     $zvuk = $telo['contents'][0]['parts'][0]['inline_data'] ?? null;
@@ -204,6 +225,13 @@ if ($cesta === '/claude/messages') {
     if (($_SERVER['HTTP_X_API_KEY'] ?? '') === '' || ($_SERVER['HTTP_ANTHROPIC_VERSION'] ?? '') === '') {
         chyba(401, 'Chýba kľúč alebo anthropic-version.');
     }
+    $casti = is_array($telo['messages'][0]['content'] ?? null) ? $telo['messages'][0]['content'] : [];
+    $vyziva = vyziva_odpoved(is_string($telo['system'] ?? null) ? $telo['system'] : '',
+        (string) ($casti ? ($casti[count($casti) - 1]['text'] ?? '') : ''));
+    if ($vyziva !== null) {
+        odpovedz(200, ['id' => 'msg_v', 'type' => 'message', 'role' => 'assistant', 'stop_reason' => 'end_turn',
+            'content' => [['type' => 'text', 'text' => $vyziva]]]);
+    }
     over_nastroje(array_column($telo['tools'] ?? [], 'name'));
     $spravy = $telo['messages'] ?? [];
     if (($spravy[0]['role'] ?? '') !== 'user') {
@@ -243,6 +271,11 @@ if ($cesta === '/claude/messages') {
 if ($cesta === '/openai/responses') {
     if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '')) {
         chyba(401, 'Chýba kľúč.');
+    }
+    $vyziva = vyziva_odpoved((string) ($telo['instructions'] ?? ''), (string) ($telo['input'][0]['content'][0]['text'] ?? ''));
+    if ($vyziva !== null) {
+        odpovedz(200, ['id' => 'resp_v', 'output' => [['type' => 'message', 'role' => 'assistant',
+            'content' => [['type' => 'output_text', 'text' => $vyziva]]]]]);
     }
     over_nastroje(array_column($telo['tools'] ?? [], 'name'));
     $vstup = $telo['input'] ?? [];
