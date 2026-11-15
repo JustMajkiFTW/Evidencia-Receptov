@@ -2757,3 +2757,44 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 .datum-stav { margin-top: .4rem; font-size: .95rem; color: var(--app-muted-text); }
 .datum-stav.je-vyplnene { color: var(--app-text); font-weight: 600; }
 .datum-stav.je-chyba { color: var(--bs-danger); font-weight: 600; }
+
+/* ── Šípka hore (verzia 2.5.2): ukáže sa po posunutí stránky nižšie. Na telefóne
+      nad spodnou lištou, na PC v pravom dolnom rohu. Pod oknami (modal 1055). ── */
+.hore-tlacidlo {
+    position: fixed;
+    right: 1rem;
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    z-index: 1040;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--app-accent);
+    color: #fff;
+    font-size: 1.6rem;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(12px);
+    transition: opacity .2s ease, transform .2s ease, visibility 0s linear .2s;
+}
+.hore-tlacidlo.je-videt {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition: opacity .2s ease, transform .2s ease;
+}
+.hore-tlacidlo .bi { -webkit-text-stroke: 1.5px currentColor; } /* hrubšia šípka */
+.hore-tlacidlo:active { transform: scale(.94); }
+.hore-tlacidlo:focus-visible { outline: 3px solid var(--app-text); outline-offset: 3px; }
+@media (max-width: 767.98px) {
+    .hore-tlacidlo { bottom: calc(var(--lista-vyska) + env(safe-area-inset-bottom, 0px) + .75rem); }
+    body.lista-skryta .hore-tlacidlo { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .hore-tlacidlo, .hore-tlacidlo.je-videt { transition: none; }
+}

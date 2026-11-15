@@ -3402,3 +3402,32 @@ window.aiRecept = (function initAiRecept() {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', otvorZAdresy);
     else otvorZAdresy();
 })();
+
+/* ========================================================================
+   Šípka hore (verzia 2.5.2) — ukáže sa, keď je stránka posunutá aspoň
+   o jednu obrazovku nižšie (min. 400 px), ťuknutie vráti na začiatok.
+   ======================================================================== */
+(function initHoreTlacidlo() {
+    const btn = document.getElementById('horeTlacidlo');
+    if (!btn) return;
+
+    let caka = false;
+    function aktualizuj() {
+        caka = false;
+        btn.classList.toggle('je-videt', window.scrollY > Math.max(400, window.innerHeight));
+    }
+    function naPosun() {
+        if (caka) return;
+        caka = true;
+        requestAnimationFrame(aktualizuj);
+    }
+    window.addEventListener('scroll', naPosun, { passive: true });
+    window.addEventListener('resize', naPosun, { passive: true });
+
+    btn.addEventListener('click', () => {
+        const bezPohybu = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        window.scrollTo({ top: 0, behavior: bezPohybu ? 'auto' : 'smooth' });
+        btn.blur();
+    });
+    aktualizuj(); // obnovenie stránky v strede zoznamu
+})();
