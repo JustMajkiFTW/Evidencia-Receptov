@@ -11,6 +11,10 @@
  *   plny          databáza je aktuálna (nová inštalácia alebo po migrácii), overí sa všetko
  *   bez-migracie  databáza je z predchádzajúcej verzie; základné veci (recepty, varenie,
  *                 hodnotenie, história) musia fungovať, nové funkcie len nesmú spadnúť
+ *   asistent      appka beží s kľúčmi k falošnej AI (testy/falosna-ai.php); po prihlásení
+ *                 sa overí len hlasový asistent (verzia 2.7). Premenná TEST_ASISTENT_SLUZBA
+ *                 = ktorá služba má odpovedať (Gemini, Claude, OpenAI), TEST_ASISTENT_ZALOHA=1
+ *                 overí prepnutie na ďalšiu službu, keď prvá zlyhá.
  *
  * Návratový kód: 0 = všetko v poriadku, 1 = aspoň jedna kontrola zlyhala.
  */
@@ -296,6 +300,83 @@ over(str_contains($o->telo, 'id="offlinePasik"') && substr_count($o->telo, 'data
 $csrf = csrf_zo_stranky($o->telo);
 over($csrf !== null, 'Hlavná stránka obsahuje bezpečnostný token (CSRF)');
 $csrf = (string) $csrf;
+
+/* ---------------------------------------------------------------------- */
+/* 1a. Hlasový asistent (verzia 2.7) — len v režime „asistent", s falošnou   */
+/*     AI službou. Overí celý rozhovor aj s nástrojmi appky a končí.        */
+/* ---------------------------------------------------------------------- */
+if ($rezim === 'asistent') {
+    $sluzba = getenv('TEST_ASISTENT_SLUZBA') ?: 'Gemini';
+    echo "\nHlasový asistent ($sluzba)\n";
+    $stranka = $p->get('index.php')->telo;
+    over(str_contains($stranka, 'id="asistentModal"') && substr_count($stranka, 'onclick="openAsistent()"') >= 3,
+        'S kľúčom k AI je asistent v appke (okno, bočná ponuka, hlavička, Viac)');
+    $zostavaFotiek = preg_match('/id="aiZostava" data-zostava="(\d*)"/', $stranka, $m) ? $m[1] : null;
+
+    $historia = [];
+    $spytaj = static function (string $text) use ($p, $csrf, &$historia): Odpoved {
+        $o = akcia($p, $csrf, 'asistent', ['text' => $text, 'historia' => json_encode($historia, JSON_UNESCAPED_UNICODE)]);
+        if (($o->json()['success'] ?? false) === true) {
+            $historia[] = ['rola' => 'pouzivatel', 'text' => $text];
+            $historia[] = ['rola' => 'asistent', 'text' => $o->json()['odpoved']];
+        }
+        return $o;
+    };
+
+    $o = $spytaj('Ahoj');
+    over(uspech($o) && str_contains((string) ($o->json()['odpoved'] ?? ''), 'Ahoj') && ($o->json()['zmeny'] ?? null) === false,
+        'Asistent odpovie bez nástroja', $o->popis());
+    over(($o->json()['poskytovatel'] ?? '') === $sluzba, "Odpovedala služba $sluzba", $o->popis());
+
+    $nazov = "Bábovka od hlasu $znacka";
+    $o = $spytaj("Ulož recept $nazov");
+    $data = $o->json() ?? [];
+    over(uspech($o) && ($data['zmeny'] ?? false) === true && ($data['akcie'][0]['nastroj'] ?? '') === 'pridaj_recept'
+        && ($data['akcie'][0]['ok'] ?? false) === true, 'Asistent uloží recept (nástroj pridaj_recept)', $o->popis());
+    over(str_starts_with((string) ($data['odpoved'] ?? ''), 'Hotovo. Recept'), 'Odpoveď po nástroji obsahuje jeho výsledok', $o->popis());
+    $receptId = (int) ($data['akcie'][0]['recept_id'] ?? 0);
+    $recept = recepty_zo_stranky($p->get('index.php')->telo)[$receptId] ?? null;
+    over(($recept['name'] ?? '') === $nazov && count($recept['suroviny'] ?? []) === 3, 'Recept od asistenta je v appke aj so surovinami',
+        json_encode($recept, JSON_UNESCAPED_UNICODE));
+    $o = akcia($p, $csrf, 'get_logs', ['recipe_id' => $receptId]);
+    over(in_array('Pridané cez hlasového asistenta', array_column($o->json()['logs'] ?? [], 'note'), true),
+        'V histórii je, že recept pridal hlasový asistent', $o->popis());
+
+    $o = $spytaj('Čo treba kúpiť?');
+    over(uspech($o) && str_starts_with((string) ($o->json()['odpoved'] ?? ''), 'Hotovo.') && ($o->json()['zmeny'] ?? null) === false,
+        'Asistent pozrie nákup (čítanie nič nemení)', $o->popis());
+    $o = $spytaj("Nájdi $znacka");
+    over(str_contains((string) ($o->json()['odpoved'] ?? ''), 'Našiel som 1 recept'), 'Asistent nájde recept', $o->popis());
+    $o = $spytaj('Pamätáš si, čo si povedal?');
+    over(str_contains((string) ($o->json()['odpoved'] ?? ''), 'Našiel som 1 recept'), 'Asistent dostane históriu rozhovoru', $o->popis());
+
+    if (getenv('TEST_ASISTENT_ZALOHA') === '1') {
+        $o = $spytaj('chyba503 a nájdi ' . $znacka);
+        over(uspech($o) && ($o->json()['poskytovatel'] ?? '') !== 'Gemini',
+            'Keď Gemini zlyhá (503), odpovie ďalšia služba v poradí', $o->popis());
+    }
+
+    $o = $spytaj('   ');
+    over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Prázdna otázka sa odmietne', $o->popis());
+    $o = akcia($p, 'zly-token', 'asistent', ['text' => 'Ahoj']);
+    over($o->kod === 403, 'Asistent s neplatným tokenom odmietne', $o->popis());
+    if ($zostavaFotiek !== null && $zostavaFotiek !== '') {
+        over(preg_match('/id="aiZostava" data-zostava="' . $zostavaFotiek . '"/', $p->get('index.php')->telo) === 1,
+            'Otázky asistenta sa nerátajú do limitu fotiek');
+    }
+
+    // Denný limit (AI_ASISTENT_DENNY_LIMIT v teste je malý): skôr či neskôr asistent odmietne.
+    $odmietol = false;
+    for ($i = 0; $i < 12 && !$odmietol; $i++) {
+        $o = akcia($p, $csrf, 'asistent', ['text' => 'Ahoj', 'historia' => '[]']);
+        $odmietol = ($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['error'] ?? ''), 'minutý');
+    }
+    over($odmietol, 'Po minutí denného limitu asistent odmietne', $o->popis());
+
+    akcia($p, $csrf, 'delete_recipe', ['recipe_id' => $receptId]);
+    echo "\n" . ($chyby === 0 ? "Všetky kontroly prešli.\n" : "Počet zlyhaných kontrol: $chyby\n");
+    exit($chyby === 0 ? 0 : 1);
+}
 
 /* ---------------------------------------------------------------------- */
 /* 2. Statické súbory                                                      */

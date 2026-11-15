@@ -24,6 +24,7 @@ Videá, ako sa pridáva recept (z fotky cez AI aj ručne), a ďalšie ukážky z
 - **Prihlásenie** heslom alebo odtlačkom prsta či Face ID, s možnosťou zostať prihlásený 90 dní.
 - **Recepty bez internetu** (len na čítanie).
 - **Recept z fotky.** AI (Gemini, Claude alebo OpenAI) z fotky jedla alebo kuchárky navrhne celý recept, ty ho skontroluješ a uložíš. Nepovinné.
+- **Hlasový asistent v appke.** Ťukneš na mikrofón (vo vyhľadávaní, na PC v bočnej ponuke) a povieš, čo potrebuješ: „čo treba kúpiť?", „kedy sme naposledy robili guláš?", „navrhni recept na bábovku a ulož ho". Odpoveď prečíta telefón svojím slovenským hlasom. Používa ten istý kľúč k AI ako recept z fotky, nikto si nemusí zakladať žiadny účet. Pozri [Hlasový asistent](#hlasový-asistent).
 - **AI asistent (Claude).** Appka sa dá pripojiť k asistentovi Claude. Potom mu stačí napísať alebo povedať, nech recept nájde a uloží do appky, zapíše varenie alebo pridá suroviny do nákupu. Každý si v nastaveniach vytvorí vlastnú adresu a všetko sa zapisuje pod jeho menom. Nepovinné, pozri [AI asistent](#ai-asistent-claude).
 - **Rozloženie pre telefón** (spodná lišta Recepty, Objednané, Pridať, Nákup, Viac, formulár v troch krokoch) a **pre PC** (bočná ponuka), svetlý a tmavý vzhľad. Rýchle dvojité ťuknutie stránku na telefóne nepriblíži, zväčšiť sa dá dvoma prstami.
 - **Správa** používateľov, kategórií a surovín pre admina, v rovnakom vzhľade ako zvyšok appky (na PC bočná ponuka, na telefóne spodná lišta).
@@ -94,9 +95,21 @@ Vzor je v `includes/.env.example`. Súbor obsahuje heslá, preto nepatrí na Git
 | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Kľúče pre recept z fotky. Stačí jeden, bez kľúča je funkcia vypnutá. |
 | `AI_PORADIE` | V akom poradí služby skúšať, predvolene `gemini,claude,openai`. |
 | `AI_DENNY_LIMIT` | Koľko fotiek môže jeden používateľ poslať za deň, predvolene `20` (`0` = bez limitu). |
+| `AI_ASISTENT_DENNY_LIMIT` | Koľko otázok môže jeden používateľ položiť hlasovému asistentovi za deň, predvolene `100` (`0` = bez limitu). Počíta sa zvlášť od fotiek. |
 | `AI_MODEL_GEMINI`, `AI_MODEL_CLAUDE`, `AI_MODEL_OPENAI` | Iné modely než predvolené, viac oddelených čiarkou. Väčšinou netreba. |
 
 Premenné `AI_ADRESA_…` slúžia len na testy, v prevádzke ich nevypĺňaj.
+
+## Hlasový asistent
+
+Zapne sa sám, keď je v `.env` kľúč k aspoň jednej AI službe (tie isté ako pri recepte z fotky, v poradí `AI_PORADIE`). Databázu netreba meniť.
+
+1. Mikrofón je vo vyhľadávaní receptov, v okne **Viac** a na PC v bočnej ponuke (**Hlasový asistent**).
+2. Telefón rozpozná reč (slovenčina). Kde to prehliadač nevie alebo nemá povolený mikrofón, appka ponúkne pole na písanie, do ktorého sa dá nadiktovať mikrofónom na klávesnici.
+3. Otázka ide na server (`includes/asistent.php`). AI dostane tie isté nástroje ako asistent cez MCP (nájdi, zobraz, ulož recept, zapíš varenie, nákup) a volá ich, kým nemá odpoveď.
+4. Odpoveď je krátka a prečíta ju telefón svojím hlasom. Na iPhone znie najlepšie **Laura (vylepšená)**: Nastavenia → Prístupnosť → Hovorený obsah → Hlasy → Slovenčina. Čítanie nahlas sa dá v okne vypnúť.
+
+Všetko, čo asistent zapíše, je pod menom prihláseného používateľa, nový recept má v histórii „Pridané cez hlasového asistenta" a ostatným príde upozornenie. Rozhovor si pamätá posledných 12 správ, kým je okno otvorené. Keď služba zlyhá skôr, než asistent niečo zapísal, skúsi sa ďalšia v poradí.
 
 ## AI asistent (Claude)
 
@@ -104,7 +117,7 @@ Appka má vstup pre AI asistentov cez **MCP** (Model Context Protocol): `mcp.php
 
 **Pripojenie (každý člen rodiny zvlášť):**
 
-1. V appke **Viac → AI asistent** (na PC **Nastavenia → AI asistent**) zvoľ **Vytvoriť adresu** a skopíruj ju. Appka ju ukáže len raz, v databáze je iba jej odtlačok.
+1. V appke **Viac → Pripojiť k Claude** (na PC **Nastavenia → Pripojiť k Claude**) zvoľ **Vytvoriť adresu** a skopíruj ju. Appka ju ukáže len raz, v databáze je iba jej odtlačok.
 2. V prehliadači otvor [claude.ai → Nastavenia → Konektory](https://claude.ai/settings/connectors), zvoľ **Pridať vlastný konektor**, názov `Recepty` a ako URL vlož adresu.
 3. V mobilnej appke Claude sa konektor objaví sám. Bezplatná verzia Claude dovolí jeden vlastný konektor.
 
@@ -184,12 +197,13 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `includes/webpush.php` | Odosielanie upozornení (šifrovanie a podpis cez openssl a curl). |
 | `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok aj s fotkou, kto ich môže zmazať. |
 | `includes/ai.php` | Recept z fotky: volanie AI služieb, kontrola odpovede, párovanie surovín, denný limit. |
+| `includes/asistent.php` | Hlasový asistent: rozhovor s AI (Gemini, Claude, OpenAI) s volaním nástrojov appky, denný limit. |
 | `includes/mcp.php` | AI asistent: adresy (vytvorenie, overenie, zrušenie), popis nástrojov pre asistenta a ich vykonanie nad funkciami appky. |
 | `includes/sprava.php` | Spoločné rozloženie stránok Správy: bočná ponuka na PC, tlačidlá častí a spodná lišta na telefóne. |
 | `webauthn/` | Serverová časť biometrie. |
 | `sql/` | `instalacia.sql` pre novú inštaláciu a `migracia-X.Y.sql` pre aktualizácie. |
 | `uploads/recipes/`, `uploads/objfood/` | Fotky receptov a fotky objednaného jedla. |
-| `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. |
+| `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. `testy/falosna-ai.php` je falošná AI služba pre test hlasového asistenta. |
 | `ukazky/` | Ukážkové fotky appky: náhľad v tomto README a galéria v `ukazky/README.md`. Na server sa nenahrávajú. |
 
 ### Databáza
@@ -229,7 +243,7 @@ Okrem pravidla o migráciách, ktoré len pridávajú, všetko ostatné skontrol
 
 ### Testy
 
-`testy/spusti-testy.sh` beží na GitHube pri každom nahratí do `main` a pred nahratím na server. Overí syntax PHP, pravidlá vyššie, novú inštaláciu, beh novej appky nad databázou predchádzajúcej verzie, migrácie a celý priechod appkou (`testy/smoke.php` sa prihlási, pridá a upraví recept, použije nákup, správu, pripojí sa ako AI asistent cez `mcp.php` a ďalšie). Offline režim v prehliadači treba vyskúšať ručne.
+`testy/spusti-testy.sh` beží na GitHube pri každom nahratí do `main` a pred nahratím na server. Overí syntax PHP, pravidlá vyššie, novú inštaláciu, beh novej appky nad databázou predchádzajúcej verzie, migrácie a celý priechod appkou (`testy/smoke.php` sa prihlási, pridá a upraví recept, použije nákup, správu, pripojí sa ako AI asistent cez `mcp.php` a ďalšie) a hlasového asistenta s falošnou AI službou (`testy/falosna-ai.php`) pre Gemini, Claude aj OpenAI vrátane prepnutia na záložnú službu. Offline režim v prehliadači treba vyskúšať ručne.
 
 Na vlastnom počítači (PHP 8.4.1+, bežiaca MariaDB, stiahnutý `vendor/`):
 
@@ -252,6 +266,9 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Upozornenia nechodia | Používateľ ich nepovolil, appka nebeží na HTTPS, alebo je v logu `PUSH ZLYHAL`. Na iPhone len v appke z plochy. |
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou alebo appka nebeží na HTTPS. |
 | Pri novom recepte sa „Naposledy varené“ neuložilo | Safari na iPhone ukazuje v prázdnom dátumovom poli dnešný dátum, hoci v ňom nič nie je. Použi tlačidlo Dnes / Včera alebo v kalendári ťukni na deň; pod poľom je napísané, čo sa uloží. |
+| Hlasový asistent nepočuje | Prehliadač nemá povolený mikrofón (na iPhone Nastavenia → Safari → Mikrofón). Vždy sa dá nadiktovať do poľa mikrofónom na klávesnici. |
+| Hlas asistenta znie zle alebo nie po slovensky | V telefóne chýba slovenský hlas: na iPhone stiahni Lauru (vylepšenú) v Nastavenia → Prístupnosť → Hovorený obsah → Hlasy. |
+| Asistent hlási, že neodpovedá | V `includes/debug-log.txt` hľadaj `AI ASISTENT` (zlý kľúč, minutý kredit, výpadok služby). |
 | Claude sa nevie pripojiť ku konektoru | Adresa bola zrušená alebo zle skopírovaná (v appke vytvor novú), alebo nie je spustená `migracia-2.6.sql`. V `includes/debug-log.txt` hľadaj `AI ASISTENT`. |
 | Po nahratí novej verzie starý vzhľad | V `sw.js` nebol zvýšený `CACHE_NAME`. |
 | Bez internetu sa ukáže „Si offline" | Appka sa v zariadení ešte neotvorila s internetom po prihlásení. |
@@ -265,6 +282,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.7** Hlasový asistent priamo v appke: mikrofón vo vyhľadávaní (na PC aj v bočnej ponuke, na telefóne aj vo Viac). Reč rozpozná telefón, AI zo `.env` (Gemini, Claude alebo OpenAI) použije nástroje appky (nájdi, ulož recept, uvarené, nákup) a odpoveď prečíta telefón svojím slovenským hlasom. Kde rozpoznanie reči nejde, ostáva písanie s diktovaním z klávesnice. Denný limit `AI_ASISTENT_DENNY_LIMIT` (predvolene 100) sa počíta zvlášť od fotiek. Pripojenie cez MCP sa v nastaveniach volá „Pripojiť k Claude". Databáza sa nemení.
 - **2.6** AI asistent: appka sa dá pripojiť k Claude cez MCP (`mcp.php`). Asistent na pokyn, aj hlasom, nájde a zobrazí recept, uloží nový recept (suroviny napáruje na číselník, rovnaký názov druhýkrát neuloží), zapíše varenie a pridá suroviny do nákupu. Každý používateľ si vo Viac / Nastaveniach vytvorí vlastnú adresu (ukáže sa len raz, v databáze je odtlačok) a môže ju zrušiť, všetko sa zapisuje pod jeho menom a ostatným príde upozornenie. Migrácia `migracia-2.6.sql`.
 - **2.5.2** Šípka hore: keď sa stránka (recepty aj Objednané jedlo) posunie aspoň o obrazovku nižšie, vpravo dole sa ukáže okrúhle tlačidlo so šípkou, ktoré vráti na začiatok. Na telefóne je nad spodnou lištou, na PC v pravom dolnom rohu. Databáza sa nemení.
 - **2.5.1** Oprava „Naposledy varené“ pri pridávaní receptu: na iPhone sa dátum často neuložil (Safari ukazuje v prázdnom poli dnešný dátum, hoci v ňom nič nie je), a tak bol nový recept „ešte nevarený“. Pod poľom pribudli veľké tlačidlá Dnes, Včera a vymazať a text, čo sa naozaj uloží. Najvyšší dátum (dnes) sa nastaví pri každom otvorení formulára, aby appka otvorená v telefóne niekoľko dní neodmietla dnešný dátum. Databáza sa nemení.

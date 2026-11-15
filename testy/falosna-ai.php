@@ -1,0 +1,221 @@
+<?php
+/**
+ * falosna-ai.php — falošná AI služba pre test hlasového asistenta (verzia 2.7).
+ *
+ * Spúšťa ju testy/spusti-testy.sh ako router vstavaného servera PHP:
+ *   php -S 127.0.0.1:8766 testy/falosna-ai.php
+ * a appka ju dostane cez AI_ADRESA_GEMINI=http://127.0.0.1:8766/gemini atď.
+ *
+ * Odpovedá v tvare Gemini (generateContent), Claude (Messages) a OpenAI
+ * (Responses) vrátane volania nástrojov. Podľa slov v otázke zavolá nástroj
+ * appky, po výsledku nástroja odpovie „Hotovo. …". Zároveň kontroluje, či
+ * appka posiela späť, čo musí (podpis pri Gemini, id volaní pri Claude
+ * a OpenAI) — inak vráti 400 ako skutočná služba.
+ *
+ * Slová v otázke: „ahoj" (bez nástroja), „ulož recept NÁZOV", „kúpiť",
+ * „nevarili", „nájdi SLOVO", „pamätáš" (zopakuje predošlú odpoveď z histórie),
+ * „chyba503" (Gemini odpovie 503 — appka má skúsiť ďalšiu službu).
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+$cesta = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
+$telo = json_decode((string) file_get_contents('php://input'), true);
+
+function odpovedz(int $kod, array $data): never
+{
+    http_response_code($kod);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function chyba(int $kod, string $sprava): never
+{
+    odpovedz($kod, ['error' => ['code' => $kod, 'message' => $sprava]]);
+}
+
+function bez_diakritiky(string $text): string
+{
+    return strtr(mb_strtolower($text, 'UTF-8'), ['á' => 'a', 'ä' => 'a', 'č' => 'c', 'ď' => 'd', 'é' => 'e', 'í' => 'i', 'ĺ' => 'l', 'ľ' => 'l',
+        'ň' => 'n', 'ó' => 'o', 'ô' => 'o', 'ŕ' => 'r', 'š' => 's', 'ť' => 't', 'ú' => 'u', 'ý' => 'y', 'ž' => 'z']);
+}
+
+/** Čo by „model" urobil s otázkou: ['nastroj' => …, 'argumenty' => …] alebo ['text' => …]. */
+function rozhodni(string $otazka, string $predoslaOdpoved): array
+{
+    $o = bez_diakritiky($otazka);
+    if (str_contains($o, 'pamatas')) {
+        return ['text' => 'Predtým som povedal: ' . ($predoslaOdpoved !== '' ? $predoslaOdpoved : '(nič)')];
+    }
+    if (str_contains($o, 'uloz recept')) {
+        $nazov = trim(preg_replace('/^.*?ulož recept\s*/iu', '', $otazka) ?? '');
+        return ['nastroj' => 'pridaj_recept', 'argumenty' => [
+            'nazov' => $nazov, 'kategoria' => 'Dezerty', 'porcie' => 8, 'cas_pripravy' => 60,
+            'suroviny' => [
+                ['nazov' => 'Múka hladká', 'mnozstvo' => 300, 'jednotka' => 'g'],
+                ['nazov' => 'Vajcia', 'mnozstvo' => 4, 'jednotka' => 'ks'],
+                ['nazov' => 'Kakao', 'mnozstvo' => 2, 'jednotka' => 'PL'],
+            ],
+            'postup' => "1. Vymiešaj cesto.\n2. Pečieme 50 minút.",
+        ]];
+    }
+    if (str_contains($o, 'kupit') || str_contains($o, 'nakup')) {
+        return ['nastroj' => 'zobraz_nakup', 'argumenty' => []];
+    }
+    if (str_contains($o, 'nevarili')) {
+        return ['nastroj' => 'najdi_recepty', 'argumenty' => ['zoradenie' => 'najdlhsie_nevarene', 'limit' => 3]];
+    }
+    if (preg_match('/najdi\s+(\S+)/u', $o, $m)) {
+        return ['nastroj' => 'najdi_recepty', 'argumenty' => ['dotaz' => $m[1]]];
+    }
+    return ['text' => 'Ahoj, ako ti môžem pomôcť?'];
+}
+
+/** Prvý riadok výsledku nástroja do záverečnej odpovede. */
+function hotovo(string $vysledok): string
+{
+    return 'Hotovo. ' . trim(strtok($vysledok, "\n") ?: $vysledok);
+}
+
+function over_nastroje(array $nazvy): void
+{
+    if (!in_array('pridaj_recept', $nazvy, true) || !in_array('najdi_recepty', $nazvy, true)) {
+        chyba(400, 'Chýbajú nástroje appky: ' . implode(', ', $nazvy));
+    }
+}
+
+if (!is_array($telo)) {
+    chyba(400, 'Telo nie je JSON.');
+}
+
+/* ---------------------------------- Gemini ---------------------------------- */
+if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
+    if (($_SERVER['HTTP_X_GOOG_API_KEY'] ?? '') === '') {
+        chyba(403, 'Chýba kľúč.');
+    }
+    // Model, ktorý „nepozná" krátke premýšľanie: appka to má skúsiť znova bez neho.
+    if ($m[1] === 'gemini-bez-premyslania' && isset($telo['generationConfig']['thinkingConfig'])) {
+        chyba(400, 'thinkingLevel is not supported for this model.');
+    }
+    over_nastroje(array_column($telo['tools'][0]['functionDeclarations'] ?? [], 'name'));
+    foreach ($telo['tools'][0]['functionDeclarations'] as $d) {
+        if (isset($d['parameters']) && str_contains(json_encode($d['parameters']), 'additionalProperties')) {
+            chyba(400, 'Invalid JSON payload: Unknown name "additionalProperties" in ' . $d['name']);
+        }
+    }
+    $obsah = $telo['contents'] ?? [];
+    $posledny = end($obsah) ?: [];
+    $otazka = '';
+    $predosla = '';
+    foreach ($obsah as $c) {
+        foreach ($c['parts'] ?? [] as $p) {
+            if (isset($p['text'])) {
+                if (($c['role'] ?? '') === 'user') {
+                    $otazka = $p['text'];
+                } else {
+                    $predosla = $p['text'];
+                }
+            }
+        }
+    }
+    if (str_contains(bez_diakritiky($otazka), 'chyba503')) {
+        chyba(503, 'The model is overloaded. Please try again later.');
+    }
+    $vysledky = array_values(array_filter($posledny['parts'] ?? [], static fn($p) => isset($p['functionResponse'])));
+    if ($vysledky) {
+        // Gemini 3: odpoveď modelu s volaním musí prísť späť aj s podpisom.
+        $model = $obsah[count($obsah) - 2] ?? [];
+        if (($model['role'] ?? '') !== 'model' || ($model['parts'][0]['thoughtSignature'] ?? '') !== 'podpis-123') {
+            chyba(400, 'Function call is missing a thought_signature.');
+        }
+        $r = $vysledky[0]['functionResponse']['response'];
+        odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [['text' => hotovo((string) ($r['result'] ?? $r['error'] ?? ''))]]], 'finishReason' => 'STOP']]]);
+    }
+    $rozhodnutie = rozhodni($otazka, $predosla);
+    if (isset($rozhodnutie['text'])) {
+        odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [
+            ['text' => 'myslím…', 'thought' => true], ['text' => $rozhodnutie['text']],
+        ]], 'finishReason' => 'STOP']]]);
+    }
+    odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [
+        ['functionCall' => ['name' => $rozhodnutie['nastroj'], 'args' => (object) $rozhodnutie['argumenty']], 'thoughtSignature' => 'podpis-123'],
+    ]], 'finishReason' => 'STOP']]]);
+}
+
+/* ---------------------------------- Claude ---------------------------------- */
+if ($cesta === '/claude/messages') {
+    if (($_SERVER['HTTP_X_API_KEY'] ?? '') === '' || ($_SERVER['HTTP_ANTHROPIC_VERSION'] ?? '') === '') {
+        chyba(401, 'Chýba kľúč alebo anthropic-version.');
+    }
+    over_nastroje(array_column($telo['tools'] ?? [], 'name'));
+    $spravy = $telo['messages'] ?? [];
+    if (($spravy[0]['role'] ?? '') !== 'user') {
+        chyba(400, 'messages: first message must use the "user" role');
+    }
+    $posledna = end($spravy) ?: [];
+    $otazka = '';
+    $predosla = '';
+    foreach ($spravy as $s) {
+        if (is_string($s['content'])) {
+            if ($s['role'] === 'user') {
+                $otazka = $s['content'];
+            } else {
+                $predosla = $s['content'];
+            }
+        }
+    }
+    if (is_array($posledna['content'] ?? null) && ($posledna['content'][0]['type'] ?? '') === 'tool_result') {
+        if (($posledna['content'][0]['tool_use_id'] ?? '') !== 'toolu_1') {
+            chyba(400, 'tool_result block(s) provided when previous message does not have tool_use blocks with matching ids');
+        }
+        odpovedz(200, ['id' => 'msg_2', 'type' => 'message', 'role' => 'assistant', 'stop_reason' => 'end_turn',
+            'content' => [['type' => 'text', 'text' => hotovo((string) $posledna['content'][0]['content'])]]]);
+    }
+    $rozhodnutie = rozhodni($otazka, $predosla);
+    if (isset($rozhodnutie['text'])) {
+        odpovedz(200, ['id' => 'msg_1', 'type' => 'message', 'role' => 'assistant', 'stop_reason' => 'end_turn',
+            'content' => [['type' => 'text', 'text' => $rozhodnutie['text']]]]);
+    }
+    odpovedz(200, ['id' => 'msg_1', 'type' => 'message', 'role' => 'assistant', 'stop_reason' => 'tool_use', 'content' => [
+        ['type' => 'text', 'text' => 'Pozriem sa.'],
+        ['type' => 'tool_use', 'id' => 'toolu_1', 'name' => $rozhodnutie['nastroj'], 'input' => (object) $rozhodnutie['argumenty']],
+    ]]);
+}
+
+/* ---------------------------------- OpenAI ---------------------------------- */
+if ($cesta === '/openai/responses') {
+    if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '')) {
+        chyba(401, 'Chýba kľúč.');
+    }
+    over_nastroje(array_column($telo['tools'] ?? [], 'name'));
+    $vstup = $telo['input'] ?? [];
+    if (isset($telo['previous_response_id'])) {
+        $vystup = $vstup[0] ?? [];
+        if ($telo['previous_response_id'] !== 'resp_1' || ($vystup['type'] ?? '') !== 'function_call_output' || ($vystup['call_id'] ?? '') !== 'call_1') {
+            chyba(400, 'No tool output found for function call call_1.');
+        }
+        $text = hotovo((string) $vystup['output']);
+        odpovedz(200, ['id' => 'resp_2', 'output' => [['type' => 'message', 'role' => 'assistant',
+            'content' => [['type' => 'output_text', 'text' => $text]]]]]);
+    }
+    $otazka = '';
+    $predosla = '';
+    foreach ($vstup as $s) {
+        if (($s['role'] ?? '') === 'user') {
+            $otazka = (string) $s['content'];
+        } elseif (($s['role'] ?? '') === 'assistant') {
+            $predosla = (string) $s['content'];
+        }
+    }
+    $rozhodnutie = rozhodni($otazka, $predosla);
+    if (isset($rozhodnutie['text'])) {
+        odpovedz(200, ['id' => 'resp_1', 'output' => [['type' => 'message', 'role' => 'assistant',
+            'content' => [['type' => 'output_text', 'text' => $rozhodnutie['text']]]]]]);
+    }
+    odpovedz(200, ['id' => 'resp_1', 'output' => [
+        ['type' => 'reasoning', 'id' => 'rs_1', 'summary' => []],
+        ['type' => 'function_call', 'id' => 'fc_1', 'call_id' => 'call_1', 'name' => $rozhodnutie['nastroj'],
+            'arguments' => json_encode((object) $rozhodnutie['argumenty'], JSON_UNESCAPED_UNICODE)],
+    ]]);
+}
+
+chyba(404, 'Neznáma cesta ' . $cesta);

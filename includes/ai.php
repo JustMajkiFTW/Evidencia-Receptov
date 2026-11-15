@@ -127,7 +127,9 @@ function ai_log_available(PDO $pdo): bool
 function ai_dnes_pouzite(PDO $pdo, int $userId): int
 {
     if (ai_log_available($pdo)) {
-        $stmt = $pdo->prepare('SELECT COUNT(*) FROM ai_rozpoznania WHERE user_id = ? AND uspech = 1 AND created_at >= CURDATE()');
+        // Otázky hlasového asistenta (2.7, poskytovateľ „asistent:…") majú vlastný limit, sem sa nerátajú.
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM ai_rozpoznania WHERE user_id = ? AND uspech = 1 AND created_at >= CURDATE()
+            AND (poskytovatel IS NULL OR poskytovatel NOT LIKE 'asistent:%')");
         $stmt->execute([$userId]);
         return (int) $stmt->fetchColumn();
     }

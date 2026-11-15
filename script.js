@@ -3581,3 +3581,294 @@ const aiAsistent = (function initAiAsistent() {
 function openAiAsistent() {
     if (aiAsistent) aiAsistent.otvor();
 }
+
+/* ========================================================================
+   Hlasový asistent v appke (verzia 2.7). Mikrofón → rozpoznanie reči
+   v prehliadači (sk-SK); kde nefunguje (niektoré prehliadače, appka z plochy
+   bez povolenia), ostáva pole na písanie s diktovaním z klávesnice.
+   Text ide na server (akcia 'asistent', includes/asistent.php), odpoveď
+   prečíta telefón svojím slovenským hlasom (na iPhone Laura).
+   ======================================================================== */
+const asistent = (function initAsistent() {
+    const modalEl = document.getElementById('asistentModal');
+    if (!modalEl) return null;
+    const $ = (id) => document.getElementById(id);
+    const rozhovorEl = $('asistentRozhovor');
+    const stavEl = $('asistentStav');
+    const mikrofon = $('asistentMikrofon');
+    const textEl = $('asistentText');
+    const nahlas = $('asistentNahlas');
+
+    const Rozpoznavanie = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const mozeHovorit = 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
+    let rozpoznavanieNejde = !Rozpoznavanie;
+    let rozpoznavanie = null;
+    let stav = 'caka'; // caka | pocuva | premysla | hovori
+    let historia = [];
+    let zmeny = false;      // asistent niečo zapísal → po zatvorení obnoviť stránku
+    let odomknute = false;  // iOS: prvé čítanie nahlas musí začať priamo po ťuknutí
+
+    // Čítať nahlas: zapamätané v tomto zariadení
+    if (!mozeHovorit) {
+        $('asistentNahlasWrap').classList.add('d-none');
+    } else {
+        try { nahlas.checked = localStorage.getItem('asistentNahlas') !== '0'; } catch (err) { /* súkromný režim */ }
+        nahlas.addEventListener('change', () => {
+            try { localStorage.setItem('asistentNahlas', nahlas.checked ? '1' : '0'); } catch (err) { /* nič */ }
+            if (!nahlas.checked) prestanHovorit();
+        });
+    }
+
+    const POPIS = {
+        caka: () => rozpoznavanieNejde
+            ? 'Ťukni do poľa nižšie a nadiktuj to mikrofónom na klávesnici.'
+            : 'Ťukni na mikrofón a hovor.',
+        pocuva: () => 'Počúvam… ťukni znova, keď skončíš.',
+        premysla: () => 'Chvíľku, premýšľam…',
+        hovori: () => 'Hovorím… ťukni, ak mám prestať.',
+    };
+    const IKONA = { caka: 'bi-mic-fill', pocuva: 'bi-stop-fill', premysla: 'bi-hourglass-split', hovori: 'bi-volume-mute-fill' };
+    const POPIS_TLACIDLA = { caka: 'Hovoriť', pocuva: 'Skončiť a poslať', premysla: 'Asistent premýšľa', hovori: 'Prestať čítať' };
+
+    function nastavStav(novy, sprava) {
+        stav = novy;
+        modalEl.dataset.stav = novy;
+        mikrofon.querySelector('i').className = 'bi ' + IKONA[novy];
+        mikrofon.setAttribute('aria-label', POPIS_TLACIDLA[novy]);
+        mikrofon.disabled = novy === 'premysla';
+        stavEl.textContent = sprava || POPIS[novy]();
+    }
+
+    function bublina(rola, text, chyba = false) {
+        $('asistentUvod')?.classList.add('d-none');
+        const el = document.createElement('div');
+        el.className = 'asistent-bublina je-' + rola + (chyba ? ' je-chyba' : '');
+        el.textContent = text;
+        rozhovorEl.append(el);
+        rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
+    }
+
+    /* ---------- Čítanie nahlas (slovenský hlas telefónu) ---------- */
+    let hlas = null;
+    function vyberHlas() {
+        const hlasy = speechSynthesis.getVoices().filter((v) => /^sk([-_]|$)/i.test(v.lang));
+        const lepsi = (v) => /(enhanced|premium|vylepšen|natural|neural)/i.test(v.name);
+        hlas = hlasy.find((v) => /laura/i.test(v.name) && lepsi(v)) || hlasy.find(lepsi)
+            || hlasy.find((v) => /laura/i.test(v.name)) || hlasy[0] || null;
+    }
+    if (mozeHovorit) {
+        vyberHlas();
+        speechSynthesis.addEventListener?.('voiceschanged', vyberHlas);
+    }
+
+    /** Text na čítanie: bez odkazov, značiek markdownu a čísel receptov. */
+    function naCitanie(text) {
+        return String(text || '')
+            .replace(/https?:\/\/\S+/g, '')
+            .replace(/#\d+/g, '')
+            .replace(/[*_#`>|]+/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    /** Dlhý text po vetách — niektoré prehliadače dlhé čítanie samy utnú. */
+    function poVetach(text) {
+        const vety = text.match(/[^.!?…]+[.!?…]*\s*/g) || [text];
+        const casti = [];
+        let cast = '';
+        vety.forEach((veta) => {
+            if ((cast + veta).length > 220 && cast) {
+                casti.push(cast.trim());
+                cast = '';
+            }
+            cast += veta;
+        });
+        if (cast.trim()) casti.push(cast.trim());
+        return casti;
+    }
+
+    function hovor(text) {
+        if (!mozeHovorit || !nahlas.checked) return;
+        const casti = poVetach(naCitanie(text));
+        if (!casti.length) return;
+        speechSynthesis.cancel();
+        nastavStav('hovori');
+        const koniec = () => { if (stav === 'hovori') nastavStav('caka'); };
+        casti.forEach((cast, i) => {
+            const u = new SpeechSynthesisUtterance(cast);
+            u.lang = 'sk-SK';
+            if (hlas) u.voice = hlas;
+            u.rate = 0.95; // o kúsok pomalšie, aby sa to dobre počúvalo
+            if (i === casti.length - 1) {
+                u.onend = koniec;
+                u.onerror = koniec;
+            }
+            speechSynthesis.speak(u);
+        });
+    }
+
+    function prestanHovorit() {
+        if (mozeHovorit) speechSynthesis.cancel();
+        if (stav === 'hovori') nastavStav('caka');
+    }
+
+    function odomkniHlas() {
+        if (!mozeHovorit || odomknute) return;
+        odomknute = true;
+        const u = new SpeechSynthesisUtterance(' ');
+        u.volume = 0;
+        u.lang = 'sk-SK';
+        speechSynthesis.speak(u);
+    }
+
+    /* ---------- Rozpoznanie reči ---------- */
+    function rozpoznavanieNefunguje(sprava) {
+        rozpoznavanieNejde = true;
+        mikrofon.classList.add('bez-rozpoznavania');
+        nastavStav('caka', sprava);
+    }
+
+    function pocuvaj() {
+        if (rozpoznavanieNejde) {
+            textEl.focus();
+            nastavStav('caka');
+            return;
+        }
+        let finalny = '';
+        let posledny = '';
+        let chyba = '';
+        try {
+            rozpoznavanie = new Rozpoznavanie();
+        } catch (err) {
+            rozpoznavanieNefunguje();
+            return;
+        }
+        rozpoznavanie.lang = 'sk-SK';
+        rozpoznavanie.interimResults = true;
+        rozpoznavanie.continuous = false;
+        rozpoznavanie.maxAlternatives = 1;
+        rozpoznavanie.onresult = (e) => {
+            let docasny = '';
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+                if (e.results[i].isFinal) finalny += e.results[i][0].transcript;
+                else docasny += e.results[i][0].transcript;
+            }
+            posledny = (finalny + docasny).trim();
+            if (posledny) stavEl.textContent = '„' + posledny + '“';
+        };
+        rozpoznavanie.onerror = (e) => {
+            if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(e.error)) {
+                chyba = 'nejde';
+            } else if (e.error === 'no-speech') {
+                chyba = 'Nič som nepočul. Ťukni na mikrofón a skús znova.';
+            } else if (e.error !== 'aborted') {
+                chyba = 'Nerozumel som. Skús to znova alebo to napíš.';
+            }
+        };
+        rozpoznavanie.onend = () => {
+            rozpoznavanie = null;
+            // Niektoré prehliadače (iPhone) výsledok neoznačia ako konečný — vezmeme posledný.
+            const text = (finalny.trim() || posledny).trim();
+            if (chyba === 'nejde') {
+                rozpoznavanieNefunguje('Mikrofón tu appka použiť nemôže. Ťukni do poľa nižšie a nadiktuj to mikrofónom na klávesnici.');
+            } else if (text) {
+                posli(text);
+            } else if (stav === 'pocuva') {
+                nastavStav('caka', chyba || undefined);
+            }
+        };
+        try {
+            rozpoznavanie.start();
+            nastavStav('pocuva');
+        } catch (err) {
+            rozpoznavanie = null;
+            rozpoznavanieNefunguje();
+        }
+    }
+
+    mikrofon.addEventListener('click', () => {
+        odomkniHlas();
+        if (stav === 'pocuva') {
+            rozpoznavanie?.stop(); // dokončí sa v onend a pošle
+        } else if (stav === 'hovori') {
+            prestanHovorit();
+        } else if (stav === 'caka') {
+            pocuvaj();
+        }
+    });
+
+    /* ---------- Rozhovor so serverom ---------- */
+    async function posli(text) {
+        text = String(text || '').trim();
+        if (!text || stav === 'premysla') return;
+        prestanHovorit();
+        bublina('pouzivatel', text);
+        nastavStav('premysla');
+        try {
+            const data = await appPost('asistent', { text, historia: JSON.stringify(historia) });
+            if (data.zmeny) zmeny = true;
+            if (data.success) {
+                historia.push({ rola: 'pouzivatel', text }, { rola: 'asistent', text: data.odpoved });
+                historia = historia.slice(-12);
+                bublina('asistent', data.odpoved);
+                nastavStav('caka');
+                hovor(data.odpoved);
+            } else {
+                const sprava = data.error || 'Niečo sa pokazilo, skús to znova.';
+                bublina('asistent', sprava, true);
+                nastavStav('caka');
+                hovor(sprava);
+            }
+        } catch (err) {
+            bublina('asistent', 'Chyba pripojenia k serveru. Skús to znova.', true);
+            nastavStav('caka');
+        }
+    }
+
+    $('asistentFormular').addEventListener('submit', (e) => {
+        e.preventDefault();
+        odomkniHlas();
+        const text = textEl.value;
+        textEl.value = '';
+        textEl.blur(); // na telefóne skryť klávesnicu, nech je vidno odpoveď
+        posli(text);
+    });
+    modalEl.querySelectorAll('.asistent-navrh').forEach((btn) => btn.addEventListener('click', () => {
+        odomkniHlas();
+        posli(btn.dataset.text);
+    }));
+
+    modalEl.addEventListener('shown.bs.modal', () => nastavStav('caka'));
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        if (rozpoznavanie) {
+            rozpoznavanie.onend = null;
+            rozpoznavanie.abort();
+            rozpoznavanie = null;
+        }
+        prestanHovorit();
+        nastavStav('caka');
+        // Nový recept, varenie či nákup od asistenta — zoznam na stránke treba obnoviť.
+        if (zmeny) location.reload();
+    });
+
+    if (rozpoznavanieNejde) mikrofon.classList.add('bez-rozpoznavania');
+    nastavStav('caka');
+
+    return {
+        otvor() {
+            const otvorene = document.querySelector('.modal.show');
+            const ukaz = () => bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            if (otvorene && otvorene !== modalEl) {
+                otvorene.addEventListener('hidden.bs.modal', ukaz, { once: true });
+                bootstrap.Modal.getInstance(otvorene)?.hide();
+            } else {
+                ukaz();
+            }
+        },
+    };
+})();
+
+/** Hlasový asistent (bočná ponuka na PC, hlavička a okno Viac na telefóne). */
+function openAsistent() {
+    if (asistent) asistent.otvor();
+}

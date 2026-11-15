@@ -2,7 +2,7 @@
 -- Evidencia receptov — aktualizácia databázy na verziu 2.6.
 --
 -- Novinka: pripojenie k AI asistentovi (Claude, neskôr aj iné) cez MCP.
--- Každý používateľ si v appke (Viac / Nastavenia → AI asistent) vytvorí
+-- Každý používateľ si v appke (Viac / Nastavenia → Pripojiť k Claude) vytvorí
 -- vlastnú súkromnú adresu, ktorú vloží do asistenta. Asistent potom na jeho
 -- pokyn hľadá recepty, pridáva ich, zapisuje varenie a pridáva suroviny do
 -- nákupu — pod menom toho, komu adresa patrí. V databáze je z adresy uložený

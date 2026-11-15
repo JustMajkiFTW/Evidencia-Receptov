@@ -2847,3 +2847,100 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 @media (max-width: 420px) {
     .ai-asistent-nova, .ai-asistent-adresa { flex-direction: column; }
 }
+
+/* ── Hlasový asistent (verzia 2.7): tlačidlá s mikrofónom a okno rozhovoru ── */
+.app-bocna-asistent {
+    min-height: 52px;
+    margin: -.25rem 0 .75rem;
+    border: 1px solid var(--app-accent);
+    border-radius: 16px;
+    background: var(--app-accent-soft);
+    color: var(--app-text);
+    font-size: 1.02rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+}
+.app-bocna-asistent .bi { color: var(--app-accent); }
+.app-bocna-asistent:hover, .app-bocna-asistent:focus-visible { background: var(--app-accent); color: #1c1917; }
+.app-bocna-asistent:hover .bi, .app-bocna-asistent:focus-visible .bi { color: #1c1917; }
+.recepty-mikrofon {
+    padding: 0 1.1rem;
+    border: 1px solid var(--app-accent);
+    background: var(--app-accent);
+    color: #1c1917;
+    font-size: 1.25rem;
+}
+.recepty-mikrofon:hover, .recepty-mikrofon:focus-visible { background: #d97f06; border-color: #d97f06; color: #1c1917; }
+
+.asistent .modal-header { border-bottom: 0; }
+.asistent-rozhovor { display: flex; flex-direction: column; gap: .6rem; min-height: 220px; }
+.asistent-uvod p { font-size: 1.05rem; margin-bottom: .6rem; }
+.asistent-navrhy { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .9rem; }
+.asistent-navrh {
+    min-height: 50px;
+    padding: .55rem 1rem;
+    border: 1px solid var(--app-border);
+    border-radius: 14px;
+    background: var(--app-plocha);
+    color: var(--app-text);
+    font-size: 1.02rem;
+    text-align: left;
+}
+.asistent-navrh:hover, .asistent-navrh:focus-visible { border-color: var(--app-accent); }
+.asistent-pozn { font-size: .92rem !important; color: var(--app-muted-text); }
+.asistent-bublina {
+    max-width: 88%;
+    padding: .65rem .9rem;
+    border-radius: 18px;
+    font-size: 1.08rem;
+    line-height: 1.45;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+.asistent-bublina.je-pouzivatel { align-self: flex-end; background: var(--app-accent); color: #1c1917; border-bottom-right-radius: 6px; }
+.asistent-bublina.je-asistent { align-self: flex-start; background: var(--app-plocha); border: 1px solid var(--app-border); border-bottom-left-radius: 6px; }
+.asistent-bublina.je-chyba { border-color: var(--bs-danger); color: var(--bs-danger); }
+.asistent-pata {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .7rem;
+    padding: .9rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--app-border);
+}
+.asistent-stav { min-height: 1.5em; font-size: 1.05rem; text-align: center; color: var(--app-muted-text); }
+.asistent-mikrofon {
+    width: 84px;
+    height: 84px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--app-accent);
+    color: #1c1917;
+    font-size: 2.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .25);
+    transition: transform .15s ease, background .15s ease;
+}
+.asistent-mikrofon:active { transform: scale(.95); }
+.asistent-mikrofon:disabled { opacity: .7; }
+.asistent-mikrofon.bez-rozpoznavania { width: 64px; height: 64px; font-size: 1.6rem; opacity: .85; }
+[data-stav="pocuva"] .asistent-mikrofon { background: var(--bs-danger); color: #fff; animation: asistent-pulz 1.4s ease-out infinite; }
+[data-stav="premysla"] .asistent-mikrofon .bi { animation: asistent-tocit 1.2s linear infinite; }
+[data-stav="pocuva"] .asistent-stav, [data-stav="hovori"] .asistent-stav { color: var(--app-text); font-weight: 600; }
+@keyframes asistent-pulz {
+    0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, .55); }
+    100% { box-shadow: 0 0 0 22px rgba(220, 53, 69, 0); }
+}
+@keyframes asistent-tocit { to { transform: rotate(360deg); } }
+.asistent-pisanie { display: flex; gap: .5rem; width: 100%; max-width: 560px; }
+.asistent-pisanie .form-control { min-height: 50px; font-size: 1.05rem; border-radius: 14px; }
+.asistent-pisanie .btn { min-width: 54px; border-radius: 14px; }
+.asistent-nahlas { font-size: .95rem; color: var(--app-muted-text); margin: 0; }
+@media (prefers-reduced-motion: reduce) {
+    [data-stav="pocuva"] .asistent-mikrofon, [data-stav="premysla"] .asistent-mikrofon .bi { animation: none; }
+}

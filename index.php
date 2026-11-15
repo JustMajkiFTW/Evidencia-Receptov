@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/ai.php';
 require_once __DIR__ . '/includes/objednavky.php';
 require_once __DIR__ . '/includes/mcp.php'; // AI asistent cez MCP (verzia 2.6), vstup pre asistenta je mcp.php
+require_once __DIR__ . '/includes/asistent.php'; // hlasový asistent priamo v appke (verzia 2.7)
 // ?recept=ID (odkaz z upozornenia) otvorí náhľad daného receptu. Ak treba najprv
 // prihlásenie, číslo receptu sa prenesie cez login.php a vráti späť sem.
 $openRecipeId = (isset($_GET['recept']) && ctype_digit((string) $_GET['recept'])) ? (int) $_GET['recept'] : 0;
@@ -36,7 +37,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? null;
 if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recipe', 'delete_photo', 'get_logs', 'rate_recipe', 'save_push_subscription',
         'shopping_get', 'shopping_add_recipe', 'shopping_add_item', 'shopping_toggle', 'shopping_delete', 'shopping_clear',
         'ai_rozpoznaj', 'objednavky_get', 'objednavka_ulozit', 'objednavka_zmazat', 'objednavka_hodnotit',
-        'ai_pripojenia_get', 'ai_pripojenie_vytvor', 'ai_pripojenie_zrus'], true)
+        'ai_pripojenia_get', 'ai_pripojenie_vytvor', 'ai_pripojenie_zrus', 'asistent'], true)
         && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -179,6 +180,18 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
         /* ---------------- Recept z fotky cez AI (includes/ai.php) ---------------- */
         case 'ai_rozpoznaj':
             $result = ai_rozpoznaj($pdo, $userId, $_FILES['fotka'] ?? null, is_admin());
+            break;
+
+        /* ---------------- Hlasový asistent v appke (includes/asistent.php, verzia 2.7) ---------------- */
+        case 'asistent':
+            // Odpoveď AI môže trvať aj desiatky sekúnd — session uvoľníme, aby appka medzitým nečakala.
+            session_write_close();
+            $menoAsistent = trim((string) ($user['full_name'] ?? '')) !== '' ? $user['full_name'] : ($user['username'] ?? 'Niekto');
+            $historia = json_decode((string) ($_POST['historia'] ?? '[]'), true);
+            $result = asistent_odpovedz($pdo, [
+                'id' => 0, 'nazov' => 'Hlasový asistent', 'user_id' => $userId, 'meno' => $menoAsistent, 'role' => $user['role'] ?? 'user',
+                'poznamka' => 'Pridané cez hlasového asistenta', 'cez' => 'hlasového asistenta',
+            ], (string) ($_POST['text'] ?? ''), is_array($historia) ? $historia : [], is_admin());
             break;
 
         /* ---------------- AI asistent cez MCP (includes/mcp.php, verzia 2.6) ---------------- */
@@ -339,6 +352,8 @@ $aiEnabled = ai_dostupne() && $currentUserId !== null;
 $aiZostava = $aiEnabled ? ai_zostava($pdo, $currentUserId) : null;
 // AI asistent (Claude…) cez MCP, verzia 2.6: bez sql/migracia-2.6.sql sa v nastaveniach neukáže.
 $aiAsistentEnabled = ai_pripojenia_available($pdo) && $currentUserId !== null;
+// Hlasový asistent v appke (verzia 2.7): zapnutý s rovnakým kľúčom k AI ako recept z fotky, databázu netreba.
+$asistentEnabled = $aiEnabled;
 // Oslovenie v mobilnej hlavičke: krstné meno (prvé slovo celého mena), inak prihlasovacie meno.
 $menoOslovenie = trim((string) ($user['full_name'] ?? ''));
 $menoOslovenie = $menoOslovenie !== '' ? explode(' ', $menoOslovenie)[0] : (string) ($user['username'] ?? '');
@@ -381,7 +396,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=41">
+    <link rel="stylesheet" href="style.css?v=42">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -406,6 +421,11 @@ header('X-Recepty-Offline: 1');
     <button type="button" class="btn app-bocna-pridat app-nav-add" onclick="openRecipeModal()" data-vyzaduje-siet>
         <i class="bi bi-plus-lg" aria-hidden="true"></i>Pridať recept
     </button>
+    <?php if ($asistentEnabled): ?>
+    <button type="button" class="btn app-bocna-asistent" onclick="openAsistent()" data-vyzaduje-siet>
+        <i class="bi bi-mic-fill" aria-hidden="true"></i>Hlasový asistent
+    </button>
+    <?php endif; ?>
     <!-- Recepty a Objednané jedlo sú dve stránky v hlavnom obsahu, prepína ich script.js (data-stranka) -->
     <button type="button" class="app-bocna-polozka is-active" aria-current="page" data-stranka="recepty">
         <i class="bi bi-journal-text" aria-hidden="true"></i><span class="app-bocna-text">Recepty</span>
@@ -443,7 +463,7 @@ header('X-Recepty-Offline: 1');
         </button>
         <?php if ($aiAsistentEnabled): ?>
         <button type="button" class="app-bocna-polozka app-bocna-nastavenie" onclick="openAiAsistent()" data-vyzaduje-siet>
-            <i class="bi bi-stars" aria-hidden="true"></i><span class="app-bocna-text">AI asistent</span>
+            <i class="bi bi-stars" aria-hidden="true"></i><span class="app-bocna-text">Pripojiť k Claude</span>
         </button>
         <?php endif; ?>
         <div class="app-bocna-pouzivatel">
@@ -512,8 +532,15 @@ header('X-Recepty-Offline: 1');
             <span class="input-group-text bg-body-tertiary border-secondary-subtle rounded-start-pill ps-3">
                 <i class="bi bi-search"></i>
             </span>
-            <input type="text" id="recipeSearch" class="form-control border-secondary-subtle py-2 rounded-end-pill pe-3"
+            <input type="text" id="recipeSearch" class="form-control border-secondary-subtle py-2 <?= $asistentEnabled ? '' : 'rounded-end-pill ' ?>pe-3"
                    placeholder="Hľadaj podľa názvu alebo surovín..." aria-label="Hľadať recept" enterkeyhint="search">
+            <?php if ($asistentEnabled): ?>
+            <!-- Mikrofón v hľadaní otvorí hlasového asistenta (verzia 2.7) -->
+            <button type="button" class="btn recepty-mikrofon rounded-end-pill" onclick="openAsistent()"
+                    aria-label="Hlasový asistent" title="Hlasový asistent" data-vyzaduje-siet>
+                <i class="bi bi-mic-fill" aria-hidden="true"></i>
+            </button>
+            <?php endif; ?>
         </div>
 
         <!-- Kategória: výber je skrytý, nastavujú ho tlačidlá kategórií nižšie (script.js) -->
@@ -1460,10 +1487,17 @@ header('X-Recepty-Offline: 1');
                         <span class="viac-text">Upozornenia</span>
                         <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
                     </button>
+                    <?php if ($asistentEnabled): ?>
+                    <button type="button" class="viac-riadok" onclick="openAsistent()" data-vyzaduje-siet>
+                        <i class="bi bi-mic-fill viac-ikona" aria-hidden="true"></i>
+                        <span class="viac-text">Hlasový asistent<small>Povedz, čo potrebuješ</small></span>
+                        <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
+                    </button>
+                    <?php endif; ?>
                     <?php if ($aiAsistentEnabled): ?>
                     <button type="button" class="viac-riadok" onclick="openAiAsistent()" data-vyzaduje-siet>
                         <i class="bi bi-stars viac-ikona" aria-hidden="true"></i>
-                        <span class="viac-text">AI asistent<small>Claude: recepty aj hlasom</small></span>
+                        <span class="viac-text">Pripojiť k Claude<small>Recepty z appky Claude</small></span>
                         <i class="bi bi-chevron-right viac-sipka" aria-hidden="true"></i>
                     </button>
                     <?php endif; ?>
@@ -1482,6 +1516,49 @@ header('X-Recepty-Offline: 1');
         </div>
     </div>
 </div>
+<?php if ($asistentEnabled): ?>
+<!-- ================= MODAL: Hlasový asistent (verzia 2.7) =================
+     Mikrofón → rozpoznanie reči v prehliadači (inak diktovanie z klávesnice) →
+     akcia 'asistent' (includes/asistent.php) → odpoveď prečíta telefón po slovensky.
+     Ovláda script.js (openAsistent). -->
+<div class="modal fade" id="asistentModal" tabindex="-1" aria-hidden="true" aria-labelledby="asistentTitle">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down">
+        <div class="modal-content asistent">
+            <div class="modal-header">
+                <h5 class="modal-title" id="asistentTitle"><i class="bi bi-mic-fill me-2 text-warning" aria-hidden="true"></i>Hlasový asistent</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
+            </div>
+            <div class="modal-body asistent-rozhovor" id="asistentRozhovor" aria-live="polite">
+                <div class="asistent-uvod" id="asistentUvod">
+                    <p>Ťukni na mikrofón a povedz, čo potrebuješ. Napríklad:</p>
+                    <div class="asistent-navrhy">
+                        <button type="button" class="asistent-navrh" data-text="Čo treba kúpiť?">„Čo treba kúpiť?“</button>
+                        <button type="button" class="asistent-navrh" data-text="Čo sme dlho nevarili?">„Čo sme dlho nevarili?“</button>
+                        <button type="button" class="asistent-navrh" data-text="Kedy sme naposledy robili guláš?">„Kedy sme naposledy robili guláš?“</button>
+                        <button type="button" class="asistent-navrh" data-text="Navrhni mi recept na bábovku.">„Navrhni mi recept na bábovku.“</button>
+                    </div>
+                    <p class="asistent-pozn">Asistent vie recepty hľadať, uložiť nový recept, zapísať, že ste varili, a pridať suroviny do nákupu. Zapisuje sa to pod tvojím menom.</p>
+                </div>
+            </div>
+            <div class="asistent-pata">
+                <div class="asistent-stav" id="asistentStav" aria-live="polite">Ťukni na mikrofón a hovor.</div>
+                <button type="button" class="asistent-mikrofon" id="asistentMikrofon" aria-label="Hovoriť">
+                    <i class="bi bi-mic-fill" aria-hidden="true"></i>
+                </button>
+                <form class="asistent-pisanie" id="asistentFormular">
+                    <input type="text" id="asistentText" class="form-control" placeholder="…alebo napíš otázku" maxlength="1000"
+                           autocomplete="off" enterkeyhint="send" aria-label="Otázka pre asistenta">
+                    <button type="submit" class="btn btn-primary" aria-label="Poslať"><i class="bi bi-send-fill" aria-hidden="true"></i></button>
+                </form>
+                <div class="form-check form-switch asistent-nahlas" id="asistentNahlasWrap">
+                    <input class="form-check-input" type="checkbox" role="switch" id="asistentNahlas" checked>
+                    <label class="form-check-label" for="asistentNahlas">Čítať odpovede nahlas</label>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <?php if ($aiAsistentEnabled): ?>
 <!-- ================= MODAL: AI asistent (verzia 2.6) =================
      Vlastná súkromná adresa pre Claude (MCP, mcp.php). Adresa sa ukáže len raz,
@@ -1490,7 +1567,7 @@ header('X-Recepty-Offline: 1');
     <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="aiAsistentTitle"><i class="bi bi-stars me-2 text-warning" aria-hidden="true"></i>AI asistent</h5>
+                <h5 class="modal-title" id="aiAsistentTitle"><i class="bi bi-stars me-2 text-warning" aria-hidden="true"></i>Pripojenie k Claude</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavrieť"></button>
             </div>
             <div class="modal-body ai-asistent">
@@ -1732,7 +1809,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=41"></script>
+<script src="script.js?v=42"></script>
 </body>
 </html>
 <?php

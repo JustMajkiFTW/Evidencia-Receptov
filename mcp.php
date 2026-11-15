@@ -6,7 +6,7 @@
  *   https://…/mcp.php?kluc=TAJNY_KLUC
  * (MCP „Streamable HTTP" bez stavu: každá požiadavka dostane hneď odpoveď JSON,
  * server nedrží session ani otvorený stream). Kľúč si používateľ vytvorí v appke
- * (Viac / Nastavenia → AI asistent), asistent potom koná pod jeho menom.
+ * (Viac / Nastavenia → Pripojiť k Claude), asistent potom koná pod jeho menom.
  * Kľúč sa dá poslať aj v hlavičke Authorization: Bearer KLUC.
  *
  * Samotná logika (pripojenia, nástroje) je v includes/mcp.php.
@@ -64,7 +64,7 @@ if ($kluc === '' && preg_match('/^Bearer\s+(\S+)$/i', $autorizacia, $m)) {
 $pripojenie = ai_pripojenie_over($pdo, $kluc);
 if ($pripojenie === null) {
     // 403, nie 401: na 401 by asistent skúšal prihlásenie cez OAuth, ktoré appka nemá.
-    mcp_koniec(403, -32000, 'Neplatná alebo zrušená adresa. V appke si vytvor novú (Viac / Nastavenia → AI asistent).');
+    mcp_koniec(403, -32000, 'Neplatná alebo zrušená adresa. V appke si vytvor novú (Viac / Nastavenia → Pripojiť k Claude).');
 }
 
 $telo = file_get_contents('php://input');

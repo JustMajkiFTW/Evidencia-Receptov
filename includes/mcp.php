@@ -7,7 +7,7 @@
  * https://…/mcp.php?kluc=TAJNY_KLUC a potom na pokyn používateľa — aj hlasom —
  * hľadá recepty, pridáva ich, zapisuje varenie a pridáva suroviny do nákupu.
  *
- * - Každý používateľ si v appke (Viac / Nastavenia → AI asistent) vytvorí
+ * - Každý používateľ si v appke (Viac / Nastavenia → Pripojiť k Claude) vytvorí
  *   vlastnú adresu. Všetko, čo asistent urobí, sa zapíše pod jeho menom.
  * - V databáze (tabuľka ai_pripojenia, migracia-2.6.sql) je len odtlačok
  *   kľúča (SHA-256), samotnú adresu appka ukáže iba raz.
@@ -676,13 +676,14 @@ function mcp_pridaj_recept(PDO $pdo, array $pripojenie, array $a): array
     $id = (int) $vysledok['id'];
 
     // V histórii receptu bude vidno, že ho pridal asistent (pod menom používateľa).
+    // 'poznamka' a 'cez' posiela hlasový asistent v appke (2.7), pri MCP sa skladajú z názvu pripojenia.
     $pdo->prepare("UPDATE recipe_logs SET note = ? WHERE recipe_id = ? AND action = 'created'")
-        ->execute(['Pridané cez AI asistenta (' . $pripojenie['nazov'] . ')', $id]);
+        ->execute([$pripojenie['poznamka'] ?? 'Pridané cez AI asistenta (' . $pripojenie['nazov'] . ')', $id]);
     send_push_notification(
         $pdo,
         null,
         'Nový recept 🍽️',
-        $pripojenie['meno'] . ' pridal(a) recept „' . $nazov . '" (cez ' . $pripojenie['nazov'] . ')',
+        $pripojenie['meno'] . ' pridal(a) recept „' . $nazov . '" (cez ' . ($pripojenie['cez'] ?? $pripojenie['nazov']) . ')',
         './?recept=' . $id,
         $pripojenie['user_id']
     );

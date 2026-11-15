@@ -6,7 +6,8 @@
 #   1. prostredie (PHP 8.4.1+, rozšírenia, vendor/),
 #   2. syntax všetkých PHP súborov,
 #   3. pravidlá pre novú verziu (testy/kontrola-pravidiel.sh),
-#   4. novú inštaláciu: sql/instalacia.sql (aj dvakrát po sebe) a celý priechod appkou,
+#   4. novú inštaláciu: sql/instalacia.sql (aj dvakrát po sebe), celý priechod appkou
+#      a hlasového asistenta s falošnou AI (testy/falosna-ai.php) pre Gemini, Claude aj OpenAI,
 #   5. databázu z predchádzajúcej verzie BEZ migrácie — appka na nej musí bežať,
 #   6. migrácie na tej istej databáze (aj dvakrát po sebe), znova priechod appkou
 #      a či sa štruktúra po migrácii zhoduje s novou inštaláciou.
@@ -50,6 +51,7 @@ APP=""
 SERVER_PID=""
 upratanie() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null && wait "$SERVER_PID" 2>/dev/null
+    [ -n "${AI_PID:-}" ] && kill "$AI_PID" 2>/dev/null && wait "$AI_PID" 2>/dev/null
     if [ "${TEST_PONECHAT:-0}" != "1" ]; then
         db_root sql "DROP DATABASE IF EXISTS \`$DB_NOVA\`" >/dev/null 2>&1
         db_root sql "DROP DATABASE IF EXISTS \`$DB_STARA\`" >/dev/null 2>&1
@@ -104,10 +106,12 @@ mkdir -p "$APP/uploads/recipes"
 APP_DB_HOST="$TEST_DB_HOST"
 [ "$TEST_DB_PORT" != "3306" ] && APP_DB_HOST="$TEST_DB_HOST;port=$TEST_DB_PORT"
 
-spusti_server() {
-    env DB_HOST="$APP_DB_HOST" DB_NAME="$1" DB_USER="$APP_DB_USER" DB_PASS="$APP_DB_PASS" DB_CHARSET=utf8mb4 \
+spusti_server() { # $1 = databáza, ďalej nepovinné premenné prostredia NAZOV=hodnota (napr. kľúče k falošnej AI)
+    local databaza="$1"
+    shift
+    env DB_HOST="$APP_DB_HOST" DB_NAME="$databaza" DB_USER="$APP_DB_USER" DB_PASS="$APP_DB_PASS" DB_CHARSET=utf8mb4 \
         APP_HOST=localhost VAPID_PUBLIC_KEY=testovaci-verejny-kluc VAPID_PRIVATE_KEY=testovaci-sukromny-kluc \
-        VAPID_SUBJECT=mailto:test@example.com CRON_KEY="$CRON_KEY" APP_DEBUG=1 \
+        VAPID_SUBJECT=mailto:test@example.com CRON_KEY="$CRON_KEY" APP_DEBUG=1 "$@" \
         "$PHP" -d upload_max_filesize=16M -d post_max_size=16M -S "127.0.0.1:$PORT" -t "$APP" >"$APP/server.log" 2>&1 &
     SERVER_PID=$!
     for _ in $(seq 1 50); do
@@ -141,6 +145,36 @@ kontrola_logov() {
         zlyhanie "PHP vypísal chyby alebo varovania (výpis vyššie)."
     fi
     : > "$log"
+}
+
+# Hlasový asistent (2.7) s falošnou AI službou (testy/falosna-ai.php): každá služba zvlášť,
+# pri Gemini aj zlyhanie (503) s prepnutím na Claude a model bez krátkeho premýšľania (400).
+AI_PORT="${TEST_AI_PORT:-8766}"
+AI_PID=""
+asistent_s_falosnou_ai() { # $1 = databáza
+    "$PHP" -S "127.0.0.1:$AI_PORT" testy/falosna-ai.php >"$APP/falosna-ai.log" 2>&1 &
+    AI_PID=$!
+    for _ in $(seq 1 50); do
+        curl -s -o /dev/null "http://127.0.0.1:$AI_PORT/" && break
+        sleep 0.2
+    done
+    local ai="http://127.0.0.1:$AI_PORT"
+    local konfig sluzba poradie zaloha
+    for konfig in "Gemini gemini,claude 1" "Claude claude 0" "OpenAI openai 0"; do
+        read -r sluzba poradie zaloha <<<"$konfig"
+        db_app "$1" sql "DELETE FROM ai_rozpoznania" >/dev/null # denný limit odznova pre každú službu
+        spusti_server "$1" AI_PORADIE="$poradie" GEMINI_API_KEY=testovaci-kluc ANTHROPIC_API_KEY=testovaci-kluc \
+            OPENAI_API_KEY=testovaci-kluc AI_ADRESA_GEMINI="$ai/gemini" AI_ADRESA_CLAUDE="$ai/claude" \
+            AI_ADRESA_OPENAI="$ai/openai" AI_MODEL_GEMINI=gemini-bez-premyslania AI_ASISTENT_DENNY_LIMIT=10 || continue
+        if ! TEST_ASISTENT_SLUZBA="$sluzba" TEST_ASISTENT_ZALOHA="$zaloha" \
+                "$PHP" testy/smoke.php "http://127.0.0.1:$PORT" "$ADMIN_MENO" "$ADMIN_HESLO" asistent "$CRON_KEY"; then
+            zlyhanie "Hlasový asistent ($sluzba) má zlyhané kontroly (výpis vyššie)."
+        fi
+        zastav_server
+        kontrola_logov
+    done
+    kill "$AI_PID" 2>/dev/null && wait "$AI_PID" 2>/dev/null
+    AI_PID=""
 }
 
 prechod_appkou() { # $1 = databáza, $2 = režim pre smoke.php
@@ -189,6 +223,7 @@ nadpis "Nová inštalácia (sql/instalacia.sql)"
 if priprav_databazu "$DB_NOVA" && import_dvakrat "$DB_NOVA" sql/instalacia.sql "Import sql/instalacia.sql"; then
     db_app "$DB_NOVA" admin "$ADMIN_MENO" "$ADMIN_HESLO"
     prechod_appkou "$DB_NOVA" plny
+    asistent_s_falosnou_ai "$DB_NOVA"
 else
     zlyhanie "Testovaciu databázu sa nepodarilo pripraviť."
 fi
