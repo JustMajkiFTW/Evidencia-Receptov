@@ -1161,9 +1161,14 @@ over(str_contains(hlaska_spravy($o->telo), 'Vypršala platnosť formulára'), '�
 // Výživové hodnoty (3.0): ručné zadanie v Správe a výpočet receptu na porciu.
 $hodnotyParadajok = ['kcal' => '20', 'bielkoviny' => '1', 'sacharidy' => '3', 'cukry' => '2,6', 'tuky' => '0,2', 'nasytene' => '0',
     'vlaknina' => '1,2', 'sol' => '0,01', 'hustota' => '', 'gramy_kus' => '100', 'gramy_balenie' => ''];
+// Tabuľka suroviny_vyziva je od 3.0. Databáza „predchádzajúcej verzie" ju môže už mať (po vydaní 3.0) —
+// vtedy sa overí celá výživa, inak len to, že bez nej nič nespadne (ako pri ai_pripojenia v 2.7.1).
+$o = $p->get('admin/suroviny.php?hladaj=paradajky');
+$vyzivaVDatabaze = str_contains($o->telo, 'value="vyziva_ulozit"');
 if ($plny) {
-    $o = $p->get('admin/suroviny.php?hladaj=paradajky');
-    over(str_contains($o->telo, 'Výživové hodnoty') && str_contains($o->telo, 'value="vyziva_ulozit"'), 'Správa surovín ukáže výživové hodnoty', $o->popis());
+    over($vyzivaVDatabaze && str_contains($o->telo, 'Výživové hodnoty'), 'Správa surovín ukáže výživové hodnoty', $o->popis());
+}
+if ($vyzivaVDatabaze) {
     $o = $suroviny(['action' => 'vyziva_ulozit', 'surovina_id' => $paradajkyId, 'cukry' => '5'] + $hodnotyParadajok);
     over(str_contains(hlaska_spravy($o->telo), 'Cukry nemôžu'), 'Cukry viac ako sacharidy sa odmietnu', hlaska_spravy($o->telo));
     $o = $suroviny(['action' => 'vyziva_ulozit', 'surovina_id' => $paradajkyId] + $hodnotyParadajok);
