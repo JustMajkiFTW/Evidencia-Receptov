@@ -444,7 +444,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=48">
+    <link rel="stylesheet" href="style.css?v=49">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -539,6 +539,20 @@ header('X-Recepty-Offline: 1');
     <button type="button" class="btn btn-warning fw-semibold offline-pasik-tlacidlo" id="offlinePasikTlacidlo">
         <i class="bi bi-arrow-clockwise me-1"></i><span id="offlinePasikTlacidloText">Skúsiť znova</span>
     </button>
+</div>
+
+<!-- Pásik „Upozornenia máš vypnuté" (3.3): zobrazí ho script.js, keď toto zariadenie nemá zapnuté upozornenia.
+     Vypnuté upozornenia v telefóne appka obísť nevie, môže len poprosiť o zapnutie. -->
+<div id="upozorneniaPasik" class="upozornenia-pasik mx-3 mt-3 mx-md-0 mt-md-0 mb-md-3 d-none" role="status">
+    <i class="bi bi-bell-slash-fill upozornenia-pasik-ikona" aria-hidden="true"></i>
+    <div class="upozornenia-pasik-text">
+        <strong id="upozorneniaPasikNadpis">Upozornenia máš vypnuté</strong>
+        <span id="upozorneniaPasikPopis">Nedozvieš sa, keď niekto pridá niečo do nákupu alebo nový recept.</span>
+    </div>
+    <button type="button" class="btn btn-warning fw-semibold upozornenia-pasik-tlacidlo" id="upozorneniaPasikZapnut" data-vyzaduje-siet>
+        <i class="bi bi-bell-fill me-1" aria-hidden="true"></i><span id="upozorneniaPasikTlacidloText">Zapnúť</span>
+    </button>
+    <button type="button" class="btn-close upozornenia-pasik-zavriet" id="upozorneniaPasikZavriet" aria-label="Teraz nie"></button>
 </div>
 
 <!-- ================= STRÁNKA: Recepty ================= -->
@@ -1869,7 +1883,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=50"></script>
+<script src="script.js?v=51"></script>
 </body>
 </html>
 <?php

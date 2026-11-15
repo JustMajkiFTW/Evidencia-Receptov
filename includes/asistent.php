@@ -21,9 +21,11 @@
 
 const ASISTENT_MAX_KOL = 6;               // koľkokrát smie AI v jednej odpovedi zavolať nástroje
 const ASISTENT_MAX_HISTORIA = 12;         // posledné správy rozhovoru, ktoré sa posielajú AI
-const ASISTENT_MAX_TEXT = 1000;           // znakov na jednu otázku
+const ASISTENT_MAX_TEXT = 4000;           // znakov na jednu otázku (3.3: celý nadiktovaný recept)
+const ASISTENT_MAX_SPRAVA = 6000;         // znakov na jednu predošlú správu (odpoveď aj s podrobnosťami)
+const ASISTENT_ODDELOVAC = '===';         // riadok medzi časťou na čítanie nahlas a podrobnosťami na obrazovku
 const ASISTENT_DENNY_LIMIT_PREDVOLENY = 100;
-const ASISTENT_ZAPISUJUCE = ['pridaj_recept', 'zapis_varenie', 'pridaj_do_nakupu'];
+const ASISTENT_ZAPISUJUCE = ['pridaj_recept', 'zapis_varenie', 'pridaj_do_nakupu', 'ohodnot_recept'];
 
 /** Modely pre asistenta: AI_ASISTENT_MODEL_GEMINI=model1,model2 alebo tie isté ako pri fotke. */
 function asistent_modely(string $sluzba): array
@@ -77,11 +79,31 @@ function asistent_pokyny(PDO $pdo, array $pripojenie): string
 {
     $dni = ['nedeľa', 'pondelok', 'utorok', 'streda', 'štvrtok', 'piatok', 'sobota'];
     $dnes = new DateTime(app_today());
+    $o = ASISTENT_ODDELOVAC;
     return mcp_pokyny($pripojenie) . "\n\n"
-        . 'Používateľ s tebou hovorí cez hlasového asistenta priamo v appke a tvoja odpoveď sa mu prečíta nahlas slovenským hlasom. Preto: '
-        . 'odpovedaj krátko, najviac dve-tri vety, celými vetami po slovensky. Nepoužívaj markdown, odrážky, emoji, odkazy ani čísla receptov (#12). '
-        . 'Množstvá a jednotky píš tak, ako sa vyslovujú (napr. „dve polievkové lyžice", „pol kila"). '
-        . 'Keď vymenúvaš suroviny alebo nákup, spoj ich do vety; pri dlhom zozname povedz najdôležitejšie a koľko je ďalších. '
+        // 3.3: skúsený kuchár, odpoveď v dvoch častiach (nahlas krátko, na obrazovke podrobne)
+        . 'Používateľ s tebou hovorí cez hlasového asistenta priamo v appke. Si skúsený domáci kuchár a pomocník rodiny: '
+        . 'poradíš s varením a pečením, náhradami surovín, teplotami a časmi, prepočtom porcií, čo uvariť zo zvyškov alebo z toho, čo je doma, '
+        . 'a poznáš rodinné recepty aj to, kedy a ako sa varili (nástroje). Odpovedaj vecne a správne; keď si niečím nie si istý, povedz to. '
+        . "\n\nTVAR ODPOVEDE: Prvá časť sa prečíta nahlas slovenským hlasom — krátko, jedna až tri vety, celými vetami po slovensky, "
+        . 'bez markdownu, odrážok, emoji, odkazov a čísel receptov (#12); množstvá a jednotky tak, ako sa vyslovujú („dve polievkové lyžice", „pol kila"). '
+        . 'Keď treba viac (celý recept, suroviny, postup, dlhší zoznam, viac rád, všetky varenia), napíš za ňu samostatný riadok ' . $o
+        . ' a pod neho podrobnosti, ktoré sa len ukážu na obrazovke: prehľadne, každá surovina alebo položka na samostatnom riadku začínajúcom „- ", '
+        . 'kroky postupu očíslované („1. "), bez hviezdičiek a nadpisov s #. Nahlas vtedy povedz, že podrobnosti sú na obrazovke. '
+        . 'Pri jednoduchej odpovedi riadok ' . $o . ' nepíš. '
+        . "\n\n" . 'HISTÓRIA VARENIA: Na „kedy sme robili…", „ako často…", „kto to varil", „ako nám chutilo" použi historia_receptu '
+        . '(všetky varenia, kto varil, hodnotenia); na „čo sme varili minulý týždeň, v nedeľu, v októbri" co_sme_varili; '
+        . 'na „čo v tom je, aké suroviny" zobraz_recept. Odpovedz konkrétne: dátum (aj deň v týždni, keď sa hodí), kto varil, koľkokrát, hodnotenie, hlavné suroviny. '
+        . 'Keď povie hodnotenie („daj tomu päť hviezdičiek", „chutilo nám na štyri"), použi ohodnot_recept. '
+        . "\n\n" . 'PRIDANIE RECEPTU HLASOM: Recept môže diktovať naraz alebo po častiach (názov, suroviny, postup, pre koľko porcií, kedy sa varil). '
+        . 'Kým nemáš názov, suroviny aj postup, nič neukladaj: pod ' . $o . ' ukáž celý doterajší recept a nahlas sa krátko opýtaj na to, čo chýba '
+        . '(„Povedz mi postup.", „Pre koľko porcií to je?"). Postup nevymýšľaj ani neskracuj — zapíš ho tak, ako ho povedal, len učesane v očíslovaných krokoch; '
+        . 'množstvá nedopĺňaj (keď chýbajú, opýtaj sa alebo ich vynechaj). Keď je recept kompletný, ukáž ho pod ' . $o . ' celý na kontrolu '
+        . '(názov, porcie, suroviny s množstvami, postup, kedy sa varil) a opýtaj sa „Mám ho uložiť?". Ulož ho (pridaj_recept) až po jasnom súhlase („áno", „ulož"). '
+        . 'Opravu („nie dve, ale tri vajcia") zapracuj a ukáž opravený recept znova. Keď povedal, kedy sa varil („dnes sme ho robili", „v sobotu"), '
+        . 'daj dátum do naposledy_varene; keď ho ohodnotil, po uložení zavolaj ohodnot_recept. Pred uložením over cez najdi_recepty, že taký recept ešte nie je. '
+        . 'Rozhovor si pamätaj: „ten recept", „to isté na štyri porcie", „áno, ulož" sa týka predošlých správ. '
+        . "\n\n"
         . (kucharky_pocet_stran($pdo) > 0
             ? 'Keď sa pýta, čo uvariť, alebo chce recept, ktorý v appke nie je, najprv pozri do rodinných kuchárok (hladaj_v_kucharkach) a odporuč recept odtiaľ aj s knihou a stranou; '
             : '')
@@ -95,7 +117,48 @@ function asistent_pokyny(PDO $pdo, array $pripojenie): string
         . 'Keď chce niečo uložiť do poznámok, Google Keep alebo poslať, zavolaj priprav_na_ulozenie a povedz mu, nech ťukne na tlačidlo pri odpovedi. '
         . (shopping_available($pdo) && array_filter(ai_poradie(), 'ai_vie_obrazky') ? 'Keď chce pridať do nákupu niečo z fotky (recept z kuchárky alebo z obrazovky, nákupný zoznam na papieri, jedlo), zavolaj odfot_na_nakup — '
             . 'appka ukáže tlačidlá Odfotiť a Z galérie a suroviny z fotky do nákupu pridá sama; ty len krátko povedz, nech odfotí alebo vyberie fotku. ' : '')
-        . 'Dnes je ' . $dni[(int) $dnes->format('w')] . ' ' . format_sk_date(app_today()) . '.';
+        . 'Dnes je ' . $dni[(int) $dnes->format('w')] . ' ' . format_sk_date(app_today()) . ' (' . app_today() . ').';
+}
+
+/**
+ * Potrebuje otázka dlhšie premýšľanie? (3.3) Krátke príkazy („pridaj mlieko do nákupu", „kedy sme robili…")
+ * idú rýchlo, rady, návrhy a diktovanie receptu dostanú silnejšie premýšľanie modelu.
+ */
+function asistent_narocna_otazka(string $text): bool
+{
+    $t = mb_strtolower($text, 'UTF-8');
+    if (mb_strlen($t, 'UTF-8') > 220) {
+        return true; // nadiktovaný recept alebo dlhá otázka
+    }
+    return (bool) preg_match('/\b(prečo|poraď|poradiť|odporuč|navrhni|vymysli|nahrad|náhrad|namiesto|čím|ako (sa |mám |by |urobiť|spraviť|pripraviť|upiecť|uvariť)'
+        . '|čo (mám |môžem |by som |)(uvariť|upiecť|navariť|spraviť)|recept na|porovna|rozdiel|zvyšk|koľko (kalórií|bielkovín|cukru)'
+        . '|pridaj recept|ulož recept|nový recept|zapíš recept|postup)/u', $t);
+}
+
+/**
+ * Odpoveď AI → [časť na čítanie nahlas, podrobnosti na obrazovku alebo null] (3.3).
+ * Model ich oddelí riadkom ===. Keď zabudne a odpoveď je dlhá, nahlas sa prečítajú prvé vety.
+ */
+function asistent_rozdel_odpoved(string $text): array
+{
+    $text = trim(str_replace(["\r\n", "\r"], "\n", $text));
+    $casti = preg_split('/^[ \t]*={3,}[ \t]*$/m', $text, 2);
+    $nahlas = trim($casti[0]);
+    $podrobnosti = isset($casti[1]) ? trim($casti[1]) : '';
+    // Markdown, ktorý by na obrazovke rušil (**tučné**, # nadpis).
+    $ucesaj = static fn(string $t): string => trim(preg_replace(['/\*\*(.+?)\*\*/su', '/^#{1,6}\s*/mu', '/^\s*\*\s+/mu'], ['$1', '', '- '], $t) ?? $t);
+    $nahlas = $ucesaj($nahlas);
+    $podrobnosti = $ucesaj($podrobnosti);
+    if ($podrobnosti === '' && (mb_strlen($nahlas, 'UTF-8') > 500 || substr_count($nahlas, "\n") >= 4)) {
+        $podrobnosti = $nahlas;
+        // prvé dve vety: koniec vety = bodka a za ňou veľké písmeno (nie „15. novembra")
+        preg_match('/^(.+?[.!?…](?=\s+\p{Lu}|$))(\s+.+?[.!?…](?=\s+\p{Lu}|$))?/su', preg_replace('/\s+/u', ' ', $nahlas) ?? $nahlas, $m);
+        $nahlas = trim(($m[1] ?? mb_substr($nahlas, 0, 200, 'UTF-8')) . ($m[2] ?? '')) . ' Podrobnosti máš na obrazovke.';
+    }
+    if ($nahlas === '' && $podrobnosti !== '') {
+        $nahlas = 'Tu to máš na obrazovke.';
+    }
+    return [$nahlas, $podrobnosti !== '' ? $podrobnosti : null];
 }
 
 /**
@@ -128,7 +191,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         if (!$spravy && $rola === 'asistent') {
             continue;
         }
-        $obsah = mb_substr(trim($s['text']), 0, 2000, 'UTF-8');
+        $obsah = mb_substr(trim($s['text']), 0, ASISTENT_MAX_SPRAVA, 'UTF-8');
         if ($spravy && end($spravy)['rola'] === $rola) {
             $spravy[count($spravy) - 1]['text'] .= "\n" . $obsah;
         } else {
@@ -171,6 +234,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         ];
     }
     $pokyny = asistent_pokyny($pdo, $pripojenie);
+    $premyslat = asistent_narocna_otazka($text);
 
     // Vykonanie nástroja: tie isté funkcie ako cez MCP. Zapisuje sa, čo asistent urobil.
     $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'zapisane' => [], 'nastroje_s' => 0.0, 'export' => null, 'fotka' => null];
@@ -232,27 +296,28 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         $timeout = $i === count($pokusy) - 1 ? AI_TIMEOUT_SEKUND : AI_TIMEOUT_PRED_ZALOHOU;
         $casy = [];
         $vysledok = match ($sluzba) {
-            'gemini' => asistent_gemini($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
+            'gemini' => asistent_gemini($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy, $premyslat),
             'claude' => asistent_claude($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
-            'mistral', 'groq' => asistent_kompatibilne($sluzba, $model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
-            default  => asistent_openai($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy),
+            'mistral', 'groq' => asistent_kompatibilne($sluzba, $model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy, $premyslat),
+            default  => asistent_openai($model, $pokyny, $spravy, $nastroje, $vykonaj, $timeout, $casy, $premyslat),
         };
         if ($vysledok['ok']) {
             asistent_zapis_pouzitie($pdo, $pripojenie['user_id'], $sluzba, true, $chyby ? implode('; ', $chyby) : null);
             $trvanie = round(microtime(true) - $zaciatokCelku, 1);
             $rozpis = 'volania AI ' . implode(' + ', array_map(static fn($c) => str_replace('.', ',', (string) $c) . ' s', $casy))
                 . ', nástroje ' . str_replace('.', ',', (string) round($stav['nastroje_s'], 1)) . ' s';
-            debug_log('AI ASISTENT ' . $sluzba . ' (' . $model . '): odpoveď za ' . sprintf('%.1f s', $trvanie) . ' (' . $rozpis . ')'
+            debug_log('AI ASISTENT ' . $sluzba . ' (' . $model . ($premyslat ? ', dlhšie premýšľanie' : '') . '): odpoveď za ' . sprintf('%.1f s', $trvanie) . ' (' . $rozpis . ')'
                 . ($stav['akcie'] ? ', nástroje: ' . implode(', ', array_column($stav['akcie'], 'nastroj')) : '')
                 . ($chyby ? ', predtým: ' . implode('; ', $chyby) : ''));
-            $odpoved = trim($vysledok['text']);
-            $meta = AI_NAZVY[$sluzba] . ' · ' . str_replace('.', ',', (string) $trvanie) . ' s';
+            [$odpoved, $naObrazovku] = asistent_rozdel_odpoved($vysledok['text']);
+            $meta = AI_NAZVY[$sluzba] . ' · ' . str_replace('.', ',', (string) $trvanie) . ' s' . ($premyslat ? ' · dlhšie premýšľal' : '');
             return [
                 'trvanie' => $trvanie,
                 // Pre admina rozpis času pod odpoveďou — podľa neho sa dá zistiť, čo asistenta brzdí.
                 'meta'    => $podrobnosti ? $meta . ' (' . $model . ': ' . $rozpis . ($chyby ? '; predtým zlyhalo: ' . implode('; ', $chyby) : '') . ')' : null,
                 'success' => true,
                 'odpoved' => $odpoved !== '' ? $odpoved : 'Hotovo.',
+                'podrobnosti' => $naObrazovku, // 3.3: len na obrazovku (celý recept, postup…), nečíta sa nahlas
                 'zmeny'   => $stav['zmeny'],
                 'akcie'   => $stav['akcie'],
                 'poskytovatel' => AI_NAZVY[$sluzba],
@@ -545,7 +610,7 @@ function asistent_claude(string $model, string $pokyny, array $spravy, array $na
    Gemini (generateContent): functionCall → functionResponse. Odpoveď modelu
    sa posiela späť bez zmeny (Gemini 3 vyžaduje vrátiť „thoughtSignature").
    ---------------------------------------------------------------------- */
-function asistent_gemini(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
+function asistent_gemini(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy, bool $premyslat = false): array
 {
     $obsah = array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'model' : 'user', 'parts' => [['text' => $s['text']]]], $spravy);
     $deklaracie = [];
@@ -557,7 +622,8 @@ function asistent_gemini(string $model, string $pokyny, array $spravy, array $na
         $deklaracie[] = $d;
     }
     // Čo najkratšie premýšľanie: „minimal" vedia len niektoré modely, pri 400 sa skúsi „low", potom bez nastavenia.
-    $urovne = ['minimal', 'low', null];
+    // Náročná otázka (3.3): „medium" — model dlhšie premýšľa, odpoveď je lepšia, ale o pár sekúnd pomalšia.
+    $urovne = $premyslat ? ['medium', 'low', null] : ['minimal', 'low', null];
 
     for ($kolo = 0; $kolo <= ASISTENT_MAX_KOL; $kolo++) {
         $telo = [
@@ -629,13 +695,13 @@ function asistent_schema_gemini(array $schema): array
    OpenAI (Responses API): function_call → function_call_output, ďalšie kolo
    nadväzuje cez previous_response_id.
    ---------------------------------------------------------------------- */
-function asistent_openai(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
+function asistent_openai(string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy, bool $premyslat = false): array
 {
     $vstup = array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'assistant' : 'user', 'content' => $s['text']], $spravy);
     $tools = array_map(static fn($n) => ['type' => 'function', 'name' => $n['name'], 'description' => $n['description'],
         'parameters' => $n['schema'], 'strict' => false], $nastroje);
     $predosla = null;
-    $urovne = ['minimal', 'low', null]; // ako pri Gemini: najkratšie premýšľanie, ktoré model pozná
+    $urovne = $premyslat ? ['medium', 'low', null] : ['minimal', 'low', null]; // ako pri Gemini
 
     for ($kolo = 0; $kolo <= ASISTENT_MAX_KOL; $kolo++) {
         $telo = ['model' => $model, 'instructions' => $pokyny, 'input' => $vstup, 'tools' => $tools, 'max_output_tokens' => 4000,
@@ -678,9 +744,9 @@ function asistent_openai(string $model, string $pokyny, array $spravy, array $na
    Mistral a Groq (Chat Completions, 3.2): tool_calls → správy role „tool",
    kým nepríde text. Celý rozhovor sa posiela znova (nemajú previous_response_id).
    ---------------------------------------------------------------------- */
-function asistent_kompatibilne(string $sluzba, string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy): array
+function asistent_kompatibilne(string $sluzba, string $model, string $pokyny, array $spravy, array $nastroje, callable $vykonaj, int $timeout, array &$casy, bool $premyslat = false): array
 {
-    $kratkoPremyslat = $sluzba === 'groq'; // gpt-oss: reasoning_effort „low", pri 400 bez neho
+    $kratkoPremyslat = $sluzba === 'groq'; // gpt-oss: reasoning_effort „low" (náročná otázka „medium"), pri 400 bez neho
     $sprava = array_merge([['role' => 'system', 'content' => $pokyny]],
         array_map(static fn($s) => ['role' => $s['rola'] === 'asistent' ? 'assistant' : 'user', 'content' => $s['text']], $spravy));
     $tools = array_map(static fn($n) => ['type' => 'function', 'function' => [
@@ -691,7 +757,7 @@ function asistent_kompatibilne(string $sluzba, string $model, string $pokyny, ar
         $telo = ['model' => $model, 'messages' => $sprava, 'tools' => $tools, 'max_tokens' => 4000,
             'tool_choice' => $kolo === ASISTENT_MAX_KOL ? 'none' : 'auto'];
         if ($kratkoPremyslat) {
-            $telo['reasoning_effort'] = 'low';
+            $telo['reasoning_effort'] = $premyslat ? 'medium' : 'low';
         }
         [$kod, $odpoved, $chybaCurl] = asistent_post(ai_adresa($sluzba) . '/chat/completions',
             ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV[$sluzba])], $telo, $timeout, $casy);

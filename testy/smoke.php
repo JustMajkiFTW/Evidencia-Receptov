@@ -318,7 +318,8 @@ if ($rezim === 'asistent') {
         $o = akcia($p, $csrf, 'asistent', ['text' => $text, 'historia' => json_encode($historia, JSON_UNESCAPED_UNICODE)]);
         if (($o->json()['success'] ?? false) === true) {
             $historia[] = ['rola' => 'pouzivatel', 'text' => $text];
-            $historia[] = ['rola' => 'asistent', 'text' => $o->json()['odpoved']];
+            // ako telefón (3.3): do rozhovoru ide aj to, čo bolo len na obrazovke
+            $historia[] = ['rola' => 'asistent', 'text' => $o->json()['odpoved'] . (($o->json()['podrobnosti'] ?? null) ? "\n===\n" . $o->json()['podrobnosti'] : '')];
         }
         return $o;
     };
@@ -348,6 +349,26 @@ if ($rezim === 'asistent') {
     $vyziva = recepty_zo_stranky($p->get('index.php')->telo)[$receptId]['vyziva'] ?? null;
     over(($vyziva['hodnoty']['kcal'] ?? 0) === 133 && ($vyziva['zaratane'] ?? 0) === 3,
         'Po uložení receptu AI doplní výživové hodnoty surovín', json_encode($vyziva, JSON_UNESCAPED_UNICODE));
+
+    // 3.3: história receptu, hodnotenie hlasom, odpoveď s podrobnosťami na obrazovku.
+    $o = $spytaj("historia $receptId");
+    over(uspech($o) && ($o->json()['akcie'][0]['nastroj'] ?? '') === 'historia_receptu' && ($o->json()['akcie'][0]['ok'] ?? false) === true
+        && ($o->json()['zmeny'] ?? null) === false, 'Asistent pozrie históriu receptu (kedy sa varil, kto, hodnotenia)', $o->popis());
+    $o = $spytaj("ohodnoť $receptId na 5");
+    over(uspech($o) && ($o->json()['zmeny'] ?? null) === true && str_contains((string) ($o->json()['odpoved'] ?? ''), '5 hviezdičiek'),
+        'Asistent ohodnotí recept hlasom', $o->popis());
+    $o = $spytaj('Povedz mi celý recept');
+    over(uspech($o) && ($o->json()['odpoved'] ?? '') === 'Tu je celý recept, podrobnosti máš na obrazovke.'
+        && ($o->json()['podrobnosti'] ?? '') === "Palacinky\n- 250 g Múka hladká\n- 2 Vajcia\n1. Vymiešaj cesto.\n2. Opeč na panvici.",
+        'Odpoveď má krátku časť na čítanie a podrobnosti na obrazovku (bez **)', $o->popis());
+    $o = $spytaj('Pamätáš si, čo si povedal?');
+    over(str_contains((string) ($o->json()['odpoved'] ?? '') . ($o->json()['podrobnosti'] ?? ''), '2. Opeč na panvici'), 'Podrobnosti z obrazovky asistent v rozhovore pozná', $o->popis());
+    if ($sluzba === 'Gemini') {
+        $o = $spytaj('Poraď mi, aká je úroveň');
+        over(str_contains((string) ($o->json()['odpoved'] ?? ''), 'medium'), 'Pri rade (náročná otázka) model dlhšie premýšľa', $o->popis());
+        $o = $spytaj('Aká je úroveň');
+        over(!str_contains((string) ($o->json()['odpoved'] ?? ''), 'medium'), 'Krátka otázka ide rýchlo (bez dlhého premýšľania)', $o->popis());
+    }
 
     // 3.1: „z fotky mi pridaj do nákupu" → tlačidlá Odfotiť / Z galérie → fotka → suroviny do nákupu (bez receptu).
     akcia($p, $csrf, 'shopping_clear', ['mode' => 'all']);
@@ -897,6 +918,35 @@ if ($mcpVDatabaze) {
         && (recepty_zo_stranky($p->get('index.php')->telo)[$mcpId]['lastMadeDate'] ?? '') === $vcera, 'Asistent zapíše varenie', $o->popis());
     $o = $volaj('zapis_varenie', ['id' => $mcpId, 'datum' => '2099-01-01']);
     over(($vysledok($o)['isError'] ?? false) === true, 'Varenie v budúcnosti asistent nezapíše', $o->popis());
+    // 3.3: história varení, čo sme varili v období, hodnotenie
+    $predvcerom = date('Y-m-d', strtotime('-2 days'));
+    $volaj('zapis_varenie', ['id' => $mcpId, 'datum' => $predvcerom]);
+    $o = $volaj('historia_receptu', ['id' => $mcpId]);
+    $h = $vysledok($o)['structuredContent'] ?? [];
+    over(($h['pocet_vareni'] ?? 0) === 2 && array_column($h['varenia'] ?? [], 'datum') === [$vcera, $predvcerom]
+        && str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), 'Varené 2 krát'),
+        'História receptu: všetky varenia od najnovšieho aj s menom', $o->popis());
+    $o = $volaj('co_sme_varili', ['od' => $predvcerom, 'do' => $vcera]);
+    over(in_array($mcpId, array_column($vysledok($o)['structuredContent']['varenia'] ?? [], 'recept_id'), true)
+        && str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), $nazovMcp), 'Čo sme varili v období', $o->popis());
+    $o = $volaj('co_sme_varili', ['od' => '2001-01-01', 'do' => '2001-01-07']);
+    over(($vysledok($o)['structuredContent']['varenia'] ?? null) === [] && str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), 'žiadne varenie'),
+        'Obdobie bez varenia asistent povie', $o->popis());
+    $o = $volaj('ohodnot_recept', ['id' => $mcpId, 'hodnotenie' => 4]);
+    over(($vysledok($o)['isError'] ?? true) === false && (float) ($vysledok($o)['structuredContent']['priemer'] ?? 0) === 4.0,
+        'Asistent ohodnotí recept', $o->popis());
+    $o = $volaj('ohodnot_recept', ['id' => $mcpId, 'hodnotenie' => 7]);
+    over(($vysledok($o)['isError'] ?? false) === true, 'Hodnotenie mimo 1–5 sa odmietne', $o->popis());
+    $o = $volaj('historia_receptu', ['id' => $mcpId]);
+    over(str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), 'priemer 4 z 5'), 'História receptu obsahuje hodnotenie po menách', $o->popis());
+    // Varenie zapísané omylom a v recepte opravené na skorší dátum sa v histórii neukáže.
+    $o = akcia($p, $csrf, 'update_recipe', ['recipe_id' => $mcpId, 'name' => $nazovMcp, 'category' => 'Dezerty', 'prep_time' => '60',
+        'servings' => '8', 'ingredients' => "1. Vymiešaj.\n2. Upeč.", 'last_made_date' => $predvcerom]);
+    $o = $volaj('historia_receptu', ['id' => $mcpId]);
+    over(uspech(akcia($p, $csrf, 'get_logs', ['recipe_id' => $mcpId]))
+        && array_column($vysledok($o)['structuredContent']['varenia'] ?? [], 'datum') === [$predvcerom],
+        'Varenie opravené v recepte na skorší dátum sa v histórii neukáže', $o->popis());
+
     $o = $volaj('pridaj_do_nakupu', ['id' => $mcpId, 'porcie' => 4]);
     over(($vysledok($o)['structuredContent']['pridane'] ?? 0) === 4, 'Asistent pridá suroviny do nákupu', $o->popis());
     $o = $volaj('zobraz_nakup', []);

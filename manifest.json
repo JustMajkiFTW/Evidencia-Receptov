@@ -34,5 +34,33 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Hlasový asistent",
+      "short_name": "Asistent",
+      "description": "Otvorí hlasového asistenta receptov",
+      "url": "./index.php?asistent=hlas",
+      "icons": [
+        {
+          "src": "app-icons/skratka-asistent.png?v=1",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Nákupný zoznam",
+      "short_name": "Nákup",
+      "description": "Otvorí spoločný nákupný zoznam",
+      "url": "./index.php?otvor=nakup",
+      "icons": [
+        {
+          "src": "app-icons/skratka-nakup.png?v=1",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

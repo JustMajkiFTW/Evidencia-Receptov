@@ -767,6 +767,46 @@ html[data-offline] .offline-pasik.je-online {
     .offline-pasik-tlacidlo { width: 100%; }
 }
 
+/* Pásik „Upozornenia máš vypnuté" (3.3) — rovnaký vzhľad ako pásik offline. */
+.upozornenia-pasik {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .75rem 1rem;
+    padding: .9rem 3rem .9rem 1rem;
+    border: 2px solid var(--app-accent);
+    border-radius: var(--app-radius);
+    background: var(--app-accent-soft);
+    color: var(--app-text);
+    font-size: 1.05rem;
+    line-height: 1.4;
+}
+.upozornenia-pasik.d-none { display: none; }
+.upozornenia-pasik-ikona { flex-shrink: 0; font-size: 1.75rem; color: var(--app-accent); }
+.upozornenia-pasik-text { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
+.upozornenia-pasik-text strong { font-size: 1.15rem; }
+.upozornenia-pasik-tlacidlo { min-height: 48px; padding: 0 1.25rem; font-size: 1.05rem; }
+.upozornenia-pasik-zavriet { position: absolute; top: .75rem; right: .75rem; padding: .6rem; }
+html[data-offline] .upozornenia-pasik { display: none; }
+@media (max-width: 575px) {
+    .upozornenia-pasik-tlacidlo { width: 100%; }
+}
+
+/* Podrobnosti v odpovedi asistenta (3.3): celý recept, postup — len na obrazovke, pod krátkou odpoveďou
+   na celú šírku bubliny (reproduktor ostáva hore vedľa krátkej odpovede). */
+.asistent-bublina.je-asistent.ma-podrobnosti { flex-wrap: wrap; max-width: 96%; }
+.asistent-podrobnosti {
+    flex: 0 0 100%;
+    order: 3;
+    margin-top: .1rem;
+    padding-top: .6rem;
+    border-top: 1px solid var(--app-border, rgba(127, 127, 127, .3));
+    white-space: pre-line;
+    font-size: 1.02rem;
+    line-height: 1.5;
+}
+
 /* Tlačidlá, ktoré potrebujú server, sú offline vyblednuté. Ťuknutie na ne
    ukáže vysvetlenie (script.js), preto ostávajú klikateľné. */
 html[data-offline] [data-vyzaduje-siet] {
@@ -2195,6 +2235,7 @@ html[data-offline] .recipe-card .rating-star { cursor: default; }
 .sprava-pouzivatel-meno { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .5rem; font-size: 1.15rem; font-weight: 700; overflow-wrap: anywhere; }
 .sprava-pouzivatel-detail { margin-top: .2rem; font-size: .95rem; line-height: 1.4; color: var(--app-muted-text); overflow-wrap: anywhere; }
 .sprava-pouzivatel-detail strong { font-weight: 600; color: var(--app-text); }
+.sprava-pouzivatel-detail .sprava-varovanie { color: var(--bs-danger); font-weight: 600; white-space: nowrap; } /* upozornenia vypnuté (3.3) */
 .sprava-odznak { padding: .2em .6em; border-radius: 8px; background: var(--app-odznak-sivy-bg); color: var(--app-odznak-sivy); font-size: .8rem; font-weight: 600; }
 .sprava-odznak.je-admin { background: var(--app-odznak-zlty-bg); color: var(--app-odznak-zlty); }
 .sprava-odznak.je-ty { background: var(--app-modra-bg); color: var(--app-modra-text); }

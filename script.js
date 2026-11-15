@@ -130,6 +130,7 @@ async function enablePushNotifications() {
 
         if (data.success) {
             showToast('Notifikácie boli povolené!');
+            document.dispatchEvent(new Event('upozornenia-zapnute')); // skryje pásik „Upozornenia máš vypnuté" (3.3)
         } else {
             showToast(data.error || 'Nepodarilo sa uložiť notifikácie.', true);
         }
@@ -139,6 +140,52 @@ async function enablePushNotifications() {
             '<p class="mb-0">Chyba: <code>' + String(err.name || '') + ' — ' + String(err.message || err).replace(/</g, '&lt;') + '</code></p>');
     }
 }
+
+/* ========================================================================
+   Pásik „Upozornenia máš vypnuté" (3.3). Keď ich má niekto v telefóne vypnuté,
+   appka ich zapnúť sama nevie (nedá sa to obísť) — tak aspoň výrazne poprosí.
+   „Teraz nie" ho skryje na 14 dní.
+   ======================================================================== */
+(async function pasikUpozornenia() {
+    const pasik = document.getElementById('upozorneniaPasik');
+    if (!pasik || !VAPID_PUBLIC_KEY) return;
+    try {
+        if (Number(localStorage.getItem('upozorneniaPasikSkryty') || 0) > Date.now()) return;
+    } catch (e) { /* súkromný režim — pásik sa ukáže */ }
+
+    const maPush = ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+    const iosBezPlochy = isIOS() && !isStandalonePWA();
+    if (!maPush && !iosBezPlochy) return; // prehliadač upozornenia nevie, nie je čo zapnúť
+    if (maPush && Notification.permission === 'granted') {
+        // Povolené — ale je toto zariadenie naozaj prihlásené na odber? (po vymazaní dát býva povolenie bez odberu)
+        const odber = await Promise.race([
+            navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).catch(() => 'nevie'),
+            new Promise((hotovo) => setTimeout(() => hotovo('nevie'), 4000)),
+        ]);
+        if (odber) return; // má odber, alebo sa to nedá zistiť — radšej nič neukazovať
+    }
+
+    const nadpis = document.getElementById('upozorneniaPasikNadpis');
+    const popis = document.getElementById('upozorneniaPasikPopis');
+    const tlacidloText = document.getElementById('upozorneniaPasikTlacidloText');
+    if (iosBezPlochy) {
+        nadpis.textContent = 'Upozornenia nefungujú v prehliadači';
+        popis.textContent = 'Na iPhone pridaj appku na plochu a otvor ju odtiaľ — potom pôjdu zapnúť.';
+        tlacidloText.textContent = 'Ako na to';
+    } else if (Notification.permission === 'denied') {
+        nadpis.textContent = 'Upozornenia sú v telefóne zablokované';
+        popis.textContent = 'Appka ich sama zapnúť nemôže. Povoľ ich v nastaveniach — ukážem ti kde.';
+        tlacidloText.textContent = 'Ako ich povoliť';
+    }
+    pasik.classList.remove('d-none');
+
+    document.getElementById('upozorneniaPasikZapnut').addEventListener('click', () => enablePushNotifications());
+    document.getElementById('upozorneniaPasikZavriet').addEventListener('click', () => {
+        pasik.classList.add('d-none');
+        try { localStorage.setItem('upozorneniaPasikSkryty', String(Date.now() + 14 * 24 * 3600 * 1000)); } catch (e) { /* nič */ }
+    });
+    document.addEventListener('upozornenia-zapnute', () => pasik.classList.add('d-none'));
+})();
 
 /* Prepínanie témy (dark/light) je v theme.js — spoločné pre všetky stránky. */
 
@@ -3810,13 +3857,21 @@ const asistent = (function initAsistent() {
         await spytajSa(formData, 'Pridaj do nákupu suroviny z fotky.', null);
     }
 
-    function bublina(rola, text, chyba = false) {
+    /** $podrobnosti (3.3): celý recept, postup, zoznam — len na obrazovke, nahlas sa číta krátka časť. */
+    function bublina(rola, text, chyba = false, podrobnosti = null) {
         $('asistentUvod')?.classList.add('d-none');
         const el = document.createElement('div');
         el.className = 'asistent-bublina je-' + rola + (chyba ? ' je-chyba' : '');
         const obsah = document.createElement('span');
         obsah.textContent = text;
         el.append(obsah);
+        if (podrobnosti) {
+            const detail = document.createElement('div');
+            detail.className = 'asistent-podrobnosti';
+            detail.textContent = podrobnosti;
+            el.append(detail);
+            el.classList.add('ma-podrobnosti');
+        }
         // Pri odpovedi tlačidlo „prečítať" — ťuknutie spustí čítanie vždy (aj keď ho iPhone sám nepustil).
         if (rola === 'asistent' && mozeHovorit) {
             const citaj = document.createElement('button');
@@ -3830,7 +3885,7 @@ const asistent = (function initAsistent() {
                     return;
                 }
                 odomkniHlas();
-                hovor(text, true);
+                hovor(podrobnosti ? text + '\n' + podrobnosti : text, true); // ťuknutie prečíta aj podrobnosti
             });
             el.append(citaj);
         }
@@ -3991,6 +4046,7 @@ const asistent = (function initAsistent() {
             const vzorky = new Uint8Array(analyzer.fftSize);
             let zaciatok = 0;  // od kedy meranie beží
             let hovoril = false;
+            let hovoriOd = 0;  // 3.3: kto hovorí dlhšie (diktuje recept), tomu nahrávanie znesie dlhšiu pauzu
             let tichoOd = 0;
             let najviac = 0;
             let meralo = false;
@@ -4007,9 +4063,10 @@ const asistent = (function initAsistent() {
                 const hlasitost = Math.sqrt(sucet / vzorky.length);
                 if (hlasitost > najviac) najviac = hlasitost;
                 if (hlasitost > 0.035) {
+                    if (!hovoril) hovoriOd = teraz;
                     hovoril = true;
                     tichoOd = teraz;
-                } else if ((hovoril && teraz - tichoOd > 1500) || (!hovoril && teraz - zaciatok > 8000)) {
+                } else if ((hovoril && teraz - tichoOd > (teraz - hovoriOd > 6000 ? 2800 : 1500)) || (!hovoril && teraz - zaciatok > 8000)) {
                     priTichu();
                 }
             }, 100);
@@ -4081,7 +4138,7 @@ const asistent = (function initAsistent() {
         const kusy = [];
         const zaciatok = Date.now();
         let zrusene = false;
-        const maxCas = setTimeout(() => nahravanie && nahravanie.stop(), 30000);
+        const maxCas = setTimeout(() => nahravanie && nahravanie.stop(), 150000); // 3.3: aj celý nadiktovaný recept
         zaznam.ondataavailable = (e) => { if (e.data && e.data.size) kusy.push(e.data); };
         zaznam.onstop = () => {
             clearTimeout(maxCas);
@@ -4243,9 +4300,11 @@ const asistent = (function initAsistent() {
                 }
             }
             if (data.success) {
-                historia.push({ rola: 'pouzivatel', text }, { rola: 'asistent', text: data.odpoved });
+                // Do rozhovoru aj podrobnosti — „áno, ulož" potom uloží presne ten recept, ktorý bol na obrazovke.
+                historia.push({ rola: 'pouzivatel', text },
+                    { rola: 'asistent', text: data.odpoved + (data.podrobnosti ? '\n===\n' + data.podrobnosti : '') });
                 historia = historia.slice(-12);
-                bublina('asistent', data.odpoved);
+                bublina('asistent', data.odpoved, false, data.podrobnosti || null);
                 if (data.export && data.export.text) {
                     rozhovorEl.append(tlacidloExportu(data.export));
                     rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
@@ -4302,8 +4361,9 @@ const asistent = (function initAsistent() {
     nastavStav('caka');
 
     return {
-        otvor() {
-            odomkniHlas(); // ťuknutie na otvorenie: iPhone potom dovolí čítať odpovede aj samé
+        /** $bezTuknutia: otvorené skratkou z ikony appky — hlas sa odomkne až prvým ťuknutím na mikrofón. */
+        otvor(bezTuknutia = false) {
+            if (!bezTuknutia) odomkniHlas(); // ťuknutie na otvorenie: iPhone potom dovolí čítať odpovede aj samé
             const otvorene = document.querySelector('.modal.show');
             const ukaz = () => bootstrap.Modal.getOrCreateInstance(modalEl).show();
             if (otvorene && otvorene !== modalEl) {
@@ -4320,3 +4380,14 @@ const asistent = (function initAsistent() {
 function openAsistent() {
     if (asistent) asistent.otvor();
 }
+
+/* Skratka „Hlasový asistent" (3.3): podržanie ikony appky na Androide a v Chrome/Edge na PC
+   (manifest.json → shortcuts) otvorí appku s ?asistent=hlas a rovno okno asistenta.
+   Mikrofón sa zapne až ťuknutím — bez neho by telefón odpoveď nahlas neprečítal. */
+(function asistentZoSkratky() {
+    const parametre = new URLSearchParams(location.search);
+    if (parametre.get('asistent') !== 'hlas') return;
+    parametre.delete('asistent');
+    history.replaceState(null, '', location.pathname + (parametre.toString() ? '?' + parametre : '') + location.hash);
+    if (asistent) asistent.otvor(true);
+})();

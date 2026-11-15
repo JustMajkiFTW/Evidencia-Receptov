@@ -1722,6 +1722,69 @@ function delete_recipe(PDO $pdo, int $recipeId, int $userId, string $role): arra
 }
 
 /** Zápis do recipe_logs — kto, kedy a čo s receptom urobil. */
+/**
+ * Kedy sa recepty varili (3.3, hlasový asistent): záznamy „Uvarené" z histórie receptu
+ * (dátum varenia je v poznámke „— varené 2. 10. 2026", inak deň zápisu) a k tomu posledné
+ * varenie uložené pri recepte. Záznam s dátumom po poslednom varení receptu sa vynechá —
+ * taký dátum niekto v recepte opravil (napr. omylom zapísané varenie).
+ * Návrat: [['recept_id', 'nazov', 'datum' (RRRR-MM-DD), 'kto' (meno alebo null)], …] od najnovšieho.
+ */
+function recipe_cooking_history(PDO $pdo, ?int $recipeId = null, ?string $od = null, ?string $do = null): array
+{
+    $recepty = [];
+    $sql = 'SELECT id, name, last_made_date FROM recipes' . ($recipeId !== null ? ' WHERE id = ?' : '');
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($recipeId !== null ? [$recipeId] : []);
+    foreach ($stmt as $r) {
+        $recepty[(int) $r['id']] = $r;
+    }
+    if (!$recepty) {
+        return [];
+    }
+
+    $sql = "SELECT l.recipe_id, l.note, l.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.username) AS kto
+            FROM recipe_logs l LEFT JOIN users u ON u.id = l.user_id
+            WHERE l.action = 'made'" . ($recipeId !== null ? ' AND l.recipe_id = ?' : '') . ' ORDER BY l.id DESC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($recipeId !== null ? [$recipeId] : []);
+
+    $varenia = [];
+    foreach ($stmt as $l) {
+        $id = (int) $l['recipe_id'];
+        $posledne = $recepty[$id]['last_made_date'] ?? null;
+        if ($posledne === null) {
+            continue; // recept zmazaný alebo dátum varenia niekto vymazal
+        }
+        $datum = substr((string) $l['created_at'], 0, 10);
+        if (preg_match('/varené (\d{1,2})\. ?(\d{1,2})\. ?(\d{4})\s*$/u', (string) $l['note'], $m)) {
+            $datum = sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
+        }
+        if ($datum > $posledne || isset($varenia[$id . '|' . $datum])) {
+            continue;
+        }
+        $varenia[$id . '|' . $datum] = ['recept_id' => $id, 'nazov' => $recepty[$id]['name'], 'datum' => $datum, 'kto' => $l['kto']];
+    }
+    // Posledné varenie zadané pri pridaní alebo úprave receptu nemusí mať záznam „Uvarené".
+    foreach ($recepty as $id => $r) {
+        if ($r['last_made_date'] !== null && !isset($varenia[$id . '|' . $r['last_made_date']])) {
+            $varenia[$id . '|' . $r['last_made_date']] = ['recept_id' => $id, 'nazov' => $r['name'], 'datum' => $r['last_made_date'], 'kto' => null];
+        }
+    }
+
+    $varenia = array_values(array_filter($varenia, static fn($v) => ($od === null || $v['datum'] >= $od) && ($do === null || $v['datum'] <= $do)));
+    usort($varenia, static fn($a, $b) => [$b['datum'], $a['nazov']] <=> [$a['datum'], $b['nazov']]);
+    return $varenia;
+}
+
+/** Hodnotenia receptu po menách (3.3): [['kto' => meno, 'hodnotenie' => 1–5], …] */
+function recipe_ratings_by_user(PDO $pdo, int $recipeId): array
+{
+    $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), u.username) AS kto, r.rating AS hodnotenie
+        FROM recipe_ratings r JOIN users u ON u.id = r.user_id WHERE r.recipe_id = ? ORDER BY r.rating DESC, kto");
+    $stmt->execute([$recipeId]);
+    return array_map(static fn($r) => ['kto' => $r['kto'], 'hodnotenie' => (int) $r['hodnotenie']], $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
 function log_recipe_action(PDO $pdo, int $recipeId, int $userId, string $action, ?string $note = null): void
 {
     $stmt = $pdo->prepare(
@@ -1738,7 +1801,11 @@ function log_recipe_action(PDO $pdo, int $recipeId, int $userId, string $action,
  * Odosiela sa vlastným kódom v includes/webpush.php (openssl + curl) — appka
  * už nepotrebuje knižnicu minishlink/web-push vo vendor/.
  */
-function send_push_notification(PDO $pdo, ?int $userId, string $title, string $body, string $url = './', ?int $excludeUserId = null, ?string $tag = null): void
+/**
+ * $urgency (3.3): 'high' = push služba doručí hneď aj telefónu v úspornom režime (nákup, nový recept),
+ * 'normal' pre pripomienky, ktoré počkať môžu. Vypnuté upozornenia v telefóne neobíde nič.
+ */
+function send_push_notification(PDO $pdo, ?int $userId, string $title, string $body, string $url = './', ?int $excludeUserId = null, ?string $tag = null, string $urgency = 'high'): void
 {
     try {
         $sql = 'SELECT * FROM push_subscriptions';
@@ -1779,7 +1846,8 @@ function send_push_notification(PDO $pdo, ?int $userId, string $title, string $b
                 $payload,
                 VAPID_SUBJECT,
                 VAPID_PUBLIC_KEY,
-                VAPID_PRIVATE_KEY
+                VAPID_PRIVATE_KEY,
+                $urgency
             );
 
             if ($result['error'] === null) {
@@ -1976,7 +2044,10 @@ function send_due_recipe_reminder(PDO $pdo, bool $onlyDaytime = true): ?string
             null,
             'Dlho ste nevarili 🍽️',
             '„' . $recipe['name'] . '" ste naposledy varili pred ' . (int) $recipe['days'] . ' dňami. Čo tak si ho zopakovať?',
-            './?recept=' . (int) $recipe['id']
+            './?recept=' . (int) $recipe['id'],
+            null,
+            null,
+            'normal' // pripomienka počká, kým sa telefón zobudí
         );
 
         return $recipe['name'];

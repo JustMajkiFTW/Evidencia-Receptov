@@ -152,7 +152,7 @@ function webpush_encrypt(string $payload, string $p256dh, string $auth, $ephemer
  * Návrat: ['status' => HTTP kód (0 = spojenie zlyhalo), 'error' => text chyby alebo null]
  * Kódy 404 a 410 znamenajú, že zariadenie odber zrušilo a záznam treba zmazať.
  */
-function webpush_send(string $endpoint, string $p256dh, string $auth, string $payload, string $subject, string $vapidPublic, string $vapidPrivate): array
+function webpush_send(string $endpoint, string $p256dh, string $auth, string $payload, string $subject, string $vapidPublic, string $vapidPrivate, string $urgency = 'normal'): array
 {
     try {
         if (strlen($payload) > 3900) {
@@ -173,7 +173,8 @@ function webpush_send(string $endpoint, string $p256dh, string $auth, string $pa
                 'Content-Encoding: aes128gcm',
                 'Content-Length: ' . strlen($body),
                 'TTL: 86400',            // push služba drží správu najviac deň, kým je zariadenie offline
-                'Urgency: normal',
+                // 3.3: 'high' — Android ani iPhone v úspornom režime upozornenie nepodržia na neskôr
+                'Urgency: ' . (in_array($urgency, ['very-low', 'low', 'normal', 'high'], true) ? $urgency : 'normal'),
                 'Authorization: ' . $authorization,
             ],
         ]);

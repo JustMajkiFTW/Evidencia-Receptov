@@ -223,7 +223,8 @@ function mcp_nastroje(PDO $pdo): array
             'title'       => 'Nájdi recepty',
             'description' => 'Vyhľadá recepty v rodinnej appke podľa názvu, surovín alebo kategórie (diakritika ani veľké písmená nevadia). '
                 . 'Bez dotazu vráti všetky recepty. Ku každému vráti číslo (id), kategóriu, kedy sa naposledy varil a hodnotenie. '
-                . 'Použi aj na otázky typu „kedy sme naposledy robili…", „čo sme dlho nevarili" alebo „čo uvariť z kuracieho mäsa".',
+                . 'Použi aj na otázky typu „kedy sme naposledy robili…", „čo sme dlho nevarili" alebo „čo uvariť z kuracieho mäsa". '
+                . 'Všetky varenia receptu, kto ho varil a ako ho kto ohodnotil vráti historia_receptu.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
@@ -292,6 +293,51 @@ function mcp_nastroje(PDO $pdo): array
             ],
             'annotations' => ['title' => 'Pridaj recept', 'readOnlyHint' => false, 'destructiveHint' => false,
                 'idempotentHint' => false, 'openWorldHint' => false],
+        ],
+        [
+            'name'        => 'historia_receptu',
+            'title'       => 'História receptu',
+            'description' => 'Kedy všetky sa recept varil (od najnovšieho) a kto ho varil, koľkokrát spolu, ako ho kto ohodnotil (hviezdičky 1–5), '
+                . 'kto a kedy ho pridal a jeho hlavné suroviny. Použi na „kedy sme robili…", „ako často robíme…", „kto varil…", „ako nám chutilo…".',
+            'inputSchema' => [
+                'type'       => 'object',
+                'properties' => ['id' => $idReceptu],
+                'required'   => ['id'],
+                'additionalProperties' => false,
+            ],
+            'annotations' => ['title' => 'História receptu', 'readOnlyHint' => true, 'openWorldHint' => false],
+        ],
+        [
+            'name'        => 'co_sme_varili',
+            'title'       => 'Čo sme varili',
+            'description' => 'Čo sa v rodine varilo v zadanom období (deň po dni, kto varil). Použi na „čo sme varili minulý týždeň", '
+                . '„čo sme mali v nedeľu", „čo sme robili v októbri". Dátumy vypočítaj z dnešného dňa. Bez dátumov = posledných 7 dní.',
+            'inputSchema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'od' => $datum + ['description' => 'Prvý deň obdobia (RRRR-MM-DD).'],
+                    'do' => $datum + ['description' => 'Posledný deň obdobia (RRRR-MM-DD), predvolene dnes.'],
+                ],
+                'additionalProperties' => false,
+            ],
+            'annotations' => ['title' => 'Čo sme varili', 'readOnlyHint' => true, 'openWorldHint' => false],
+        ],
+        [
+            'name'        => 'ohodnot_recept',
+            'title'       => 'Ohodnoť recept',
+            'description' => 'Uloží hodnotenie receptu hviezdičkami (1–5) pod menom používateľa; jeho predošlé hodnotenie toho receptu sa nahradí. '
+                . 'Použi, len keď používateľ jasne povie hodnotenie („daj tomu päť hviezdičiek", „chutilo nám na štyri").',
+            'inputSchema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'id'          => $idReceptu,
+                    'hodnotenie'  => ['type' => 'integer', 'minimum' => 1, 'maximum' => 5, 'description' => 'Počet hviezdičiek 1 až 5.'],
+                ],
+                'required'   => ['id', 'hodnotenie'],
+                'additionalProperties' => false,
+            ],
+            'annotations' => ['title' => 'Ohodnoť recept', 'readOnlyHint' => false, 'destructiveHint' => false,
+                'idempotentHint' => true, 'openWorldHint' => false],
         ],
         [
             'name'        => 'zapis_varenie',
@@ -392,6 +438,9 @@ function mcp_vykonaj(PDO $pdo, array $pripojenie, string $nazov, array $argument
             'zobraz_recept'    => mcp_zobraz_recept($pdo, $argumenty),
             'pridaj_recept'    => mcp_pridaj_recept($pdo, $pripojenie, $argumenty),
             'zapis_varenie'    => mcp_zapis_varenie($pdo, $pripojenie, $argumenty),
+            'historia_receptu' => mcp_historia_receptu($pdo, $argumenty),
+            'co_sme_varili'    => mcp_co_sme_varili($pdo, $argumenty),
+            'ohodnot_recept'   => mcp_ohodnot_recept($pdo, $pripojenie, $argumenty),
             'pridaj_do_nakupu' => mcp_pridaj_do_nakupu($pdo, $pripojenie, $argumenty),
             'zobraz_nakup'     => mcp_zobraz_nakup($pdo),
             'hladaj_v_kucharkach' => mcp_hladaj_v_kucharkach($pdo, $argumenty),
@@ -810,6 +859,103 @@ function mcp_zapis_varenie(PDO $pdo, array $pripojenie, array $a): array
     $datum = $datum ?? app_today();
     return ['text' => 'Zapísané: „' . $recept['name'] . '" uvarené ' . format_sk_date($datum)
         . ($datum === app_today() ? ' (dnes)' : '') . '.', 'data' => ['id' => $id, 'datum' => $datum]];
+}
+
+/** „15. 11. 2026 (nedeľa)" */
+function mcp_datum_s_dnom(string $datum): string
+{
+    $dni = ['nedeľa', 'pondelok', 'utorok', 'streda', 'štvrtok', 'piatok', 'sobota'];
+    $d = DateTime::createFromFormat('!Y-m-d', $datum);
+    return format_sk_date($datum) . ($d ? ' (' . $dni[(int) $d->format('w')] . ')' : '');
+}
+
+/** História receptu pre asistenta (3.3): všetky varenia, kto varil, hodnotenia, kto pridal. */
+function mcp_historia_receptu(PDO $pdo, array $a): array
+{
+    $id = mcp_cele_cislo($a['id'] ?? null) ?? 0;
+    $r = $id > 0 ? get_recipe($pdo, $id) : null;
+    if (!$r) {
+        return ['chyba' => 'Recept s číslom ' . $id . ' v appke nie je. Nájdi ho cez najdi_recepty.'];
+    }
+    $varenia = recipe_cooking_history($pdo, $id);
+    $hodnotenia = recipe_ratings_by_user($pdo, $id);
+    $suroviny = array_column(get_all_recipe_suroviny($pdo)[$id] ?? [], 'nazov');
+    $pridal = $pdo->prepare("SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), u.username) AS kto, l.created_at
+        FROM recipe_logs l LEFT JOIN users u ON u.id = l.user_id WHERE l.recipe_id = ? AND l.action = 'created' ORDER BY l.id LIMIT 1");
+    $pridal->execute([$id]);
+    $pridal = $pridal->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    $text = [$r['name'] . ' (#' . $id . ')'];
+    if ($varenia) {
+        $text[] = 'Varené ' . mcp_sklonuj(count($varenia), 'raz', 'krát', 'krát') . ' (od najnovšieho): '
+            . implode('; ', array_map(static fn($v) => mcp_datum_s_dnom($v['datum']) . ($v['kto'] ? ' — ' . $v['kto'] : ''), array_slice($varenia, 0, 30)))
+            . (count($varenia) > 30 ? '; a ďalšie staršie' : '') . '.';
+        $dni = (int) days_since($varenia[0]['datum']);
+        $text[] = 'Naposledy ' . ($dni === 0 ? 'dnes' : ($dni === 1 ? 'včera' : 'pred ' . $dni . ' dňami')) . '.';
+    } else {
+        $text[] = 'Ešte sa nevaril (žiadne varenie nie je zapísané).';
+    }
+    if ($hodnotenia) {
+        $priemer = array_sum(array_column($hodnotenia, 'hodnotenie')) / count($hodnotenia);
+        $text[] = 'Hodnotenie: priemer ' . mcp_cislo(round($priemer, 1)) . ' z 5 ('
+            . implode(', ', array_map(static fn($h) => $h['kto'] . ' ' . $h['hodnotenie'], $hodnotenia)) . ').';
+    } else {
+        $text[] = 'Zatiaľ ho nikto neohodnotil.';
+    }
+    if ($pridal) {
+        $text[] = 'Pridal(a): ' . ($pridal['kto'] ?? '?') . ' ' . format_sk_date(substr((string) $pridal['created_at'], 0, 10)) . '.';
+    }
+    if ($suroviny) {
+        $text[] = 'Suroviny: ' . implode(', ', $suroviny) . '.';
+    }
+    return ['text' => implode("\n", $text), 'data' => [
+        'id' => $id, 'nazov' => $r['name'], 'pocet_vareni' => count($varenia), 'varenia' => $varenia,
+        'hodnotenia' => $hodnotenia, 'pridal' => $pridal['kto'] ?? null, 'suroviny' => $suroviny,
+    ]];
+}
+
+/** Čo sa varilo v období (3.3): „čo sme varili minulý týždeň". */
+function mcp_co_sme_varili(PDO $pdo, array $a): array
+{
+    $dnes = app_today();
+    $datum = static function ($hodnota) {
+        return is_string($hodnota) && trim($hodnota) !== '' ? parse_app_date($hodnota) : null;
+    };
+    $do = $datum($a['do'] ?? null) ?? $dnes;
+    $od = $datum($a['od'] ?? null) ?? (new DateTime($do))->modify('-6 days')->format('Y-m-d');
+    if ($od > $do) {
+        [$od, $do] = [$do, $od];
+    }
+    $varenia = recipe_cooking_history($pdo, null, $od, $do);
+    $obdobie = $od === $do ? mcp_datum_s_dnom($od) : 'od ' . mcp_datum_s_dnom($od) . ' do ' . mcp_datum_s_dnom($do);
+    if (!$varenia) {
+        return ['text' => 'V období ' . $obdobie . ' nie je zapísané žiadne varenie.', 'data' => ['od' => $od, 'do' => $do, 'varenia' => []]];
+    }
+    $riadky = array_map(static fn($v) => '- ' . mcp_datum_s_dnom($v['datum']) . ': ' . $v['nazov'] . ($v['kto'] ? ' (varil(a) ' . $v['kto'] . ')' : ''),
+        array_slice($varenia, 0, 60));
+    return ['text' => 'Varené v období ' . $obdobie . ' — ' . mcp_sklonuj(count($varenia), 'jedlo', 'jedlá', 'jedál') . ":\n" . implode("\n", $riadky),
+        'data' => ['od' => $od, 'do' => $do, 'varenia' => $varenia]];
+}
+
+/** Hodnotenie receptu hlasom (3.3). */
+function mcp_ohodnot_recept(PDO $pdo, array $pripojenie, array $a): array
+{
+    $id = mcp_cele_cislo($a['id'] ?? null) ?? 0;
+    $recept = $id > 0 ? get_recipe($pdo, $id) : null;
+    if (!$recept) {
+        return ['chyba' => 'Recept s číslom ' . $id . ' v appke nie je. Nájdi ho cez najdi_recepty.'];
+    }
+    $hviezdicky = mcp_cele_cislo($a['hodnotenie'] ?? null) ?? 0;
+    if ($hviezdicky < 1 || $hviezdicky > 5) {
+        return ['chyba' => 'Hodnotenie musí byť 1 až 5 hviezdičiek.'];
+    }
+    $vysledok = rate_recipe($pdo, $id, $pripojenie['user_id'], $hviezdicky);
+    if (!$vysledok['success']) {
+        return ['chyba' => $vysledok['error'] ?? 'Hodnotenie sa nepodarilo uložiť.'];
+    }
+    return ['text' => 'Zapísané: „' . $recept['name'] . '" — ' . mcp_sklonuj($hviezdicky, 'hviezdička', 'hviezdičky', 'hviezdičiek')
+        . ' od ' . $pripojenie['meno'] . '. Priemer je teraz ' . mcp_cislo((float) $vysledok['average']) . ' z 5.',
+        'data' => ['id' => $id, 'hodnotenie' => $hviezdicky, 'priemer' => $vysledok['average']]];
 }
 
 function mcp_pridaj_do_nakupu(PDO $pdo, array $pripojenie, array $a): array

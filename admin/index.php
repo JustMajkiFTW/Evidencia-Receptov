@@ -81,6 +81,18 @@ foreach ($pdo->query('SELECT user_id, COUNT(*) c FROM webauthn_credentials GROUP
     $credCounts[$row['user_id']] = (int) $row['c'];
 }
 
+// Upozornenia (3.3): na koľkých zariadeniach ich kto má zapnuté — kto má 0, toho treba poprosiť o zapnutie.
+$pushCounts = [];
+foreach ($pdo->query('SELECT user_id, COUNT(*) c FROM push_subscriptions GROUP BY user_id') as $row) {
+    $pushCounts[$row['user_id']] = (int) $row['c'];
+}
+
+/** „upozornenia vypnuté", „upozornenia na 1 zariadení", „upozornenia na 3 zariadeniach" */
+function upozornenia_text(int $pocet): string
+{
+    return $pocet === 0 ? 'upozornenia vypnuté' : 'upozornenia na ' . $pocet . ' ' . ($pocet === 1 ? 'zariadení' : 'zariadeniach');
+}
+
 /** „bez odtlačku", „odtlačok na 1 zariadení", „odtlačok na 3 zariadeniach" */
 function odtlacok_text(int $pocet): string
 {
@@ -124,7 +136,8 @@ sprava_zaciatok($pdo, 'pouzivatelia', 'Používatelia');
                                 </div>
                                 <div class="sprava-pouzivatel-detail">
                                     Prihlasovacie meno <strong><?= htmlspecialchars($u['username']) ?></strong>
-                                    · <?= odtlacok_text((int) ($credCounts[$u['id']] ?? 0)) ?><?= $vytvoreny ? ' · od ' . str_replace(' ', "\u{00A0}", date('j. n. Y', $vytvoreny)) : '' ?>
+                                    · <?= odtlacok_text((int) ($credCounts[$u['id']] ?? 0)) ?>
+                                    · <?php $pocetPush = (int) ($pushCounts[$u['id']] ?? 0); ?><span class="<?= $pocetPush === 0 ? 'sprava-varovanie' : '' ?>"><i class="bi <?= $pocetPush === 0 ? 'bi-bell-slash' : 'bi-bell' ?>" aria-hidden="true"></i> <?= upozornenia_text($pocetPush) ?></span><?= $vytvoreny ? ' · od ' . str_replace(' ', "\u{00A0}", date('j. n. Y', $vytvoreny)) : '' ?>
                                 </div>
                             </div>
                         </div>

@@ -15,7 +15,9 @@
  * Slová v otázke: „ahoj" (bez nástroja), „ulož recept NÁZOV", „kúpiť",
  * „nevarili", „nájdi SLOVO", „pamätáš" (zopakuje predošlú odpoveď z histórie),
  * „chyba503" (Gemini odpovie 503 — appka má skúsiť ďalšiu službu),
- * „poznámok" (priprav_na_ulozenie), „limit429" (každá služba vráti 429 — minutý limit, 3.2).
+ * „poznámok" (priprav_na_ulozenie), „limit429" (každá služba vráti 429 — minutý limit, 3.2),
+ * „historia ID" (historia_receptu), „ohodnot ID na N" (ohodnot_recept), „cely recept" (odpoveď s podrobnosťami
+ * pod riadkom ===), „uroven" (Gemini povie, akú úroveň premýšľania dostal — 3.3).
  *
  * Prepis hlasu (2.8): Gemini so zvukom v inline_data, OpenAI, Mistral aj Groq
  * /audio/transcriptions vrátia text, ktorý je v nahrávke za značkou „TEXT:".
@@ -69,6 +71,15 @@ function rozhodni(string $otazka, string $predoslaOdpoved): array
         ]];
     }
     // 2.9.2: „zapis uvarene 12 zlyhaj" — zapíše varenie a potom „zlyhá" (ako PROHIBITED_CONTENT v Gemini).
+    if (preg_match('/historia (\d+)/u', $o, $m)) { // 3.3
+        return ['nastroj' => 'historia_receptu', 'argumenty' => ['id' => (int) $m[1]]];
+    }
+    if (preg_match('/ohodnot (\d+) na (\d)/u', $o, $m)) {
+        return ['nastroj' => 'ohodnot_recept', 'argumenty' => ['id' => (int) $m[1], 'hodnotenie' => (int) $m[2]]];
+    }
+    if (str_contains($o, 'cely recept')) {
+        return ['text' => "Tu je celý recept, podrobnosti máš na obrazovke.\n===\n**Palacinky**\n- 250 g Múka hladká\n- 2 Vajcia\n1. Vymiešaj cesto.\n2. Opeč na panvici."];
+    }
     if (preg_match('/zapis uvarene (\d+)/u', $o, $m)) {
         return ['nastroj' => 'zapis_varenie', 'argumenty' => ['id' => (int) $m[1]]];
     }
@@ -162,7 +173,8 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
         chyba(403, 'Chýba kľúč.');
     }
     // Model, ktorý „nepozná" krátke premýšľanie: appka to má skúsiť znova bez neho.
-    if ($m[1] === 'gemini-bez-premyslania' && isset($telo['generationConfig']['thinkingConfig'])) {
+    // model nepozná najkratšie premýšľanie „minimal" (appka skúsi „low"); „medium" pri náročnej otázke pozná (3.3)
+    if ($m[1] === 'gemini-bez-premyslania' && ($telo['generationConfig']['thinkingConfig']['thinkingLevel'] ?? '') === 'minimal') {
         chyba(400, 'thinkingLevel is not supported for this model.');
     }
     $casti = $telo['contents'][0]['parts'] ?? [];
@@ -236,6 +248,11 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
         odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [['text' => hotovo((string) ($r['result'] ?? $r['error'] ?? ''))]]], 'finishReason' => 'STOP']]]);
     }
     limit429($otazka);
+    if (str_contains(bez_diakritiky($otazka), 'uroven')) { // 3.3: náročná otázka dostane dlhšie premýšľanie
+        odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [
+            ['text' => 'Úroveň premýšľania: ' . ($telo['generationConfig']['thinkingConfig']['thinkingLevel'] ?? 'žiadna') . '.'],
+        ]], 'finishReason' => 'STOP']]]);
+    }
     $rozhodnutie = rozhodni($otazka, $predosla);
     if (isset($rozhodnutie['text'])) {
         odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [

@@ -172,7 +172,7 @@ asistent_s_falosnou_ai() { # $1 = databáza
         spusti_server "$1" AI_PORADIE="$poradie" GEMINI_API_KEY=testovaci-kluc ANTHROPIC_API_KEY=testovaci-kluc \
             OPENAI_API_KEY=testovaci-kluc MISTRAL_API_KEY=testovaci-kluc "${groq[@]}" AI_ADRESA_GEMINI="$ai/gemini" \
             AI_ADRESA_CLAUDE="$ai/claude" AI_ADRESA_OPENAI="$ai/openai" AI_ADRESA_MISTRAL="$ai/mistral" AI_ADRESA_GROQ="$ai/groq" \
-            AI_MODEL_GEMINI="gemini-bez-premyslania gemini-zaloha" AI_ASISTENT_DENNY_LIMIT=16 || continue
+            AI_MODEL_GEMINI="gemini-bez-premyslania gemini-zaloha" AI_ASISTENT_DENNY_LIMIT=21 || continue
         if ! TEST_ASISTENT_SLUZBA="$sluzba" TEST_ASISTENT_ZALOHA="$zaloha" \
                 "$PHP" testy/smoke.php "http://127.0.0.1:$PORT" "$ADMIN_MENO" "$ADMIN_HESLO" asistent "$CRON_KEY"; then
             zlyhanie "Hlasový asistent ($sluzba) má zlyhané kontroly (výpis vyššie)."
