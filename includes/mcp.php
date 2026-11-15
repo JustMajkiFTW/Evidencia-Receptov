@@ -17,6 +17,8 @@
  * Tento súbor má len logiku (testovateľnú), HTTP rieši mcp.php v koreni appky.
  */
 
+require_once __DIR__ . '/kucharky.php'; // kuchárky v PDF (2.8): nástroj hladaj_v_kucharkach
+
 /** Verzie protokolu MCP, ktoré server pozná (prvá = najnovšia). */
 const MCP_VERZIE_PROTOKOLU = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 /** Koľko adries (pripojení) môže mať jeden používateľ naraz. */
@@ -300,6 +302,28 @@ function mcp_nastroje(PDO $pdo): array
         ],
     ];
 
+    if (kucharky_pocet_stran($pdo) > 0) {
+        $knihy = implode(', ', array_column($pdo->query("SELECT nazov FROM kucharky WHERE stav = 'ok' ORDER BY nazov")->fetchAll(PDO::FETCH_ASSOC), 'nazov'));
+        $nastroje[] = [
+            'name'        => 'hladaj_v_kucharkach',
+            'title'       => 'Hľadaj v kuchárkach',
+            'description' => 'Hľadá v rodinných kuchárkach (PDF knihy: ' . $knihy . ') a vráti strany s najlepšou zhodou: názov knihy, číslo strany a text. '
+                . 'Použi, keď sa používateľ pýta, čo uvariť, hľadá inšpiráciu alebo recept, ktorý v appke nie je. Hľadaj podľa jedla alebo surovín '
+                . '(napr. „kuracie mäso ryža", „bábovka", „cuketa"). Odporuč konkrétny recept a povedz knihu a stranu. Keď ho chce uložiť do appky, '
+                . 'použi pridaj_recept a do postupu na koniec pridaj „Zdroj: kniha, strana".',
+            'inputSchema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'dotaz' => ['type' => 'string', 'minLength' => 2, 'description' => 'Jedlo alebo suroviny, napr. „sviečková", „kuracie stehná zemiaky".'],
+                    'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 8, 'description' => 'Koľko strán vrátiť (predvolene 4).'],
+                ],
+                'required'   => ['dotaz'],
+                'additionalProperties' => false,
+            ],
+            'annotations' => ['title' => 'Hľadaj v kuchárkach', 'readOnlyHint' => true, 'openWorldHint' => false],
+        ];
+    }
+
     if (shopping_available($pdo)) {
         $nastroje[] = [
             'name'        => 'pridaj_do_nakupu',
@@ -341,6 +365,7 @@ function mcp_vykonaj(PDO $pdo, array $pripojenie, string $nazov, array $argument
             'zapis_varenie'    => mcp_zapis_varenie($pdo, $pripojenie, $argumenty),
             'pridaj_do_nakupu' => mcp_pridaj_do_nakupu($pdo, $pripojenie, $argumenty),
             'zobraz_nakup'     => mcp_zobraz_nakup($pdo),
+            'hladaj_v_kucharkach' => mcp_hladaj_v_kucharkach($pdo, $argumenty),
         };
     } catch (Throwable $e) {
         debug_log('AI ASISTENT: nástroj ' . $nazov . ' zlyhal: ' . $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')');
@@ -745,6 +770,23 @@ function mcp_pridaj_do_nakupu(PDO $pdo, array $pripojenie, array $a): array
         ? ' (recept nemá zadané porcie, množstvá sú ako v recepte)' : '');
     return ['text' => 'Do nákupného zoznamu som pridal ' . mcp_sklonuj((int) $vysledok['added'], 'surovinu', 'suroviny', 'surovín') . ' z receptu „' . $recept['name'] . '"' . $naPorcie . '.',
         'data' => ['id' => $id, 'pridane' => $vysledok['added']]];
+}
+
+function mcp_hladaj_v_kucharkach(PDO $pdo, array $a): array
+{
+    $dotaz = is_string($a['dotaz'] ?? null) ? trim($a['dotaz']) : '';
+    if (mb_strlen($dotaz, 'UTF-8') < 2) {
+        return ['chyba' => 'Napíš, čo hľadať (jedlo alebo suroviny).'];
+    }
+    $limit = mcp_cele_cislo($a['limit'] ?? null);
+    $vysledky = kucharky_hladaj($pdo, $dotaz, ($limit !== null && $limit >= 1) ? min($limit, 8) : 4);
+    if (!$vysledky) {
+        return ['text' => 'V kuchárkach som pre „' . $dotaz . '" nič nenašiel. Skús iné slová (napr. len hlavnú surovinu).',
+            'data' => ['pocet' => 0, 'strany' => []]];
+    }
+    $casti = array_map(static fn($v) => '=== ' . $v['kniha'] . ', strana ' . $v['strana'] . " ===\n" . $v['text'], $vysledky);
+    return ['text' => 'Našiel som ' . mcp_sklonuj(count($vysledky), 'stranu', 'strany', 'strán') . " v kuchárkach:\n\n" . implode("\n\n", $casti),
+        'data' => ['pocet' => count($vysledky), 'strany' => $vysledky]];
 }
 
 function mcp_zobraz_nakup(PDO $pdo): array

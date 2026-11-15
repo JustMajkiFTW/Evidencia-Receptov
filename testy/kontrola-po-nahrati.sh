@@ -80,7 +80,7 @@ else
 fi
 
 # 4. Súbory s heslami a interné súbory nesmú byť dostupné z internetu.
-for cesta in includes/.env includes/config.php includes/debug-log.txt sql/instalacia.sql; do
+for cesta in includes/.env includes/config.php includes/debug-log.txt sql/instalacia.sql kucharky/.htaccess includes/kniznice/pdfparser/README.md; do
     kod=$(stiahni "$cesta")
     if [ "$kod" = "403" ] || [ "$kod" = "404" ]; then
         ok "$cesta nie je dostupný z internetu (HTTP $kod)"

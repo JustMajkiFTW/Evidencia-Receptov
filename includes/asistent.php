@@ -73,7 +73,7 @@ function asistent_zapis_pouzitie(PDO $pdo, int $userId, ?string $sluzba, bool $u
 }
 
 /** Pokyny pre AI: tie isté ako pre asistenta cez MCP + pravidlá pre odpoveď čítanú nahlas. */
-function asistent_pokyny(array $pripojenie): string
+function asistent_pokyny(PDO $pdo, array $pripojenie): string
 {
     $dni = ['nedeľa', 'pondelok', 'utorok', 'streda', 'štvrtok', 'piatok', 'sobota'];
     $dnes = new DateTime(app_today());
@@ -82,8 +82,12 @@ function asistent_pokyny(array $pripojenie): string
         . 'odpovedaj krátko, najviac dve-tri vety, celými vetami po slovensky. Nepoužívaj markdown, odrážky, emoji, odkazy ani čísla receptov (#12). '
         . 'Množstvá a jednotky píš tak, ako sa vyslovujú (napr. „dve polievkové lyžice", „pol kila"). '
         . 'Keď vymenúvaš suroviny alebo nákup, spoj ich do vety; pri dlhom zozname povedz najdôležitejšie a koľko je ďalších. '
-        . 'Ak chce nový recept, navrhni bežný overený recept z vlastných vedomostí. Keď ho chce uložiť, ulož ho celý (všetky suroviny s množstvami aj postup), '
+        . (kucharky_pocet_stran($pdo) > 0
+            ? 'Keď sa pýta, čo uvariť, alebo chce recept, ktorý v appke nie je, najprv pozri do rodinných kuchárok (hladaj_v_kucharkach) a odporuč recept odtiaľ aj s knihou a stranou; '
+            : '')
+        . 'Ak chce nový recept a v appke ani v kuchárkach nie je, navrhni bežný overený recept z vlastných vedomostí. Keď ho chce uložiť, ulož ho celý (všetky suroviny s množstvami aj postup), '
         . 'aj keď nahlas povieš len krátke zhrnutie. Ak nie je jasné, čo chce, krátko sa opýtaj. '
+        . 'Keď chce niečo uložiť do poznámok, Google Keep alebo poslať, zavolaj priprav_na_ulozenie a povedz mu, nech ťukne na tlačidlo pri odpovedi. '
         . 'Dnes je ' . $dni[(int) $dnes->format('w')] . ' ' . format_sk_date(app_today()) . '.';
 }
 
@@ -132,13 +136,38 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
     $nastroje = array_map(static fn(array $n): array => [
         'name' => $n['name'], 'description' => $n['description'], 'schema' => $n['inputSchema'],
     ], mcp_nastroje($pdo));
-    $pokyny = asistent_pokyny($pripojenie);
+    // Len v appke (2.8): text na uloženie do Poznámok / Google Keep — telefón ho otvorí v zdieľaní po ťuknutí.
+    $nastroje[] = [
+        'name' => 'priprav_na_ulozenie',
+        'description' => 'Pripraví text, ktorý si používateľ uloží do Poznámok, Google Keep alebo pošle správou (pri odpovedi uvidí tlačidlo '
+            . '„Uložiť do poznámok"). Použi, keď chce recept, nákupný zoznam alebo čokoľvek z rozhovoru uložiť, poslať alebo exportovať. '
+            . 'Text napíš celý a čitateľne: nadpis, suroviny každú na samostatný riadok, postup v očíslovaných krokoch.',
+        'schema' => [
+            'type' => 'object',
+            'properties' => [
+                'nazov' => ['type' => 'string', 'maxLength' => 150, 'description' => 'Nadpis poznámky, napr. „Bábovka s kakaom" alebo „Nákup".'],
+                'text'  => ['type' => 'string', 'maxLength' => 8000, 'description' => 'Celý text poznámky.'],
+            ],
+            'required' => ['nazov', 'text'],
+            'additionalProperties' => false,
+        ],
+    ];
+    $pokyny = asistent_pokyny($pdo, $pripojenie);
 
     // Vykonanie nástroja: tie isté funkcie ako cez MCP. Zapisuje sa, čo asistent urobil.
-    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'nastroje_s' => 0.0];
+    $stav = ['akcie' => [], 'zmeny' => false, 'konal' => false, 'nastroje_s' => 0.0, 'export' => null];
     $vykonaj = static function (string $nazov, array $argumenty) use ($pdo, $pripojenie, $nastroje, &$stav): array {
         if (!in_array($nazov, array_column($nastroje, 'name'), true)) {
             return ['text' => 'Neznámy nástroj ' . $nazov . '.', 'chyba' => true];
+        }
+        if ($nazov === 'priprav_na_ulozenie') {
+            $text = is_string($argumenty['text'] ?? null) ? mb_substr(trim($argumenty['text']), 0, 8000, 'UTF-8') : '';
+            if ($text === '') {
+                return ['text' => 'Chýba text poznámky.', 'chyba' => true];
+            }
+            $stav['export'] = ['nazov' => is_string($argumenty['nazov'] ?? null) ? mb_substr(trim($argumenty['nazov']), 0, 150, 'UTF-8') : 'Recept', 'text' => $text];
+            $stav['akcie'][] = ['nastroj' => $nazov, 'ok' => true];
+            return ['text' => 'Pripravené. Pri odpovedi je tlačidlo „Uložiť do poznámok" — povedz používateľovi, nech naň ťukne a vyberie Poznámky alebo Google Keep.', 'chyba' => false];
         }
         $zaciatok = microtime(true);
         $vysledok = mcp_vykonaj($pdo, $pripojenie, $nazov, $argumenty);
@@ -199,6 +228,7 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
                 'zmeny'   => $stav['zmeny'],
                 'akcie'   => $stav['akcie'],
                 'poskytovatel' => AI_NAZVY[$sluzba],
+                'export'  => $stav['export'], // text na uloženie do poznámok (tlačidlo pri odpovedi)
                 'zostava' => $limit > 0 ? max(0, $limit - asistent_dnes_pouzite($pdo, $pripojenie['user_id'])) : null,
             ];
         }
@@ -225,6 +255,105 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         $odpoved['detail'] = implode(' · ', $chyby);
     }
     return $odpoved;
+}
+
+/* ----------------------------------------------------------------------
+   Prepis hlasu (2.8): na iPhone rozpoznávanie reči v Safari po prvom
+   prečítaní odpovede nahlas prestane fungovať (chyba WebKitu), preto telefón
+   zvuk nahrá a prepíše ho AI tu na serveri — Gemini (zvuk priamo v požiadavke)
+   alebo OpenAI (prepis zvuku). Claude zvuk neprijíma, ten sa preskočí.
+   ---------------------------------------------------------------------- */
+
+const ASISTENT_ZVUK_MAX = 10 * 1024 * 1024;
+const ASISTENT_ZVUK_TYPY = [
+    'audio/mp4' => 'audio/mp4', 'audio/x-m4a' => 'audio/mp4', 'audio/m4a' => 'audio/mp4', 'video/mp4' => 'audio/mp4',
+    'audio/aac' => 'audio/aac', 'audio/webm' => 'audio/webm', 'video/webm' => 'audio/webm',
+    'audio/ogg' => 'audio/ogg', 'application/ogg' => 'audio/ogg', 'audio/wav' => 'audio/wav', 'audio/x-wav' => 'audio/wav',
+    'audio/wave' => 'audio/wav', 'audio/mpeg' => 'audio/mp3',
+];
+
+/** Vie niektorá služba z AI_PORADIE prepisovať zvuk (Gemini alebo OpenAI)? */
+function asistent_prepis_dostupny(): bool
+{
+    return (bool) array_intersect(ai_poradie(), ['gemini', 'openai']);
+}
+
+/** Prepis nahrávky. Návrat: ['ok' => true, 'text' => …] alebo ['ok' => false, 'chyba' => …]. */
+function asistent_prepis(array $subor): array
+{
+    if (($subor['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) ($subor['tmp_name'] ?? ''))) {
+        return ['ok' => false, 'chyba' => 'Nahrávka neprišla celá, skús to znova.'];
+    }
+    if ((int) $subor['size'] > ASISTENT_ZVUK_MAX) {
+        return ['ok' => false, 'chyba' => 'Nahrávka je príliš dlhá. Povedz to stručnejšie.'];
+    }
+    $finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
+    $zistene = $finfo ? (string) finfo_file($finfo, $subor['tmp_name']) : '';
+    $udane = strtolower(trim(explode(';', (string) ($subor['type'] ?? ''))[0]));
+    $mime = ASISTENT_ZVUK_TYPY[$zistene] ?? ASISTENT_ZVUK_TYPY[$udane] ?? null;
+    if ($mime === null || (!isset(ASISTENT_ZVUK_TYPY[$zistene]) && !in_array($zistene, ['application/octet-stream', ''], true))) {
+        return ['ok' => false, 'chyba' => 'Nahrávka má neznámy formát (' . ($zistene ?: $udane) . ').'];
+    }
+    $data = (string) file_get_contents($subor['tmp_name']);
+    $pokyn = 'Prepíš presne, čo človek v nahrávke povedal (po slovensky, prípadne česky). Vráť len prepis bez úvodzoviek a bez komentárov. '
+        . 'Ak v nahrávke nie je žiadna reč, vráť prázdny text.';
+
+    $chyby = [];
+    foreach (ai_poradie() as $sluzba) {
+        $zaciatok = microtime(true);
+        if ($sluzba === 'gemini') {
+            $model = asistent_modely('gemini')[0];
+            $vysledok = null;
+            foreach (['minimal', 'low', null] as $uroven) {
+                $telo = ['contents' => [['role' => 'user', 'parts' => [
+                    ['inline_data' => ['mime_type' => $mime, 'data' => base64_encode($data)]], ['text' => $pokyn],
+                ]]]];
+                if ($uroven !== null) {
+                    $telo['generationConfig'] = ['thinkingConfig' => ['thinkingLevel' => $uroven]];
+                }
+                [$kod, $odpoved, $chybaCurl] = ai_http_post(ai_adresa('gemini') . '/models/' . rawurlencode($model) . ':generateContent',
+                    ['x-goog-api-key: ' . ai_env(AI_KLUCE_ENV['gemini'])], $telo, 30);
+                if ($kod === 400 && $uroven !== null) {
+                    continue;
+                }
+                $vysledok = $kod === 200 ? ai_text_odpovede('gemini', json_decode($odpoved, true)) : null;
+                break;
+            }
+        } elseif ($sluzba === 'openai') {
+            $model = ai_env('AI_PREPIS_MODEL_OPENAI') ?: 'gpt-4o-mini-transcribe';
+            $pripona = ['audio/mp4' => 'm4a', 'audio/webm' => 'webm', 'audio/ogg' => 'ogg', 'audio/wav' => 'wav', 'audio/mp3' => 'mp3', 'audio/aac' => 'aac'][$mime];
+            $ch = curl_init(ai_adresa('openai') . '/audio/transcriptions');
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 30,
+                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . ai_env(AI_KLUCE_ENV['openai'])],
+                CURLOPT_POSTFIELDS => ['model' => $model, 'language' => 'sk', 'response_format' => 'json',
+                    'file' => new CURLFile($subor['tmp_name'], $mime, 'nahravka.' . $pripona)],
+            ]);
+            $odpoved = (string) curl_exec($ch);
+            $kod = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $chybaCurl = curl_error($ch);
+            curl_close($ch);
+            $vysledok = $kod === 200 ? (string) (json_decode($odpoved, true)['text'] ?? '') : null;
+        } else {
+            continue; // Claude zvuk neprijíma
+        }
+        if ($vysledok !== null) {
+            $text = trim(preg_replace('/^["„“”\'\s]+|["„“”\'\s]+$/u', '', $vysledok) ?? '');
+            debug_log('AI ASISTENT prepis ' . $sluzba . ' (' . $model . '): ' . sprintf('%.1f s', microtime(true) - $zaciatok) . ', ' . mb_strlen($text) . ' znakov');
+            return ['ok' => true, 'text' => $text];
+        }
+        $chyby[] = AI_NAZVY[$sluzba] . ': ' . $model . ' — ' . ai_popis_chyby($kod, $odpoved, $chybaCurl);
+    }
+    debug_log('AI ASISTENT prepis nedokončil: ' . ($chyby ? implode('; ', $chyby) : 'žiadna služba nevie prepisovať zvuk'));
+    return ['ok' => false, 'chyba' => $chyby ? 'Nahrávku sa teraz nepodarilo prepísať. Skús to znova alebo to napíš.'
+        : 'Na prepis hlasu treba v nastaveniach kľúč Gemini alebo OpenAI.'];
+}
+
+/** Je dnešný limit otázok minutý? (kontroluje sa pred prepisom, aby sa zbytočne neplatil) */
+function asistent_limit_minuty(PDO $pdo, int $userId): bool
+{
+    $limit = asistent_denny_limit();
+    return $limit > 0 && asistent_dnes_pouzite($pdo, $userId) >= $limit;
 }
 
 /** Chyba volania služby v jednotnom tvare (ako ai_zavolaj). */

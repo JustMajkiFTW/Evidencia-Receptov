@@ -1,0 +1,14 @@
+# Kuchárky v PDF (verzia 2.8) nie sú dostupné z internetu — číta ich len appka
+# (includes/kucharky.php) a hľadá v nich hlasový asistent. PDF sem nahraj cez FTP
+# alebo v appke: Správa → Kuchárky.
+
+# Apache 2.4+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# Apache 2.2 (staršie hostingy)
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

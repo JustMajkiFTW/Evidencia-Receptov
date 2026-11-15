@@ -352,6 +352,37 @@ if ($rezim === 'asistent') {
     $o = $spytaj('Pamätáš si, čo si povedal?');
     over(str_contains((string) ($o->json()['odpoved'] ?? ''), 'Našiel som 1 recept'), 'Asistent dostane históriu rozhovoru', $o->popis());
 
+    // Export do poznámok (2.8): nástroj len v appke, odpoveď nesie text na uloženie.
+    $o = $spytaj('Ulož mi to do poznámok');
+    over(uspech($o) && ($o->json()['export']['nazov'] ?? '') === 'Nákup' && str_contains((string) ($o->json()['export']['text'] ?? ''), 'Vajcia')
+        && ($o->json()['zmeny'] ?? null) === false, 'Asistent pripraví text do Poznámok / Keep (export)', $o->popis());
+
+    // Hlas z iPhonu (2.8): nahrávka sa prepíše na serveri (Gemini alebo OpenAI; Claude zvuk nevie).
+    $nahravka = static function (string $text): CURLFile {
+        $data = 'TEXT:' . $text;
+        $dlzka = strlen($data);
+        $subor = tempnam(sys_get_temp_dir(), 'zvuk') . '.wav';
+        file_put_contents($subor, 'RIFF' . pack('V', 36 + $dlzka) . 'WAVEfmt ' . pack('VvvVVvv', 16, 1, 1, 16000, 32000, 2, 16)
+            . 'data' . pack('V', $dlzka) . $data);
+        return new CURLFile($subor, 'audio/wav', 'nahravka.wav');
+    };
+    $vieZvuk = str_contains($stranka, 'data-prepis="1"');
+    over($vieZvuk === ($sluzba !== 'Claude'), 'Appka vie, či služba prepíše hlas (' . ($vieZvuk ? 'áno' : 'nie') . ')');
+    $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka("Nájdi $znacka")]);
+    if ($vieZvuk) {
+        over(uspech($o) && ($o->json()['prepis'] ?? '') === "Nájdi $znacka" && str_contains((string) ($o->json()['odpoved'] ?? ''), 'Našiel som 1 recept'),
+            'Nahrávka z iPhonu sa prepíše a asistent odpovie', $o->popis());
+        $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => $nahravka('')]);
+        over(($o->json()['success'] ?? null) === false && ($o->json()['prepis'] ?? null) === '', 'Nahrávka bez reči sa slušne odmietne', $o->popis());
+    } else {
+        over(($o->json()['success'] ?? null) === false && str_contains((string) ($o->json()['error'] ?? ''), 'Gemini alebo OpenAI'),
+            'Bez Gemini/OpenAI appka povie, že prepis hlasu nejde', $o->popis());
+    }
+    $zly = tempnam(sys_get_temp_dir(), 'zvuk');
+    file_put_contents($zly, '<?php echo 1;');
+    $o = $p->post('index.php', ['action' => 'asistent', 'csrf_token' => $csrf, 'historia' => '[]', 'zvuk' => new CURLFile($zly, 'audio/mp4', 'x.m4a')]);
+    over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Súbor, ktorý nie je zvuk, sa odmietne', $o->popis());
+
     if (getenv('TEST_ASISTENT_ZALOHA') === '1') {
         $o = $spytaj('chyba503 a nájdi ' . $znacka);
         over(uspech($o) && ($o->json()['poskytovatel'] ?? '') !== 'Gemini',
@@ -845,6 +876,63 @@ if ($mcpVDatabaze) {
     over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Vytvorenie adresy bez migrácie sa odmietne a nespadne', $o->popis());
     $o = $mcp(str_repeat('0', 48), 'tools/list');
     over($o->kod === 503 && isset($o->json()['error']), 'mcp.php bez migrácie odpovie 503 a JSON', $o->popis());
+}
+
+/* ---------------------------------------------------------------------- */
+/* 5e. Kuchárky v PDF (verzia 2.8, tabuľky z migracia-2.8.sql) — nahratie   */
+/*     v Správe, spracovanie, hľadanie v Správe aj cez MCP, zmazanie.       */
+/* ---------------------------------------------------------------------- */
+echo "\nKuchárky v PDF\n";
+$o = $p->get('admin/kucharky.php');
+over($o->kod === 200 && bez_chyby($o) && str_contains($o->telo, 'Kuchárky v PDF'), 'Správa kuchárok sa otvorí', $o->popis());
+$kucharkyVDb = !str_contains($o->telo, 'migracia-2.8.sql');
+if ($plny) {
+    over($kucharkyVDb, 'Plná databáza má tabuľky kuchárok');
+}
+$kucharkyCsrf = (string) csrf_zo_stranky($o->telo);
+over(str_contains($p->get('admin/index.php')->telo, 'href="kucharky.php"'), 'Zo Správy vedie odkaz na Kuchárky');
+$o = (new Prehliadac($adresa))->get('admin/kucharky.php');
+over(in_array($o->kod, [301, 302, 303], true), 'Kuchárky bez prihlásenia presmerujú na prihlásenie', $o->popis());
+if ($kucharkyVDb) {
+    $pdf = __DIR__ . '/kucharka-test.pdf';
+    $o = $p->post('admin/kucharky.php', ['action' => 'kucharky_nahraj', 'csrf_token' => $kucharkyCsrf,
+        'pdf[0]' => new CURLFile($pdf, 'application/pdf', "Test kuchárka $znacka.pdf")]);
+    over(str_starts_with(hlaska_spravy($o->telo), 'Nahrané:'), 'Nahratie PDF kuchárky', hlaska_spravy($o->telo) ?: $o->popis());
+    $subor = preg_match('/data-subory="([^"]*)"/', $o->telo, $m) ? (json_decode(html_entity_decode($m[1], ENT_QUOTES), true)[0] ?? '') : '';
+    over($subor !== '' && str_contains($o->telo, 'data-hned="1"'), 'Nová kuchárka čaká na spracovanie (hneď po nahratí)', $subor);
+    $o = $p->post('admin/kucharky.php', ['action' => 'kucharka_spracuj', 'csrf_token' => $kucharkyCsrf, 'subor' => $subor]);
+    over(($o->json()['success'] ?? false) === true && ($o->json()['strany'] ?? 0) === 4, 'Kuchárka sa spracuje (4 strany s textom)', $o->popis());
+    $o = $p->get('admin/kucharky.php');
+    over(str_contains($o->telo, 'Rodinná kuchárka') && str_contains($o->telo, 'Spracovaná') && !str_contains($o->telo, 'id="kucharkySpracuj"'),
+        'V zozname je kniha s názvom z PDF a je spracovaná', $o->popis());
+    $o = $p->get('admin/kucharky.php?hladaj=' . urlencode('bábovka kakao'));
+    over(str_contains($o->telo, 'strana 2') && str_contains($o->telo, 'Bábovka s kakaom'), 'Skúšobné hľadanie nájde recept aj so stranou', $o->popis());
+    $o = $p->post('admin/kucharky.php', ['action' => 'kucharky_nahraj', 'csrf_token' => $kucharkyCsrf,
+        'pdf[0]' => new CURLFile(__FILE__, 'application/pdf', 'nie-pdf.pdf')]);
+    over(str_contains(hlaska_spravy($o->telo), 'PDF'), 'Súbor, ktorý nie je PDF, sa nenahrá', hlaska_spravy($o->telo));
+    $o = $p->post('admin/kucharky.php', ['action' => 'kucharka_spracuj', 'csrf_token' => 'zly', 'subor' => $subor]);
+    over(($o->json()['success'] ?? null) === false, 'Spracovanie s neplatným tokenom sa odmietne', $o->popis());
+
+    if ($mcpVDatabaze) {
+        $o = akcia($p, $csrf, 'ai_pripojenie_vytvor', ['nazov' => "Kuchárky test $znacka"]);
+        $klucK = preg_match('~kluc=([a-f0-9]{48})$~', (string) ($o->json()['adresa'] ?? ''), $m) ? $m[1] : '';
+        $o = $mcp($klucK, 'tools/list');
+        $nastroj = array_values(array_filter($o->json()['result']['tools'] ?? [], static fn($t) => $t['name'] === 'hladaj_v_kucharkach'))[0] ?? null;
+        over($nastroj !== null && str_contains($nastroj['description'], 'Rodinná kuchárka'), 'Claude dostane nástroj hladaj_v_kucharkach s názvami kníh', $o->popis());
+        $o = $mcp($klucK, 'tools/call', ['name' => 'hladaj_v_kucharkach', 'arguments' => ['dotaz' => 'čo uvariť zo smotany a hovädzieho']]);
+        $text = (string) ($o->json()['result']['content'][0]['text'] ?? '');
+        over(str_contains($text, 'Rodinná kuchárka, strana 4') && str_contains($text, 'Sviečková'), 'Hľadanie v kuchárkach cez MCP nájde Sviečkovú (strana 4)', $text ?: $o->popis());
+        foreach (akcia($p, $csrf, 'ai_pripojenia_get')->json()['pripojenia'] ?? [] as $pr) {
+            akcia($p, $csrf, 'ai_pripojenie_zrus', ['pripojenie_id' => $pr['id']]);
+        }
+    }
+
+    $o = $p->post('admin/kucharky.php', ['action' => 'kucharka_zmaz', 'csrf_token' => $kucharkyCsrf, 'subor' => $subor]);
+    over(hlaska_spravy($o->telo) === 'Kuchárka je zmazaná.' && !str_contains($o->telo, 'Rodinná kuchárka'), 'Zmazanie kuchárky', hlaska_spravy($o->telo));
+} else {
+    info('Databáza nemá tabuľky kuchárok (migrácia 2.8), overí sa, že bez nich nič nespadne');
+    $o = $p->post('admin/kucharky.php', ['action' => 'kucharka_spracuj', 'csrf_token' => $kucharkyCsrf, 'subor' => 'x.pdf']);
+    over(nespadla($o) && ($o->json()['success'] ?? null) === false, 'Spracovanie bez migrácie sa odmietne a nespadne', $o->popis());
 }
 
 /* ---------------------------------------------------------------------- */

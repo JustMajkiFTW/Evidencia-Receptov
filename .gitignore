@@ -6,3 +6,6 @@ uploads/objfood/*
 vendor/
 !uploads/recipes/.gitkeep
 !uploads/objfood/.gitkeep
+# Kuchárky v PDF (2.8) sú len na serveri, do repozitára nepatria
+/kucharky/*
+!/kucharky/.htaccess

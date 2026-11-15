@@ -25,6 +25,7 @@ Videá, ako sa pridáva recept (z fotky cez AI aj ručne), a ďalšie ukážky z
 - **Recepty bez internetu** (len na čítanie).
 - **Recept z fotky.** AI (Gemini, Claude alebo OpenAI) z fotky jedla alebo kuchárky navrhne celý recept, ty ho skontroluješ a uložíš. Nepovinné.
 - **Hlasový asistent v appke.** Ťukneš na mikrofón (vo vyhľadávaní, na PC v bočnej ponuke) a povieš, čo potrebuješ: „čo treba kúpiť?", „kedy sme naposledy robili guláš?", „navrhni recept na bábovku a ulož ho". Odpoveď prečíta telefón svojím slovenským hlasom. Používa ten istý kľúč k AI ako recept z fotky, nikto si nemusí zakladať žiadny účet. Pozri [Hlasový asistent](#hlasový-asistent).
+- **Kuchárky v PDF.** Admin nahrá kuchárky v PDF (v Správe alebo cez FTP do priečinka `kucharky/`), appka z nich vytiahne text a hlasový asistent aj Claude v nich hľadajú, čo by sa dalo uvariť, aj s názvom knihy a stranou. Pozri [Kuchárky v PDF](#kuchárky-v-pdf).
 - **AI asistent (Claude).** Appka sa dá pripojiť k asistentovi Claude. Potom mu stačí napísať alebo povedať, nech recept nájde a uloží do appky, zapíše varenie alebo pridá suroviny do nákupu. Každý si v nastaveniach vytvorí vlastnú adresu a všetko sa zapisuje pod jeho menom. Nepovinné, pozri [AI asistent](#ai-asistent-claude).
 - **Rozloženie pre telefón** (spodná lišta Recepty, Objednané, Pridať, Nákup, Viac, formulár v troch krokoch) a **pre PC** (bočná ponuka), svetlý a tmavý vzhľad. Rýchle dvojité ťuknutie stránku na telefóne nepriblíži, zväčšiť sa dá dvoma prstami.
 - **Správa** používateľov, kategórií a surovín pre admina, v rovnakom vzhľade ako zvyšok appky (na PC bočná ponuka, na telefóne spodná lišta).
@@ -97,6 +98,8 @@ Vzor je v `includes/.env.example`. Súbor obsahuje heslá, preto nepatrí na Git
 | `AI_DENNY_LIMIT` | Koľko fotiek môže jeden používateľ poslať za deň, predvolene `20` (`0` = bez limitu). |
 | `AI_ASISTENT_MODEL_GEMINI`, `AI_ASISTENT_MODEL_CLAUDE`, `AI_ASISTENT_MODEL_OPENAI` | Iný model len pre hlasového asistenta (napr. rýchlejší `gemini-flash-lite-latest`). Prázdne = rovnaké ako pri fotke. |
 | `AI_ASISTENT_DENNY_LIMIT` | Koľko otázok môže jeden používateľ položiť hlasovému asistentovi za deň, predvolene `100` (`0` = bez limitu). Počíta sa zvlášť od fotiek. |
+| `AI_PREPIS_MODEL_OPENAI` | Model OpenAI na prepis hlasu z iPhonu, predvolene `gpt-4o-mini-transcribe`. Gemini prepisuje tým istým modelom ako asistent. |
+| `KUCHARKY_PRIECINOK` | Iný priečinok s kuchárkami v PDF (celá cesta na serveri). Prázdne = `kucharky/` v appke. |
 | `AI_MODEL_GEMINI`, `AI_MODEL_CLAUDE`, `AI_MODEL_OPENAI` | Iné modely než predvolené, viac oddelených čiarkou. Väčšinou netreba. |
 
 Premenné `AI_ADRESA_…` slúžia len na testy, v prevádzke ich nevypĺňaj.
@@ -106,11 +109,23 @@ Premenné `AI_ADRESA_…` slúžia len na testy, v prevádzke ich nevypĺňaj.
 Zapne sa sám, keď je v `.env` kľúč k aspoň jednej AI službe (tie isté ako pri recepte z fotky, v poradí `AI_PORADIE`). Databázu netreba meniť.
 
 1. Mikrofón je vo vyhľadávaní receptov, v okne **Viac** a na PC v bočnej ponuke (**Hlasový asistent**).
-2. Telefón rozpozná reč (slovenčina). Kde to prehliadač nevie alebo nemá povolený mikrofón, appka ponúkne pole na písanie, do ktorého sa dá nadiktovať mikrofónom na klávesnici.
+2. Android a PC rozpoznajú reč priamo v prehliadači (slovenčina). **iPhone** nahrá zvuk a prepíše ho AI na serveri (Gemini alebo OpenAI, Claude zvuk neprijíma) — rozpoznávanie v Safari totiž po prvom prečítaní odpovede nahlas zamrzne. Nahrávanie skončí samo po chvíli ticha, ťuknutím alebo po 30 sekundách, mikrofón sa hneď uvoľní. Kde nejde ani jedno, appka ponúkne pole na písanie, do ktorého sa dá nadiktovať mikrofónom na klávesnici.
 3. Otázka ide na server (`includes/asistent.php`). AI dostane tie isté nástroje ako asistent cez MCP (nájdi, zobraz, ulož recept, zapíš varenie, nákup) a volá ich, kým nemá odpoveď.
 4. Odpoveď je krátka a prečíta ju telefón svojím hlasom (iPhone nečíta v tichom režime; pri každej odpovedi je aj tlačidlo reproduktora). Na iPhone znie najlepšie **Laura (vylepšená)**: Nastavenia → Prístupnosť → Hovorený obsah → Hlasy → Slovenčina. Čítanie nahlas sa dá v okne vypnúť.
 
+Keď poprosíš „ulož mi to do poznámok" (recept, nákup…), pri odpovedi sa ukáže tlačidlo **Uložiť do poznámok**. Otvorí zdieľanie telefónu, kde vyberieš Poznámky, Google Keep alebo správu; kde zdieľanie nejde (PC), text sa skopíruje. Keď sú v appke [kuchárky v PDF](#kuchárky-v-pdf), asistent v nich hľadá ako prvé a povie aj knihu a stranu.
+
 Všetko, čo asistent zapíše, je pod menom prihláseného používateľa, nový recept má v histórii „Pridané cez hlasového asistenta" a ostatným príde upozornenie. Rozhovor si pamätá posledných 12 správ, kým je okno otvorené. Keď služba zlyhá skôr, než asistent niečo zapísal, skúsi sa ďalšia v poradí.
+
+## Kuchárky v PDF
+
+Rodinné kuchárky v PDF sa dajú dať appke „prečítať". Potrebuje `sql/migracia-2.8.sql`, v `.env` nič netreba.
+
+1. **Správa → Kuchárky** (len admin): vyber jedno alebo viac PDF a zvoľ **Nahrať**. Hneď sa spracujú, priebeh je vidno pri každej knihe. Väčšie súbory, než dovolí hosting (`upload_max_filesize`), nahraj cez FTP do priečinka `kucharky/` — v Správe sa ukážu ako nové a spracujú sa tlačidlom **Spracovať**, alebo samy cez `cron.php` (najviac 3 pri jednom spustení).
+2. Appka vytiahne text každej strany (knižnica [smalot/pdfparser](https://github.com/smalot/pdfparser), pribalená v `includes/kniznice/pdfparser`) a uloží ho do databázy s fulltextovým indexom. Názov knihy vezme z PDF, inak zo súboru. Kniha s ~1000 stranami sa spracuje za pár desiatok sekúnd.
+3. Hlasový asistent aj Claude dostanú nástroj `hladaj_v_kucharkach`: na otázku „čo uvariť z kuracích stehien?" nájdu najvhodnejšie strany a odporučia recept s knihou a stranou. Recept z knihy uložia do appky len na požiadanie.
+
+PDF musí obsahovať text (dá sa v ňom označiť text). Naskenované kuchárky bez textu sa označia ako **Bez textu (sken)**. Priečinok `kucharky/` je z internetu zablokovaný (`.htaccess`), PDF nie sú na GitHube a nasadenie ich nenahráva ani nemaže. V Správe sa dá hľadanie vyskúšať, kniha prečítať znova (po výmene súboru) alebo zmazať aj so súborom.
 
 ## AI asistent (Claude)
 
@@ -131,6 +146,7 @@ Asistent koná pod menom toho, komu adresa patrí: recept od neho má v históri
 | `pridaj_recept` | Uloží nový recept. Suroviny napáruje na číselník (aj s iným poradím slov alebo preklepom), nové pridá. Rovnaký názov druhýkrát neuloží. |
 | `zapis_varenie` | Ako tlačidlo Uvarené, aj so spätným dátumom. |
 | `pridaj_do_nakupu`, `zobraz_nakup` | Suroviny receptu do nákupu (aj na iný počet porcií) a čo treba kúpiť. |
+| `hladaj_v_kucharkach` | Hľadá v [kuchárkach v PDF](#kuchárky-v-pdf), vráti strany s textom, knihou a číslom strany. Len keď sú nejaké spracované. |
 
 Funguje to s každým asistentom, ktorý vie pripojiť vlastný MCP server cez adresu. Stav k novembru 2026: Claude áno (aj zadarmo), ChatGPT dovolí zapisovať len vo firemných plánoch, Gemini má vlastné appky zatiaľ len v Spark mimo EÚ.
 
@@ -144,7 +160,7 @@ Po vydaní verzie (Release) na GitHube spraví `.github/workflows/nasadenie.yml`
 2. cez šifrované FTP nahrá len zmenené súbory a zmaže tie, ktoré v novej verzii už nie sú,
 3. overí, že appka na serveri beží a že súbory s heslami nie sú dostupné z internetu.
 
-Nikdy nenahrá ani nezmaže `includes/.env`, `vendor/`, `uploads/`, `sql/`, `install.php`, `testy/`, `ukazky/`, `README.md`, `LICENSE` a `composer.json` / `composer.lock`. Release označený ako pre-release sa nenahráva. Súbor `includes/.ftp-deploy-sync-state.json` na serveri nemaž, podľa neho sa nahrávajú len zmeny.
+Nikdy nenahrá ani nezmaže `includes/.env`, `vendor/`, `uploads/`, PDF v `kucharky/`, `sql/`, `install.php`, `testy/`, `ukazky/`, `README.md`, `LICENSE` a `composer.json` / `composer.lock`. Release označený ako pre-release sa nenahráva. Súbor `includes/.ftp-deploy-sync-state.json` na serveri nemaž, podľa neho sa nahrávajú len zmeny.
 
 **Jednorazové nastavenie:** v repozitári otvor **Settings → Secrets and variables → Actions** a pridaj:
 
@@ -185,20 +201,23 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `index.php` | Hlavná stránka so všetkými oknami a spracovanie všetkých akcií. |
 | `login.php`, `logout.php` | Prihlásenie a odhlásenie. |
 | `install.php` | Sprievodca prvou inštaláciou, potom sa maže. |
-| `cron.php` | Denné pripomienky, chránené kľúčom `CRON_KEY`. |
+| `cron.php` | Denné pripomienky a spracovanie nových kuchárok v PDF, chránené kľúčom `CRON_KEY`. |
 | `mcp.php` | Vstup pre AI asistenta (MCP): overí kľúč z adresy a odpovie na správy JSON-RPC. Bez session a bez prihlásenia. |
 | `script.js` | Logika hlavnej stránky v prehliadači, aj rozloženie pre telefón a PC. Stránky Recepty a Objednané jedlo (`index.php#objednane`) sa prepínajú bez načítania, tlačidlo Späť v prehliadači funguje. Adresa `index.php?otvor=pridat`, `nakup`, `viac` alebo `objednavky` otvorí príslušné okno (odkazy zo Správy). |
 | `suroviny.js` | Výber surovín, kľúč suroviny, návrh pri preklepe a prepočet jednotiek. |
 | `theme.js`, `webauthn-client.js`, `style.css` | Motív a prepnutie na HTTPS, biometria v prehliadači, štýly. |
 | `sw.js`, `manifest.json`, `offline.html` | PWA: cache, kópia receptov na čítanie bez internetu, príjem upozornení. |
-| `admin/` | Správa: používatelia (`index.php`), kategórie receptov (`kategorie.php`) a suroviny (`suroviny.php`). `prevod-surovin.php` je jednorazový prevod zo starej verzie. |
+| `admin/` | Správa: používatelia (`index.php`), kategórie receptov (`kategorie.php`), suroviny (`suroviny.php`) a kuchárky v PDF (`kucharky.php`). `prevod-surovin.php` je jednorazový prevod zo starej verzie. |
 | `includes/config.php`, `env.php` | Session, zápis chýb, načítanie `.env`, pripojenie k databáze. |
 | `includes/auth.php` | Prihlásenie, „Zostať prihlásený", brzda proti hádaniu hesla. |
 | `includes/functions.php` | Recepty, suroviny, porcie, nákup, fotky, hodnotenia, upozornenia. |
 | `includes/webpush.php` | Odosielanie upozornení (šifrovanie a podpis cez openssl a curl). |
 | `includes/objednavky.php` | Objednané jedlo: načítanie, kontrola a uloženie objednávok aj s fotkou, kto ich môže zmazať. |
 | `includes/ai.php` | Recept z fotky: volanie AI služieb, kontrola odpovede, párovanie surovín, denný limit. |
-| `includes/asistent.php` | Hlasový asistent: rozhovor s AI (Gemini, Claude, OpenAI) s volaním nástrojov appky, denný limit. |
+| `includes/asistent.php` | Hlasový asistent: rozhovor s AI (Gemini, Claude, OpenAI) s volaním nástrojov appky, prepis nahrávky z iPhonu, text do poznámok, denný limit. |
+| `includes/kucharky.php` | Kuchárky v PDF: nahratie, čítanie textu po stranách, fulltextové hľadanie. |
+| `includes/kniznice/pdfparser/` | Pribalená knižnica smalot/pdfparser 2.13.1 (LGPL-3.0) na čítanie PDF, bez Composera. |
+| `kucharky/` | PDF kuchárky (nie sú na GitHube, z internetu zablokované). |
 | `includes/mcp.php` | AI asistent: adresy (vytvorenie, overenie, zrušenie), popis nástrojov pre asistenta a ich vykonanie nad funkciami appky. |
 | `includes/sprava.php` | Spoločné rozloženie stránok Správy: bočná ponuka na PC, tlačidlá častí a spodná lišta na telefóne. |
 | `webauthn/` | Serverová časť biometrie. |
@@ -219,6 +238,7 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 | Recept z fotky | `ai_rozpoznania` (denný limit) |
 | Objednané jedlo | `objednane_jedla` (Wolt, Bolt Food…, s receptami nesúvisí), `objednavky_hodnotenia` |
 | AI asistent | `ai_pripojenia` (adresy pre Claude a iných, len odtlačky kľúčov) |
+| Kuchárky v PDF | `kucharky` (súbory a stav spracovania), `kucharky_strany` (text strán s fulltextovým indexom) |
 
 | Migrácia | Čo pridá |
 |---|---|
@@ -229,6 +249,7 @@ Celá štruktúra s komentármi je v `sql/instalacia.sql`.
 | `migracia-2.4.sql` | Stĺpec `foto` v `objednane_jedla` (fotka objednávky). |
 | `migracia-2.5.sql` | Tabuľku `objednavky_hodnotenia` (hodnotenie objednávok hviezdičkami). |
 | `migracia-2.6.sql` | Tabuľku `ai_pripojenia` (AI asistent cez MCP). |
+| `migracia-2.8.sql` | Tabuľky `kucharky` a `kucharky_strany` (kuchárky v PDF). |
 
 ### Pravidlá pre novú verziu
 
@@ -268,6 +289,10 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou alebo appka nebeží na HTTPS. |
 | Pri novom recepte sa „Naposledy varené“ neuložilo | Safari na iPhone ukazuje v prázdnom dátumovom poli dnešný dátum, hoci v ňom nič nie je. Použi tlačidlo Dnes / Včera alebo v kalendári ťukni na deň; pod poľom je napísané, čo sa uloží. |
 | Hlasový asistent nepočuje | Prehliadač nemá povolený mikrofón (na iPhone Nastavenia → Safari → Mikrofón). Vždy sa dá nadiktovať do poľa mikrofónom na klávesnici. |
+| iPhone sa pýta na mikrofón stále znova | Appka na ploche (PWA) si na iPhone povolenie nepamätá medzi spusteniami — to je obmedzenie iOS. Kým je appka otvorená, pýta sa raz. V Safari pomôže Nastavenia → Safari → Mikrofón → Povoliť. |
+| Na iPhone asistent hlási, že prepis hlasu nejde | Prepis robí Gemini alebo OpenAI: v `AI_PORADIE` musí byť aspoň jedna z nich s kľúčom. V `includes/debug-log.txt` hľadaj `AI ASISTENT prepis`. |
+| Kuchárka je „Bez textu (sken)" | PDF je naskenované, text v ňom nie je. Treba verziu s textom (alebo ju najprv prehnať cez OCR). |
+| Kuchárka sa nespracuje (chyba alebo bez konca) | Pri veľkej knihe môže hosting prerušiť spracovanie po časovom limite PHP — skús **Prečítať znova** alebo nechaj cron. V `includes/debug-log.txt` hľadaj `KUCHÁRKY`. |
 | Asistent odpovedá, ale nečíta nahlas | iPhone je v tichom režime (prepínač alebo tlačidlo Akcia) — Safari vtedy nečíta. Ťukni na reproduktor pri odpovedi. Skontroluj aj prepínač Čítať odpovede nahlas v okne asistenta. |
 | Hlas asistenta znie zle alebo nie po slovensky | V telefóne chýba slovenský hlas: na iPhone stiahni Lauru (vylepšenú) v Nastavenia → Prístupnosť → Hovorený obsah → Hlasy. |
 | Asistent odpovedá pomaly | Ako admin uvidíš pod odpoveďou, koľko trvali volania AI (bývajú dve: zistiť, čo treba, a odpovedať). Ak je pomalá AI, skús rýchlejší model v `AI_ASISTENT_MODEL_GEMINI` (napr. `gemini-flash-lite-latest`) alebo iné `AI_PORADIE`. |
@@ -285,6 +310,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.8** Hlasový asistent na iPhone už netreba po každej otázke reštartovať: iPhone zvuk nahrá a prepíše ho AI na serveri (Gemini alebo OpenAI), nahrávanie skončí samo po chvíli ticha a mikrofón sa hneď uvoľní. Asistent vie pripraviť text na uloženie — tlačidlo **Uložiť do poznámok** otvorí zdieľanie (Poznámky, Google Keep), na PC text skopíruje. **Kuchárky v PDF:** v Správe (alebo cez FTP do `kucharky/`) sa nahrajú kuchárky, appka vytiahne text strán a asistent aj Claude v nich hľadajú, čo uvariť, aj s knihou a stranou. Migrácia `migracia-2.8.sql`.
 - **2.7.3** Hlasový asistent rýchlejšie: model premýšľa čo najkratšie (Gemini a OpenAI najprv „minimal"), na pomalý alebo preťažený model sa pred záložným pokusom čaká najviac 25 sekúnd namiesto 45, pre asistenta sa dá nastaviť rýchlejší model (`AI_ASISTENT_MODEL_…`). Počas čakania okno ukazuje ubehnuté sekundy, admin vidí pod odpoveďou rozpis času (volania AI, nástroje) a zapisuje sa aj do `includes/debug-log.txt`. Databáza sa nemení.
 - **2.7.2** Hlasový asistent na iPhone: odpoveď sa nečítala nahlas sama. Safari zahodí čítanie spustené hneď po zastavení predošlého a appka si tým rušila aj „odomknutie" čítania z ťuknutia — teraz sa zastavuje len to, čo naozaj hovorí, a po zastavení sa chvíľu počká. Pri každej odpovedi je tlačidlo reproduktora (prečíta ju aj pri vypnutom čítaní nahlas) a keď telefón čítanie aj tak nepustí, appka poradí, čo skontrolovať. Databáza sa nemení.
 - **2.7.1** Oprava automatického testu: časť „databáza predchádzajúcej verzie bez migrácie" pre pripojenie k Claude sa riadi tým, či tá databáza tabuľku `ai_pripojenia` už má (po vydaní 2.6 ju má). Appka sa nemení, databáza tiež nie.

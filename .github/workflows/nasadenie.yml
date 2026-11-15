@@ -157,6 +157,7 @@ jobs:
             ukazky/**
             vendor/**
             uploads/**
+            kucharky/*.pdf
             sql/**
             includes/.env
             includes/debug-log.txt

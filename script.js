@@ -3601,8 +3601,14 @@ const asistent = (function initAsistent() {
 
     const Rozpoznavanie = window.SpeechRecognition || window.webkitSpeechRecognition;
     const mozeHovorit = 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
-    let rozpoznavanieNejde = !Rozpoznavanie;
+    // iPhone (2.8): rozpoznávanie reči v Safari po prvom prečítaní odpovede nahlas zamrzne (chyba WebKitu),
+    // preto sa tam zvuk nahrá a prepíše na serveri. Inde (Android, PC) rozpoznáva reč priamo prehliadač.
+    const jeIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const mozeNahravat = modalEl.dataset.prepis === '1' && typeof window.MediaRecorder === 'function'
+        && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    let rezim = (jeIOS || !Rozpoznavanie) && mozeNahravat ? 'nahravanie' : (Rozpoznavanie ? 'rozpoznavanie' : 'klavesnica');
     let rozpoznavanie = null;
+    let nahravanie = null; // { stop(), zrus() } počas nahrávania
     let stav = 'caka'; // caka | pocuva | premysla | hovori
     let historia = [];
     let zmeny = false;      // asistent niečo zapísal → po zatvorení obnoviť stránku
@@ -3620,7 +3626,7 @@ const asistent = (function initAsistent() {
     }
 
     const POPIS = {
-        caka: () => rozpoznavanieNejde
+        caka: () => rezim === 'klavesnica'
             ? 'Ťukni do poľa nižšie a nadiktuj to mikrofónom na klávesnici.'
             : 'Ťukni na mikrofón a hovor.',
         pocuva: () => 'Počúvam… ťukni znova, keď skončíš.',
@@ -3646,6 +3652,32 @@ const asistent = (function initAsistent() {
         mikrofon.setAttribute('aria-label', POPIS_TLACIDLA[novy]);
         mikrofon.disabled = novy === 'premysla';
         stavEl.textContent = sprava || POPIS[novy]();
+    }
+
+    /** Tlačidlo „Uložiť do poznámok": zdieľanie telefónu (Poznámky, Google Keep…), inak kopírovanie. */
+    function tlacidloExportu(exportData) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'asistent-export';
+        btn.innerHTML = '<i class="bi bi-journal-arrow-down" aria-hidden="true"></i>Uložiť do poznámok';
+        btn.addEventListener('click', async () => {
+            const text = exportData.nazov + '\n\n' + exportData.text;
+            if (navigator.share) {
+                try {
+                    await navigator.share({ title: exportData.nazov, text });
+                    return;
+                } catch (err) {
+                    if (err && err.name === 'AbortError') return; // zavrel ponuku zdieľania
+                }
+            }
+            try {
+                await navigator.clipboard.writeText(text);
+                showToast('Skopírované. Otvor Poznámky alebo Google Keep a vlož to.');
+            } catch (err) {
+                showToast('Zdieľanie tu nejde. Text je v odpovedi, podrž na ňom prst a skopíruj ho.', true);
+            }
+        });
+        return btn;
     }
 
     function bublina(rola, text, chyba = false) {
@@ -3781,13 +3813,103 @@ const asistent = (function initAsistent() {
 
     /* ---------- Rozpoznanie reči ---------- */
     function rozpoznavanieNefunguje(sprava) {
-        rozpoznavanieNejde = true;
+        // Keď nejde rozpoznávanie v prehliadači, skúsi sa nahrávanie s prepisom na serveri, až potom klávesnica.
+        if (rezim === 'rozpoznavanie' && mozeNahravat) {
+            rezim = 'nahravanie';
+            nastavStav('caka', 'Skúsim to inak — ťukni na mikrofón ešte raz a hovor.');
+            return;
+        }
+        rezim = 'klavesnica';
         mikrofon.classList.add('bez-rozpoznavania');
         nastavStav('caka', sprava);
     }
 
+    /* ---------- Nahrávanie (iPhone): zvuk sa prepíše na serveri ---------- */
+    let ticho = null; // sledovanie ticha: po 1,5 s ticha (keď už hovoril) sa nahrávanie samo ukončí
+
+    function sledujTicho(stream, priTichu) {
+        try {
+            const Kontext = window.AudioContext || window.webkitAudioContext;
+            const kontext = new Kontext();
+            const analyzer = kontext.createAnalyser();
+            analyzer.fftSize = 1024;
+            kontext.createMediaStreamSource(stream).connect(analyzer);
+            const vzorky = new Uint8Array(analyzer.fftSize);
+            const zaciatok = Date.now();
+            let hovoril = false;
+            let tichoOd = Date.now();
+            const interval = setInterval(() => {
+                analyzer.getByteTimeDomainData(vzorky);
+                let sucet = 0;
+                for (const v of vzorky) sucet += ((v - 128) / 128) ** 2;
+                const hlasitost = Math.sqrt(sucet / vzorky.length);
+                if (hlasitost > 0.035) {
+                    hovoril = true;
+                    tichoOd = Date.now();
+                } else if ((hovoril && Date.now() - tichoOd > 1500) || (!hovoril && Date.now() - zaciatok > 8000)) {
+                    priTichu();
+                }
+            }, 100);
+            ticho = { zastav() { clearInterval(interval); try { kontext.close(); } catch (err) { /* nič */ } } };
+        } catch (err) {
+            ticho = null; // bez sledovania ticha: ukončí sa ťuknutím alebo po 30 s
+        }
+    }
+
+    async function nahravaj() {
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        } catch (err) {
+            rezim = 'klavesnica';
+            mikrofon.classList.add('bez-rozpoznavania');
+            nastavStav('caka', 'Mikrofón nie je povolený. Povoľ ho pri ďalšom ťuknutí, alebo to nadiktuj do poľa mikrofónom na klávesnici.');
+            return;
+        }
+        const typ = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+        let zaznam;
+        try {
+            zaznam = new MediaRecorder(stream, typ ? { mimeType: typ } : undefined);
+        } catch (err) {
+            stream.getTracks().forEach((t) => t.stop());
+            rozpoznavanieNefunguje();
+            return;
+        }
+        const kusy = [];
+        const zaciatok = Date.now();
+        let zrusene = false;
+        const maxCas = setTimeout(() => nahravanie && nahravanie.stop(), 30000);
+        zaznam.ondataavailable = (e) => { if (e.data && e.data.size) kusy.push(e.data); };
+        zaznam.onstop = () => {
+            clearTimeout(maxCas);
+            if (ticho) ticho.zastav();
+            ticho = null;
+            nahravanie = null;
+            // Mikrofón hneď uvoľniť — inak iPhone ostane v režime hovoru a odpoveď prečíta potichu.
+            stream.getTracks().forEach((t) => t.stop());
+            if (zrusene) return;
+            const blob = new Blob(kusy, { type: (zaznam.mimeType || typ || 'audio/mp4').split(';')[0] });
+            if (Date.now() - zaciatok < 700 || blob.size < 1500) {
+                nastavStav('caka', 'Nič som nepočul. Ťukni na mikrofón a skús to znova.');
+                return;
+            }
+            posliZvuk(blob);
+        };
+        nahravanie = {
+            stop() { if (zaznam.state !== 'inactive') zaznam.stop(); },
+            zrus() { zrusene = true; this.stop(); },
+        };
+        zaznam.start();
+        nastavStav('pocuva');
+        sledujTicho(stream, () => nahravanie && nahravanie.stop());
+    }
+
     function pocuvaj() {
-        if (rozpoznavanieNejde) {
+        if (rezim === 'nahravanie') {
+            nahravaj();
+            return;
+        }
+        if (rezim === 'klavesnica') {
             textEl.focus();
             nastavStav('caka');
             return;
@@ -3847,7 +3969,8 @@ const asistent = (function initAsistent() {
     mikrofon.addEventListener('click', () => {
         odomkniHlas();
         if (stav === 'pocuva') {
-            rozpoznavanie?.stop(); // dokončí sa v onend a pošle
+            if (nahravanie) nahravanie.stop(); // dokončí sa v onstop a pošle
+            else rozpoznavanie?.stop(); // dokončí sa v onend a pošle
         } else if (stav === 'hovori') {
             prestanHovorit();
         } else if (stav === 'caka') {
@@ -3862,13 +3985,47 @@ const asistent = (function initAsistent() {
         prestanHovorit();
         bublina('pouzivatel', text);
         nastavStav('premysla');
+        const formData = new FormData();
+        formData.append('text', text);
+        await spytajSa(formData, text, null);
+    }
+
+    /** Nahrávka (iPhone): otázka sa ukáže, až keď ju server prepíše. */
+    async function posliZvuk(blob) {
+        prestanHovorit();
+        bublina('pouzivatel', '…');
+        const bublinaOtazky = rozhovorEl.lastElementChild;
+        nastavStav('premysla', 'Chvíľku, počúvam nahrávku…');
+        const pripona = { 'audio/mp4': 'm4a', 'audio/webm': 'webm', 'audio/ogg': 'ogg' }[blob.type] || 'm4a';
+        const formData = new FormData();
+        formData.append('zvuk', blob, 'nahravka.' + pripona);
+        await spytajSa(formData, null, bublinaOtazky);
+    }
+
+    async function spytajSa(formData, text, bublinaOtazky) {
+        formData.append('action', 'asistent');
+        formData.append('csrf_token', csrfToken());
+        formData.append('historia', JSON.stringify(historia));
         try {
-            const data = await appPost('asistent', { text, historia: JSON.stringify(historia) });
+            const data = await (await fetch('index.php', { method: 'POST', body: formData })).json();
             if (data.zmeny) zmeny = true;
+            if (bublinaOtazky) {
+                // Čo appka z nahrávky počula; prázdne = nič, bublina zmizne.
+                if (data.prepis) {
+                    bublinaOtazky.querySelector('span').textContent = data.prepis;
+                    text = data.prepis;
+                } else {
+                    bublinaOtazky.remove();
+                }
+            }
             if (data.success) {
                 historia.push({ rola: 'pouzivatel', text }, { rola: 'asistent', text: data.odpoved });
                 historia = historia.slice(-12);
                 bublina('asistent', data.odpoved);
+                if (data.export && data.export.text) {
+                    rozhovorEl.append(tlacidloExportu(data.export));
+                    rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
+                }
                 if (data.meta) {
                     // len pre admina: ktorá AI odpovedala a koľko trvali jednotlivé kroky
                     const meta = document.createElement('div');
@@ -3886,6 +4043,7 @@ const asistent = (function initAsistent() {
                 hovor(sprava);
             }
         } catch (err) {
+            if (bublinaOtazky && bublinaOtazky.textContent.startsWith('…')) bublinaOtazky.remove();
             bublina('asistent', 'Chyba pripojenia k serveru. Skús to znova.', true);
             nastavStav('caka');
         }
@@ -3911,13 +4069,14 @@ const asistent = (function initAsistent() {
             rozpoznavanie.abort();
             rozpoznavanie = null;
         }
+        if (nahravanie) nahravanie.zrus(); // uvoľní mikrofón, nič sa nepošle
         prestanHovorit();
         nastavStav('caka');
         // Nový recept, varenie či nákup od asistenta — zoznam na stránke treba obnoviť.
         if (zmeny) location.reload();
     });
 
-    if (rozpoznavanieNejde) mikrofon.classList.add('bez-rozpoznavania');
+    if (rezim === 'klavesnica') mikrofon.classList.add('bez-rozpoznavania');
     nastavStav('caka');
 
     return {

@@ -188,10 +188,32 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
             session_write_close();
             $menoAsistent = trim((string) ($user['full_name'] ?? '')) !== '' ? $user['full_name'] : ($user['username'] ?? 'Niekto');
             $historia = json_decode((string) ($_POST['historia'] ?? '[]'), true);
+            $otazka = (string) ($_POST['text'] ?? '');
+            $prepis = null;
+            // iPhone (2.8): namiesto textu príde nahrávka, prepíše ju AI na serveri.
+            if (!empty($_FILES['zvuk']['name'])) {
+                if (asistent_limit_minuty($pdo, $userId)) {
+                    $result = ['success' => false, 'error' => 'Dnešný počet otázok pre asistenta je minutý. Zajtra to pôjde znova.'];
+                    break;
+                }
+                $vysledokPrepisu = asistent_prepis($_FILES['zvuk']);
+                if (!$vysledokPrepisu['ok']) {
+                    $result = ['success' => false, 'error' => $vysledokPrepisu['chyba']];
+                    break;
+                }
+                if ($vysledokPrepisu['text'] === '') {
+                    $result = ['success' => false, 'error' => 'Nič som nepočul. Ťukni na mikrofón a skús to znova.', 'prepis' => ''];
+                    break;
+                }
+                $otazka = $prepis = $vysledokPrepisu['text'];
+            }
             $result = asistent_odpovedz($pdo, [
                 'id' => 0, 'nazov' => 'Hlasový asistent', 'user_id' => $userId, 'meno' => $menoAsistent, 'role' => $user['role'] ?? 'user',
                 'poznamka' => 'Pridané cez hlasového asistenta', 'cez' => 'hlasového asistenta',
-            ], (string) ($_POST['text'] ?? ''), is_array($historia) ? $historia : [], is_admin());
+            ], $otazka, is_array($historia) ? $historia : [], is_admin());
+            if ($prepis !== null) {
+                $result['prepis'] = $prepis; // telefón ukáže, čo appka počula
+            }
             break;
 
         /* ---------------- AI asistent cez MCP (includes/mcp.php, verzia 2.6) ---------------- */
@@ -396,7 +418,7 @@ header('X-Recepty-Offline: 1');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=44">
+    <link rel="stylesheet" href="style.css?v=45">
 </head>
 <body class="ma-spodnu-listu">
 
@@ -1521,7 +1543,8 @@ header('X-Recepty-Offline: 1');
      Mikrofón → rozpoznanie reči v prehliadači (inak diktovanie z klávesnice) →
      akcia 'asistent' (includes/asistent.php) → odpoveď prečíta telefón po slovensky.
      Ovláda script.js (openAsistent). -->
-<div class="modal fade" id="asistentModal" tabindex="-1" aria-hidden="true" aria-labelledby="asistentTitle">
+<div class="modal fade" id="asistentModal" tabindex="-1" aria-hidden="true" aria-labelledby="asistentTitle"
+     data-prepis="<?= asistent_prepis_dostupny() ? '1' : '0' ?>">
     <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down">
         <div class="modal-content asistent">
             <div class="modal-header">
@@ -1809,7 +1832,7 @@ document.getElementById('passkeyLabelConfirmBtn').addEventListener('click', asyn
     window.APP_OBJEDNAVKY_ZNAKY = <?= json_encode(OBJEDNAVKY_ZNAKY, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="suroviny.js?v=31"></script>
-<script src="script.js?v=44"></script>
+<script src="script.js?v=45"></script>
 </body>
 </html>
 <?php

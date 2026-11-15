@@ -25,3 +25,11 @@ if ($expected === false || strlen($expected) < 16 || !hash_equals($expected, $gi
 // Čas si určuje cron, preto tu neplatí obmedzenie na 9:00–20:00.
 $sent = send_due_recipe_reminder($pdo, false);
 echo $sent !== null ? "Pripomienka odoslaná: {$sent}\n" : "Dnes nie je čo pripomenúť.\n";
+
+// Kuchárky v PDF (2.8): nové a zmenené PDF z priečinka kucharky/ sa spracujú samy (najviac 3 naraz).
+require_once __DIR__ . '/includes/kucharky.php';
+if (kucharky_available($pdo)) {
+    foreach (kucharky_spracuj_nove($pdo, 3) as $subor => $vysledok) {
+        echo 'Kuchárka ' . $subor . ': ' . ($vysledok['success'] ? 'strán: ' . $vysledok['strany'] : $vysledok['error']) . "\n";
+    }
+}

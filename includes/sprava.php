@@ -27,6 +27,7 @@ const SPRAVA_CASTI = [
     'pouzivatelia' => ['index.php', 'bi-people', 'Používatelia', 'Používatelia'],
     'kategorie'    => ['kategorie.php', 'bi-tags', 'Kategórie receptov', 'Kategórie'],
     'suroviny'     => ['suroviny.php', 'bi-basket', 'Suroviny', 'Suroviny'],
+    'kucharky'     => ['kucharky.php', 'bi-book', 'Kuchárky v PDF', 'Kuchárky'],
     'prevod'       => ['prevod-surovin.php', 'bi-arrow-left-right', 'Prevod surovín', 'Prevod'],
 ];
 
@@ -88,7 +89,7 @@ function sprava_zaciatok(PDO $pdo, string $aktivna, string $nadpis): void
     <link rel="apple-touch-icon" sizes="180x180" href="../app-icons/apple-touch-icon.png?v=4">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../style.css?v=38">
+    <link rel="stylesheet" href="../style.css?v=45">
 </head>
 <body class="ma-spodnu-listu sprava">
 

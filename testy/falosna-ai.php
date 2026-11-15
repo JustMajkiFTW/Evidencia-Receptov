@@ -1,6 +1,6 @@
 <?php
 /**
- * falosna-ai.php — falošná AI služba pre test hlasového asistenta (verzia 2.7).
+ * falosna-ai.php — falošná AI služba pre test hlasového asistenta (verzia 2.7, prepis hlasu 2.8).
  *
  * Spúšťa ju testy/spusti-testy.sh ako router vstavaného servera PHP:
  *   php -S 127.0.0.1:8766 testy/falosna-ai.php
@@ -14,12 +14,22 @@
  *
  * Slová v otázke: „ahoj" (bez nástroja), „ulož recept NÁZOV", „kúpiť",
  * „nevarili", „nájdi SLOVO", „pamätáš" (zopakuje predošlú odpoveď z histórie),
- * „chyba503" (Gemini odpovie 503 — appka má skúsiť ďalšiu službu).
+ * „chyba503" (Gemini odpovie 503 — appka má skúsiť ďalšiu službu),
+ * „poznámok" (priprav_na_ulozenie).
+ *
+ * Prepis hlasu (2.8): Gemini so zvukom v inline_data a OpenAI
+ * /audio/transcriptions vrátia text, ktorý je v nahrávke za značkou „TEXT:".
  */
 
 header('Content-Type: application/json; charset=utf-8');
 $cesta = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
 $telo = json_decode((string) file_get_contents('php://input'), true);
+
+/** Text za značkou TEXT: v testovacej nahrávke (skutočná AI by reč prepísala). */
+function prepis_nahravky(string $data): string
+{
+    return preg_match('/TEXT:(.*)$/s', $data, $m) ? trim($m[1]) : '';
+}
 
 function odpovedz(int $kod, array $data): never
 {
@@ -64,6 +74,9 @@ function rozhodni(string $otazka, string $predoslaOdpoved): array
     if (str_contains($o, 'nevarili')) {
         return ['nastroj' => 'najdi_recepty', 'argumenty' => ['zoradenie' => 'najdlhsie_nevarene', 'limit' => 3]];
     }
+    if (str_contains($o, 'poznamok')) {
+        return ['nastroj' => 'priprav_na_ulozenie', 'argumenty' => ['nazov' => 'Nákup', 'text' => "Múka hladká 300 g\nVajcia 4 ks"]];
+    }
     if (preg_match('/najdi\s+(\S+)/u', $o, $m)) {
         return ['nastroj' => 'najdi_recepty', 'argumenty' => ['dotaz' => $m[1]]];
     }
@@ -83,6 +96,18 @@ function over_nastroje(array $nazvy): void
     }
 }
 
+/* OpenAI prepis zvuku (multipart, nie JSON) */
+if ($cesta === '/openai/audio/transcriptions') {
+    if (!preg_match('/^Bearer \S+/', $_SERVER['HTTP_AUTHORIZATION'] ?? '') || ($_POST['model'] ?? '') === '') {
+        chyba(401, 'Chýba kľúč alebo model.');
+    }
+    $subor = $_FILES['file']['tmp_name'] ?? '';
+    if ($subor === '' || !is_file($subor)) {
+        chyba(400, 'Chýba súbor.');
+    }
+    odpovedz(200, ['text' => prepis_nahravky((string) file_get_contents($subor))]);
+}
+
 if (!is_array($telo)) {
     chyba(400, 'Telo nie je JSON.');
 }
@@ -95,6 +120,16 @@ if (preg_match('~^/gemini/models/([^/:]+):generateContent$~', $cesta, $m)) {
     // Model, ktorý „nepozná" krátke premýšľanie: appka to má skúsiť znova bez neho.
     if ($m[1] === 'gemini-bez-premyslania' && isset($telo['generationConfig']['thinkingConfig'])) {
         chyba(400, 'thinkingLevel is not supported for this model.');
+    }
+    // Prepis hlasu: zvuk v inline_data, bez nástrojov.
+    $zvuk = $telo['contents'][0]['parts'][0]['inline_data'] ?? null;
+    if ($zvuk !== null) {
+        if (!str_starts_with((string) ($zvuk['mime_type'] ?? ''), 'audio/')) {
+            chyba(400, 'Unsupported MIME type: ' . ($zvuk['mime_type'] ?? ''));
+        }
+        odpovedz(200, ['candidates' => [['content' => ['role' => 'model', 'parts' => [
+            ['text' => '„' . prepis_nahravky((string) base64_decode((string) $zvuk['data'])) . '"'],
+        ]], 'finishReason' => 'STOP']]]);
     }
     over_nastroje(array_column($telo['tools'][0]['functionDeclarations'] ?? [], 'name'));
     foreach ($telo['tools'][0]['functionDeclarations'] as $d) {

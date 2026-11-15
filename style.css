@@ -2962,3 +2962,29 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 @media (prefers-reduced-motion: reduce) {
     [data-stav="pocuva"] .asistent-mikrofon, [data-stav="premysla"] .asistent-mikrofon .bi { animation: none; }
 }
+
+/* ── Správa → Kuchárky v PDF (verzia 2.8) ── */
+.kucharky-spracovanie { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.kucharky-zoznam { list-style: none; padding: 0; }
+.kucharka-riadok { display: flex; align-items: center; gap: .75rem; }
+.kucharka-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .2rem; align-items: flex-start; }
+.kucharka-info strong { overflow-wrap: anywhere; }
+.kucharka-info small { color: var(--app-muted-text); overflow-wrap: anywhere; }
+.kucharka-akcie { display: flex; gap: .4rem; flex-shrink: 0; }
+.kucharka-akcie form { margin: 0; }
+.kucharka-najdene pre { white-space: pre-wrap; font-family: inherit; font-size: .92rem; margin: .5rem 0 0; color: var(--app-muted-text); }
+.asistent-export {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    min-height: 48px;
+    margin-top: -.2rem;
+    padding: .5rem 1rem;
+    border: 1px solid var(--app-accent);
+    border-radius: 14px;
+    background: var(--app-accent-soft);
+    color: var(--app-text);
+    font-weight: 600;
+}
+.asistent-export .bi { color: var(--app-accent); font-size: 1.15rem; }
