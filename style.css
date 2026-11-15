@@ -2903,6 +2903,23 @@ a.sprava-filter.is-active:hover { color: #1c1917; }
 .asistent-bublina.je-pouzivatel { align-self: flex-end; background: var(--app-accent); color: #1c1917; border-bottom-right-radius: 6px; }
 .asistent-bublina.je-asistent { align-self: flex-start; background: var(--app-plocha); border: 1px solid var(--app-border); border-bottom-left-radius: 6px; }
 .asistent-bublina.je-chyba { border-color: var(--bs-danger); color: var(--bs-danger); }
+.asistent-bublina.je-asistent { display: flex; align-items: flex-start; gap: .5rem; }
+.asistent-bublina > span { flex: 1; min-width: 0; }
+.asistent-precitaj {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    margin: -.2rem -.35rem -.2rem 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+    font-size: 1.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.asistent-precitaj:active { transform: scale(.94); }
 .asistent-pata {
     display: flex;
     flex-direction: column;

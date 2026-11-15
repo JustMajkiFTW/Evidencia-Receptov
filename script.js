@@ -3643,7 +3643,26 @@ const asistent = (function initAsistent() {
         $('asistentUvod')?.classList.add('d-none');
         const el = document.createElement('div');
         el.className = 'asistent-bublina je-' + rola + (chyba ? ' je-chyba' : '');
-        el.textContent = text;
+        const obsah = document.createElement('span');
+        obsah.textContent = text;
+        el.append(obsah);
+        // Pri odpovedi tlačidlo „prečítať" — ťuknutie spustí čítanie vždy (aj keď ho iPhone sám nepustil).
+        if (rola === 'asistent' && mozeHovorit) {
+            const citaj = document.createElement('button');
+            citaj.type = 'button';
+            citaj.className = 'asistent-precitaj';
+            citaj.setAttribute('aria-label', 'Prečítať nahlas');
+            citaj.innerHTML = '<i class="bi bi-volume-up-fill" aria-hidden="true"></i>';
+            citaj.addEventListener('click', () => {
+                if (stav === 'hovori') {
+                    prestanHovorit();
+                    return;
+                }
+                odomkniHlas();
+                hovor(text, true);
+            });
+            el.append(citaj);
+        }
         rozhovorEl.append(el);
         rozhovorEl.scrollTop = rozhovorEl.scrollHeight;
     }
@@ -3687,31 +3706,61 @@ const asistent = (function initAsistent() {
         return casti;
     }
 
-    function hovor(text) {
-        if (!mozeHovorit || !nahlas.checked) return;
+    // Safari zahodí čítanie spustené hneď po cancel() — po zastavení sa chvíľu počká.
+    let poslednyCancel = 0;
+    let kontrolaStartu = null;
+
+    /** $rucne = ťuknutie na „prečítať" (číta sa aj pri vypnutom čítaní nahlas). */
+    function hovor(text, rucne = false) {
+        if (!mozeHovorit || (!nahlas.checked && !rucne)) return;
         const casti = poVetach(naCitanie(text));
         if (!casti.length) return;
-        speechSynthesis.cancel();
         nastavStav('hovori');
+        let zacalo = false;
         const koniec = () => { if (stav === 'hovori') nastavStav('caka'); };
-        casti.forEach((cast, i) => {
-            const u = new SpeechSynthesisUtterance(cast);
-            u.lang = 'sk-SK';
-            if (hlas) u.voice = hlas;
-            u.rate = 0.95; // o kúsok pomalšie, aby sa to dobre počúvalo
-            if (i === casti.length - 1) {
-                u.onend = koniec;
-                u.onerror = koniec;
-            }
-            speechSynthesis.speak(u);
-        });
+        const spusti = () => {
+            casti.forEach((cast, i) => {
+                const u = new SpeechSynthesisUtterance(cast);
+                u.lang = 'sk-SK';
+                if (hlas) u.voice = hlas;
+                u.rate = 0.95; // o kúsok pomalšie, aby sa to dobre počúvalo
+                if (i === 0) u.onstart = () => { zacalo = true; };
+                if (i === casti.length - 1) {
+                    u.onend = koniec;
+                    u.onerror = koniec;
+                }
+                speechSynthesis.speak(u);
+            });
+            // iPhone čítanie bez ťuknutia niekedy potichu zahodí (alebo je zapnutý tichý režim) — povieme, čo robiť.
+            clearTimeout(kontrolaStartu);
+            kontrolaStartu = setTimeout(() => {
+                if (!zacalo && !speechSynthesis.speaking && stav === 'hovori') {
+                    nastavStav('caka', 'Odpoveď sa neprečítala. Ťukni na reproduktor pri odpovedi a skontroluj, či nie je zapnutý tichý režim.');
+                }
+            }, 2500);
+        };
+        const odZastavenia = Date.now() - poslednyCancel;
+        if (speechSynthesis.speaking || speechSynthesis.pending) {
+            speechSynthesis.cancel();
+            poslednyCancel = Date.now();
+            setTimeout(spusti, 300);
+        } else if (odZastavenia < 300) {
+            setTimeout(spusti, 300 - odZastavenia);
+        } else {
+            spusti(); // hneď — pri ťuknutí na „prečítať" ešte v rámci ťuknutia
+        }
     }
 
     function prestanHovorit() {
-        if (mozeHovorit) speechSynthesis.cancel();
+        clearTimeout(kontrolaStartu);
+        if (mozeHovorit && (speechSynthesis.speaking || speechSynthesis.pending)) {
+            speechSynthesis.cancel();
+            poslednyCancel = Date.now();
+        }
         if (stav === 'hovori') nastavStav('caka');
     }
 
+    /** iPhone: prvé čítanie musí začať priamo pri ťuknutí, potom už ide aj samo. Tiché „odomknutie" sa neruší. */
     function odomkniHlas() {
         if (!mozeHovorit || odomknute) return;
         odomknute = true;

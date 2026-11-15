@@ -107,7 +107,7 @@ Zapne sa sám, keď je v `.env` kľúč k aspoň jednej AI službe (tie isté ak
 1. Mikrofón je vo vyhľadávaní receptov, v okne **Viac** a na PC v bočnej ponuke (**Hlasový asistent**).
 2. Telefón rozpozná reč (slovenčina). Kde to prehliadač nevie alebo nemá povolený mikrofón, appka ponúkne pole na písanie, do ktorého sa dá nadiktovať mikrofónom na klávesnici.
 3. Otázka ide na server (`includes/asistent.php`). AI dostane tie isté nástroje ako asistent cez MCP (nájdi, zobraz, ulož recept, zapíš varenie, nákup) a volá ich, kým nemá odpoveď.
-4. Odpoveď je krátka a prečíta ju telefón svojím hlasom. Na iPhone znie najlepšie **Laura (vylepšená)**: Nastavenia → Prístupnosť → Hovorený obsah → Hlasy → Slovenčina. Čítanie nahlas sa dá v okne vypnúť.
+4. Odpoveď je krátka a prečíta ju telefón svojím hlasom (iPhone nečíta v tichom režime; pri každej odpovedi je aj tlačidlo reproduktora). Na iPhone znie najlepšie **Laura (vylepšená)**: Nastavenia → Prístupnosť → Hovorený obsah → Hlasy → Slovenčina. Čítanie nahlas sa dá v okne vypnúť.
 
 Všetko, čo asistent zapíše, je pod menom prihláseného používateľa, nový recept má v histórii „Pridané cez hlasového asistenta" a ostatným príde upozornenie. Rozhovor si pamätá posledných 12 správ, kým je okno otvorené. Keď služba zlyhá skôr, než asistent niečo zapísal, skúsi sa ďalšia v poradí.
 
@@ -267,6 +267,7 @@ Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa pres
 | Biometria hlási chybu | `APP_HOST` nesedí s doménou alebo appka nebeží na HTTPS. |
 | Pri novom recepte sa „Naposledy varené“ neuložilo | Safari na iPhone ukazuje v prázdnom dátumovom poli dnešný dátum, hoci v ňom nič nie je. Použi tlačidlo Dnes / Včera alebo v kalendári ťukni na deň; pod poľom je napísané, čo sa uloží. |
 | Hlasový asistent nepočuje | Prehliadač nemá povolený mikrofón (na iPhone Nastavenia → Safari → Mikrofón). Vždy sa dá nadiktovať do poľa mikrofónom na klávesnici. |
+| Asistent odpovedá, ale nečíta nahlas | iPhone je v tichom režime (prepínač alebo tlačidlo Akcia) — Safari vtedy nečíta. Ťukni na reproduktor pri odpovedi. Skontroluj aj prepínač Čítať odpovede nahlas v okne asistenta. |
 | Hlas asistenta znie zle alebo nie po slovensky | V telefóne chýba slovenský hlas: na iPhone stiahni Lauru (vylepšenú) v Nastavenia → Prístupnosť → Hovorený obsah → Hlasy. |
 | Asistent hlási, že neodpovedá | V `includes/debug-log.txt` hľadaj `AI ASISTENT` (zlý kľúč, minutý kredit, výpadok služby). |
 | Claude sa nevie pripojiť ku konektoru | Adresa bola zrušená alebo zle skopírovaná (v appke vytvor novú), alebo nie je spustená `migracia-2.6.sql`. V `includes/debug-log.txt` hľadaj `AI ASISTENT`. |
@@ -282,6 +283,7 @@ Pri prenose na iný server stačí tieto tri veci preniesť a v `.env` upraviť 
 
 ## História verzií
 
+- **2.7.2** Hlasový asistent na iPhone: odpoveď sa nečítala nahlas sama. Safari zahodí čítanie spustené hneď po zastavení predošlého a appka si tým rušila aj „odomknutie" čítania z ťuknutia — teraz sa zastavuje len to, čo naozaj hovorí, a po zastavení sa chvíľu počká. Pri každej odpovedi je tlačidlo reproduktora (prečíta ju aj pri vypnutom čítaní nahlas) a keď telefón čítanie aj tak nepustí, appka poradí, čo skontrolovať. Databáza sa nemení.
 - **2.7.1** Oprava automatického testu: časť „databáza predchádzajúcej verzie bez migrácie" pre pripojenie k Claude sa riadi tým, či tá databáza tabuľku `ai_pripojenia` už má (po vydaní 2.6 ju má). Appka sa nemení, databáza tiež nie.
 - **2.7** Hlasový asistent priamo v appke: mikrofón vo vyhľadávaní (na PC aj v bočnej ponuke, na telefóne aj vo Viac). Reč rozpozná telefón, AI zo `.env` (Gemini, Claude alebo OpenAI) použije nástroje appky (nájdi, ulož recept, uvarené, nákup) a odpoveď prečíta telefón svojím slovenským hlasom. Kde rozpoznanie reči nejde, ostáva písanie s diktovaním z klávesnice. Denný limit `AI_ASISTENT_DENNY_LIMIT` (predvolene 100) sa počíta zvlášť od fotiek. Pripojenie cez MCP sa v nastaveniach volá „Pripojiť k Claude". Databáza sa nemení.
 - **2.6** AI asistent: appka sa dá pripojiť k Claude cez MCP (`mcp.php`). Asistent na pokyn, aj hlasom, nájde a zobrazí recept, uloží nový recept (suroviny napáruje na číselník, rovnaký názov druhýkrát neuloží), zapíše varenie a pridá suroviny do nákupu. Každý používateľ si vo Viac / Nastaveniach vytvorí vlastnú adresu (ukáže sa len raz, v databáze je odtlačok) a môže ju zrušiť, všetko sa zapisuje pod jeho menom a ostatným príde upozornenie. Migrácia `migracia-2.6.sql`.
