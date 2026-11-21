@@ -101,6 +101,34 @@ Prvé spustenie trvá pár minút (stiahne sa PHP 8.4 s Apache, MariaDB 10.11 a 
 - **Claude Code:** v `.claude/launch.json` je nastavenie náhľadu — Claude Code spustí `docker compose up` a appku ukáže na porte 8080.
 - Na server sa nič z toho nenahráva (`docker/`, `docker-compose.yml`, `.claude/` sú vylúčené v `nasadenie.yml`). Či Docker funguje, overuje `.github/workflows/docker.yml`.
 
+### Testovanie na domácom serveri
+
+Testovacia kópia appky na vlastnom serveri (homelab) s Dockerom: nová verzia sa dá vyskúšať v celej domácej sieti skôr, než pôjde do `main` a na server pre rodinu. Má vlastnú databázu a fotky, so skutočnou appkou nemá nič spoločné.
+
+**Ako to funguje:** appka beží z vetvy **`test`** na GitHube. Kontajner `aktualizator` sa každú minútu pozrie, či na nej nie je nový commit. Keď áno, stiahne ho, appku reštartuje (pri zmene v `docker/` ju aj znova postaví, migrácie sa spustia samy) a počká, kým odpovie. Čo práve beží, ukáže `http://recepty.home/nasadene.txt`, a ak je nastavené ntfy, príde upozornenie. Keď je verzia v poriadku, vetva `test` sa zlúči do `main`.
+
+```
+nová zmena → commit do vetvy test → domáci server ju sám nasadí → vyskúšať → zlúčiť do main → release
+```
+
+**Inštalácia (raz, na serveri):**
+
+```
+sudo git clone -b test https://github.com/JustMajkiFTW/Evidencia-Receptov.git /opt/recepty-test
+cd /opt/recepty-test/docker/homelab
+sudo cp .env.example .env
+sudo nano .env          # heslá, priečinok na dáta, port, ntfy, AI kľúče
+sudo docker compose up -d --build
+```
+
+Potom v **Nginx Proxy Manager** pridaj Proxy Host `recepty.home` → IP servera, port `8095` (s pravidlom `*.home` v AdGuard netreba nič ďalšie) a prihlás sa menom a heslom z `RECEPTY_ADMIN_MENO` / `RECEPTY_ADMIN_HESLO`. Stack uvidíš aj v Portaineri (ako vytvorený mimo neho) a výpis v Dozzle alebo cez `sudo docker compose logs -f`.
+
+- Fotky, kuchárky a databáza sú v `RECEPTY_DATA` (predvolene `/data/recepty-test`), mimo priečinka s kódom. Priečinok `/opt/recepty-test` spravuje aktualizátor — ručné zmeny v ňom pri ďalšej verzii zmiznú.
+- Na inú vetvu sa dá prepnúť v `.env` (`RECEPTY_VETVA`) a `sudo docker compose up -d`.
+- Appka beží cez obyčajné `http://`, takže na telefóne nejde pridať na plochu, upozornenia ani biometria. Všetko ostatné (aj hlasový asistent s písaním) sa dá vyskúšať.
+- Aktualizátor má prístup k Dockeru na serveri (`docker.sock`, rovnako ako Portainer) a spúšťa kód z vetvy `test`. Do repozitára môžeš nahrávať len ty, takže beží len tvoj kód.
+- Na skúšku so skutočnými receptami: exportuj databázu v phpMyAdmin na hostingu a na serveri ju nahraj príkazom `sudo docker compose exec -T db mariadb -u recepty -pHESLO_Z_ENV recepty < zaloha.sql`.
+
 ### nginx
 
 Appka chráni `includes/` a `sql/` súbormi `.htaccess`, ktoré pozná len Apache. Na nginx musíš prístup zakázať sám, inak si ktokoľvek stiahne `includes/.env` s heslami:
@@ -291,7 +319,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `sql/` | `instalacia.sql` pre novú inštaláciu a `migracia-X.Y.sql` pre aktualizácie. |
 | `uploads/recipes/`, `uploads/objfood/` | Fotky receptov a fotky objednaného jedla. |
 | `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. `testy/falosna-ai.php` je falošná AI služba pre test hlasového asistenta, `testy/hladanie.php` test hľadania so skloňovaním a textu upozornenia na nákup, `testy/vyziva.php` test výživových hodnôt. |
-| `docker/`, `docker-compose.yml` | [Lokálne spustenie v Dockeri](#docker-lokálne): obraz PHP 8.4 s Apache (`docker/Dockerfile`), príprava pri štarte (`docker/entrypoint.sh`: knižnice, databáza, lokálny admin), nastavenie PHP a Apache. `.claude/launch.json` je náhľad pre Claude Code. Na server sa nenahrávajú. |
+| `docker/`, `docker-compose.yml` | [Lokálne spustenie v Dockeri](#docker-lokálne): obraz PHP 8.4 s Apache (`docker/Dockerfile`), príprava pri štarte (`docker/entrypoint.sh`: knižnice, databáza, lokálny admin), nastavenie PHP a Apache. `.claude/launch.json` je náhľad pre Claude Code. `docker/homelab/` je [testovacia appka na domácom serveri](#testovanie-na-domácom-serveri) s aktualizátorom z vetvy `test`. Na server sa nenahrávajú. |
 | `ukazky/` | Ukážkové fotky appky: náhľad v tomto README a galéria v `ukazky/README.md`. Na server sa nenahrávajú. |
 
 ### Databáza
@@ -393,7 +421,7 @@ Verzie do 3.2.1 vrátane boli vydané pod licenciou MIT a pre ne MIT platí ďal
 
 ## História verzií
 
-- **3.3** Hlasový asistent ako skúsený kuchár. Na „kedy sme robili…" povie všetky varenia, kto varil, hodnotenia a suroviny (nové nástroje `historia_receptu`, `co_sme_varili`, `ohodnot_recept` — aj pre Claude cez MCP), zvládne „čo sme varili minulý týždeň" a hodnotenie hlasom. Recept sa dá nadiktovať po častiach, asistent ho ukáže na kontrolu a uloží až po súhlase; otázka môže mať do 4000 znakov a nahrávka z iPhonu do 2,5 minúty s dlhšou pauzou pri diktovaní. Odpoveď má krátku časť na čítanie nahlas a podrobnosti na obrazovke. Rady a návrhy dostanú dlhšie premýšľanie modelu. **Android:** podržanie ikony appky ponúkne skratky **Hlasový asistent** a **Nákupný zoznam**. **Upozornenia:** posielajú sa s vysokou prioritou (prídu hneď aj v úspornom režime), kto ich má vypnuté, uvidí v appke pásik s tlačidlom Zapnúť, a v Správe pri používateľoch je vidno, kto ich má zapnuté. Vypnuté upozornenia v telefóne appka obísť nemôže. **Licencia:** od tejto verzie [AGPL-3.0](#licencia) namiesto MIT, staršie verzie ostávajú pod MIT. **Docker na lokálne spustenie:** `docker compose up --build` spustí appku na http://localhost:8080 s PHP 8.4, Apache a MariaDB 10.11, databáza sa pripraví sama a prihlásiť sa dá ako admin / recepty ([návod](#docker-lokálne)), s náhľadom pre Claude Code (`.claude/launch.json`) a testom Dockeru na GitHube (`docker.yml`). Na server sa z toho nič nenahráva. Databáza sa nemení.
+- **3.3** Hlasový asistent ako skúsený kuchár. Na „kedy sme robili…" povie všetky varenia, kto varil, hodnotenia a suroviny (nové nástroje `historia_receptu`, `co_sme_varili`, `ohodnot_recept` — aj pre Claude cez MCP), zvládne „čo sme varili minulý týždeň" a hodnotenie hlasom. Recept sa dá nadiktovať po častiach, asistent ho ukáže na kontrolu a uloží až po súhlase; otázka môže mať do 4000 znakov a nahrávka z iPhonu do 2,5 minúty s dlhšou pauzou pri diktovaní. Odpoveď má krátku časť na čítanie nahlas a podrobnosti na obrazovke. Rady a návrhy dostanú dlhšie premýšľanie modelu. **Android:** podržanie ikony appky ponúkne skratky **Hlasový asistent** a **Nákupný zoznam**. **Upozornenia:** posielajú sa s vysokou prioritou (prídu hneď aj v úspornom režime), kto ich má vypnuté, uvidí v appke pásik s tlačidlom Zapnúť, a v Správe pri používateľoch je vidno, kto ich má zapnuté. Vypnuté upozornenia v telefóne appka obísť nemôže. **Licencia:** od tejto verzie [AGPL-3.0](#licencia) namiesto MIT, staršie verzie ostávajú pod MIT. **Docker na lokálne spustenie:** `docker compose up --build` spustí appku na http://localhost:8080 s PHP 8.4, Apache a MariaDB 10.11, databáza sa pripraví sama a prihlásiť sa dá ako admin / recepty ([návod](#docker-lokálne)), s náhľadom pre Claude Code (`.claude/launch.json`) a testom Dockeru na GitHube (`docker.yml`). **Testovanie na domácom serveri:** `docker/homelab/` spustí testovaciu kópiu, ktorá si sama nasadzuje nové commity z vetvy `test` ([návod](#testovanie-na-domácom-serveri)). Na server sa z toho nič nenahráva. Databáza sa nemení.
 - **3.2.1** Nákupný zoznam: menu **Vymazať** (Len kúpené / Celý zoznam) sa na telefóne otváralo smerom dole a schovalo sa pod spodnú lištu. Teraz sa otvára nahor a položky sú väčšie na ťuknutie. Databáza sa nemení.
 - **3.2** Ďalšie AI služby, aby appka nezávisela len od limitu Gemini. **Groq** (`GROQ_API_KEY`, bezplatný plán bez karty): prepis hlasu z iPhonu cez Whisper ako prvá voľba (vlastný denný limit, nemíňa Gemini) a asistent aj výživa ako záloha; fotky Groq nevie a preskočí sa. **Mistral** (`MISTRAL_API_KEY`, API s kreditom): asistent, prepis cez Voxtral, fotky aj výživa. Poradie a modely na prepis: `AI_PREPIS_PORADIE`, `AI_PREPIS_MODEL_GROQ` / `_GEMINI` / `_MISTRAL`. Keď majú minutý limit všetky služby, appka povie „Bezplatný limit AI je na dnes minutý…" namiesto všeobecnej chyby. Databáza sa nemení.
 - **3.1** Nákup z fotky v hlasovom asistentovi: na „z fotky mi pridaj do nákupu" sa ukážu tlačidlá Odfotiť a Z galérie, AI z fotky (recept, kuchárka, nákupný zoznam, jedlo, aj po česky) vytiahne suroviny a pridá ich do nákupu bez uloženia receptu, ostatným príde upozornenie. Počíta sa do denného limitu fotiek. Databáza sa nemení.

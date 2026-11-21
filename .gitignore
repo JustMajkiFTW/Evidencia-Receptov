@@ -13,3 +13,5 @@ vendor/
 # Docker (lokálne): vlastné AI kľúče a lokálne nastavenia Claude Code
 docker/.env
 .claude/settings.local.json
+docker/homelab/.env
+nasadene.txt

@@ -1,0 +1,102 @@
+# Evidencia receptov — TESTOVACIA appka na domácom serveri (homelab).
+#
+# Beží z vetvy „test" na GitHube. Kontajner „aktualizator" sa každú minútu pozrie,
+# či na vetve nie je nový commit; keď áno, stiahne ho a appku reštartuje (pri zmene
+# v docker/ ju aj znova postaví). Pri štarte appky sa spustia migrácie databázy.
+#
+# Inštalácia (raz, na serveri):
+#   sudo git clone -b test https://github.com/JustMajkiFTW/Evidencia-Receptov.git /opt/recepty-test
+#   cd /opt/recepty-test/docker/homelab
+#   sudo cp .env.example .env && sudo nano .env
+#   sudo docker compose up -d --build
+#
+# Podrobnosti v README v časti „Testovanie na domácom serveri".
+# Skutočná appka pre rodinu ostáva na recepty.cambalik.eu, toto je oddelená kópia
+# s vlastnou databázou.
+
+name: recepty-test
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    image: recepty-app:test
+    restart: unless-stopped
+    ports:
+      - "${RECEPTY_PORT:-8095}:80"
+    volumes:
+      - ../..:/var/www/html
+      - vendor:/var/www/html/vendor
+      - ${RECEPTY_DATA:-/data/recepty-test}/uploads:/var/www/html/uploads
+      - ${RECEPTY_DATA:-/data/recepty-test}/kucharky:/var/www/html/kucharky
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_HOST: db
+      DB_NAME: recepty
+      DB_USER: recepty
+      DB_PASS: ${RECEPTY_DB_HESLO:-recepty-test-heslo}
+      DB_CHARSET: utf8mb4
+      APP_HOST: ${RECEPTY_HOST:-recepty.home}
+      # Pár kľúčov na upozornenia len pre testovaciu appku (nie je to ten zo servera).
+      VAPID_PUBLIC_KEY: BGHnjJVQviMkIJr59bC78K8pZjXsCCglqGaOI2cn1pmfPJtvF2B4BMAiE9yXM8-HuswsREF6G_4sBODf6dSJ3Do
+      VAPID_PRIVATE_KEY: 2DVBiErJ0Wt_IGvG8zQrZbltKYWV2JF1v7GmFMTtX-0
+      VAPID_SUBJECT: mailto:admin@localhost
+      CRON_KEY: ${RECEPTY_CRON_KEY:-testovaci-kluc-pre-cron}
+      APP_DEBUG: "1"
+      KUCHARKY_PRIECINOK: ""
+      LOKALNY_ADMIN_MENO: ${RECEPTY_ADMIN_MENO:-admin}
+      LOKALNY_ADMIN_HESLO: ${RECEPTY_ADMIN_HESLO:-recepty}
+      RECEPTY_PORT: ${RECEPTY_PORT:-8095}
+      TEST_DB_HOST: db
+      TEST_DB_ROOT_USER: root
+      TEST_DB_ROOT_PASS: ${RECEPTY_DB_ROOT_HESLO:-recepty-test-root}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost/login.php"]
+      interval: 30s
+      timeout: 5s
+      start_period: 180s
+      retries: 3
+
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${RECEPTY_DB_ROOT_HESLO:-recepty-test-root}
+      MARIADB_DATABASE: recepty
+      MARIADB_USER: recepty
+      MARIADB_PASSWORD: ${RECEPTY_DB_HESLO:-recepty-test-heslo}
+      TZ: Europe/Bratislava
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_general_ci"]
+    volumes:
+      - ${RECEPTY_DATA:-/data/recepty-test}/db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  aktualizator:
+    image: docker:cli
+    restart: unless-stopped
+    # Priečinok projektu je pripojený na tej istej ceste ako na serveri, aby príkaz
+    # „docker compose" z kontajnera našiel súbory rovnako ako zo servera.
+    working_dir: ${RECEPTY_CESTA:-/opt/recepty-test}
+    volumes:
+      - ${RECEPTY_CESTA:-/opt/recepty-test}:${RECEPTY_CESTA:-/opt/recepty-test}
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      RECEPTY_CESTA: ${RECEPTY_CESTA:-/opt/recepty-test}
+      RECEPTY_VETVA: ${RECEPTY_VETVA:-test}
+      RECEPTY_INTERVAL: ${RECEPTY_INTERVAL:-60}
+      RECEPTY_NTFY: ${RECEPTY_NTFY:-}
+      RECEPTY_ADRESA: ${RECEPTY_ADRESA:-http://recepty.home}
+    entrypoint: ["sh", "docker/homelab/aktualizator.sh"]
+
+volumes:
+  vendor:

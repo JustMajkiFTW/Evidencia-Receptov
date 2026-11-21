@@ -33,6 +33,9 @@ jobs:
           fetch-depth: 0 # s tagmi — kontrola pravidiel porovnáva s predchádzajúcou verziou
           persist-credentials: false
 
+      - name: Nastavenie pre domáci server (docker/homelab)
+        run: docker compose -f docker/homelab/docker-compose.yml config -q && sh -n docker/homelab/aktualizator.sh
+
       - name: Spustenie (docker compose up)
         run: docker compose up --build --detach --wait --wait-timeout 400
 
