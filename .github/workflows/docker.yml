@@ -49,7 +49,8 @@ jobs:
               --data-urlencode action=password_login --data-urlencode "csrf_token=$token" \
               --data-urlencode username=admin --data-urlencode password=recepty "$URL/login.php")
           [ "$kod" = "302" ] || { echo "Prihlásenie vrátilo $kod namiesto presmerovania"; exit 1; }
-          curl -fsS -b "$JAR" "$URL/index.php" | grep -q 'APP_VAPID_PUBLIC_KEY' || { echo "Hlavná stránka sa po prihlásení neukázala"; exit 1; }
+          stranka=$(curl -sS -b "$JAR" -w '\nHTTP %{http_code}' "$URL/index.php")
+          grep -q 'APP_VAPID_PUBLIC_KEY' <<<"$stranka" || { echo "Hlavná stránka sa po prihlásení neukázala:"; tail -c 1500 <<<"$stranka"; exit 1; }
           echo "Prihlásenie admin / recepty funguje"
           for cesta in includes/.env includes/config.php kucharky/ docker-compose.yml sql/instalacia.sql .git/config; do
               kod=$(curl -s -o /dev/null -w '%{http_code}' "$URL/$cesta")
