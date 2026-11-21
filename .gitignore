@@ -9,3 +9,7 @@ vendor/
 # Kuchárky v PDF (2.8) sú len na serveri, do repozitára nepatria
 /kucharky/*
 !/kucharky/.htaccess
+
+# Docker (lokálne): vlastné AI kľúče a lokálne nastavenia Claude Code
+docker/.env
+.claude/settings.local.json

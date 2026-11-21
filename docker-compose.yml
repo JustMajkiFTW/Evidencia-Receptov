@@ -1,0 +1,94 @@
+# Evidencia receptov v Dockeri — LEN na lokálne spustenie a skúšanie na vlastnom počítači.
+#
+#   docker compose up --build      spustí appku na http://localhost:8080 (meno admin, heslo recepty)
+#   docker compose down            zastaví ju (recepty v databáze ostanú)
+#   docker compose down -v         zastaví ju a ZMAŽE lokálnu databázu
+#
+# Heslá a kľúče nižšie sú len pre tento počítač — na server (recepty.cambalik.eu) sa nič
+# z toho nedostane, ten má vlastný includes/.env. Port je otvorený len pre tento počítač
+# (127.0.0.1), z mobilu v domácej sieti sa na appku nedostaneš.
+#
+# AI kľúče (nepovinné) daj do docker/.env podľa docker/.env.example.
+# Podrobnosti sú v README v časti „Docker (lokálne)".
+
+name: recepty
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: recepty-app:lokalne
+    ports:
+      - "127.0.0.1:${RECEPTY_PORT:-8080}:80"
+    volumes:
+      - ./:/var/www/html             # kód appky — zmeny sú vidno hneď
+      - vendor:/var/www/html/vendor  # knižnice zvlášť, do projektu sa nič nestiahne
+    env_file:
+      - path: docker/.env
+        required: false
+    environment:
+      DB_HOST: db
+      DB_NAME: recepty
+      DB_USER: recepty
+      DB_PASS: recepty-lokalne-heslo
+      DB_CHARSET: utf8mb4
+      APP_HOST: localhost
+      # Pár kľúčov na upozornenia len pre lokálnu appku (nie je to ten zo servera).
+      VAPID_PUBLIC_KEY: BGHnjJVQviMkIJr59bC78K8pZjXsCCglqGaOI2cn1pmfPJtvF2B4BMAiE9yXM8-HuswsREF6G_4sBODf6dSJ3Do
+      VAPID_PRIVATE_KEY: 2DVBiErJ0Wt_IGvG8zQrZbltKYWV2JF1v7GmFMTtX-0
+      VAPID_SUBJECT: mailto:admin@localhost
+      CRON_KEY: lokalny-kluc-pre-cron
+      APP_DEBUG: "1"
+      # Prázdne = kuchárky v priečinku kucharky/ projektu (aj keby includes/.env hovoril inak).
+      KUCHARKY_PRIECINOK: ""
+      # Účet, ktorý sa založí pri prvom štarte (install.php netreba).
+      LOKALNY_ADMIN_MENO: admin
+      LOKALNY_ADMIN_HESLO: recepty
+      RECEPTY_PORT: ${RECEPTY_PORT:-8080}
+      # Pre testy: docker compose exec app bash testy/spusti-testy.sh
+      TEST_DB_HOST: db
+      TEST_DB_ROOT_USER: root
+      TEST_DB_ROOT_PASS: recepty-lokalne-root
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost/login.php"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: recepty-lokalne-root
+      MARIADB_DATABASE: recepty
+      MARIADB_USER: recepty
+      MARIADB_PASSWORD: recepty-lokalne-heslo
+      TZ: Europe/Bratislava
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_general_ci"]
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Prehliadanie databázy v prehliadači (nepovinné):
+  #   docker compose --profile db up   →  http://localhost:8081  (server db, používateľ recepty)
+  adminer:
+    image: adminer:latest
+    profiles: ["db"]
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      - db
+
+volumes:
+  db:
+  vendor:

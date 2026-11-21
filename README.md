@@ -73,6 +73,34 @@ Potom otvor `http://localhost:8000/install.php` a do `.env` daj `APP_HOST=localh
 - Vstavaný server PHP nepozná `.htaccess` a vydal by aj `includes/.env`. Používaj ho len na `localhost`, nikdy ho nesprístupňuj do siete.
 - Na `localhost` funguje všetko okrem biometrie, tá potrebuje HTTPS na `APP_HOST`. Z iného zariadenia v domácej sieti bez HTTPS nefunguje ani plocha, offline režim a upozornenia.
 
+### Docker (lokálne)
+
+Najjednoduchšie spustenie na vlastnom počítači: netreba inštalovať PHP, MariaDB ani Composer, stačí [Docker Desktop](https://www.docker.com/products/docker-desktop/). Je to **len na skúšanie doma**, appka na serveri beží ďalej na webhostingu.
+
+```
+docker compose up --build
+```
+
+Prvé spustenie trvá pár minút (stiahne sa PHP 8.4 s Apache, MariaDB 10.11 a knižnice do `vendor/`). Keď sa vo výpise objaví `Appka je pripravená`, otvor **http://localhost:8080** a prihlás sa menom **admin** a heslom **recepty**. Databáza sa naplní sama zo `sql/instalacia.sql`, `install.php` netreba.
+
+| Príkaz | Čo spraví |
+|---|---|
+| `docker compose up --build` | Spustí appku (Ctrl+C ju zastaví). S `-d` beží na pozadí. |
+| `docker compose down` | Zastaví appku. Recepty v lokálnej databáze ostanú. |
+| `docker compose down -v` | Zastaví appku a **zmaže** lokálnu databázu aj stiahnuté knižnice. |
+| `docker compose logs -f app` | Výpis appky a chýb PHP. |
+| `docker compose exec app bash testy/spusti-testy.sh` | [Testy](#testy) priamo v kontajneri (appka musí bežať). |
+| `docker compose --profile db up` | Spustí aj Adminer na prehliadanie databázy: http://localhost:8081 (server `db`, používateľ `recepty`, heslo `recepty-lokalne-heslo`). |
+
+- **Kód sa nekopíruje.** Priečinok projektu je pripojený do kontajnera, zmena v súbore je vidno po obnovení stránky. Pri CSS a JS si prehliadač drží starú verziu v cache service workera, kým sa nezvýši `CACHE_NAME` (alebo v nástrojoch prehliadača zaškrtni *Update on reload*).
+- **Nová verzia z GitHubu:** po `git pull` stačí `docker compose up --build`. Pri štarte sa vždy spustí `sql/instalacia.sql` aj všetky migrácie (dajú sa spúšťať opakovane), takže lokálna databáza sa doplní sama, a keď sa zmení `composer.lock`, knižnice sa stiahnu znova.
+- **Nastavenie** je v `docker-compose.yml` (databáza, `APP_HOST=localhost`, lokálne kľúče na upozornenia, `APP_DEBUG=1`). Heslá v ňom platia len pre tento počítač. Port `8080` sa dá zmeniť premennou `RECEPTY_PORT`.
+- **AI** (recept z fotky, hlasový asistent): skopíruj `docker/.env.example` ako `docker/.env` a doplň kľúč. Ak máš v projekte aj `includes/.env`, appka si z neho vezme to, čo Docker nenastavuje (napr. AI kľúče), databázu a adresu však vždy prepíše Docker.
+- **Fotky a kuchárky** sa ukladajú do `uploads/` a `kucharky/` v projekte, rovnako ako na serveri (na GitHub nejdú).
+- Appka je dostupná len z tohto počítača (`127.0.0.1`). Biometria na `http://localhost` nefunguje, potrebuje HTTPS, všetko ostatné áno.
+- **Claude Code:** v `.claude/launch.json` je nastavenie náhľadu — Claude Code spustí `docker compose up` a appku ukáže na porte 8080.
+- Na server sa nič z toho nenahráva (`docker/`, `docker-compose.yml`, `.claude/` sú vylúčené v `nasadenie.yml`). Či Docker funguje, overuje `.github/workflows/docker.yml`.
+
 ### nginx
 
 Appka chráni `includes/` a `sql/` súbormi `.htaccess`, ktoré pozná len Apache. Na nginx musíš prístup zakázať sám, inak si ktokoľvek stiahne `includes/.env` s heslami:
@@ -198,7 +226,7 @@ Po vydaní verzie (Release) na GitHube spraví `.github/workflows/nasadenie.yml`
 2. cez šifrované FTP nahrá len zmenené súbory a zmaže tie, ktoré v novej verzii už nie sú,
 3. overí, že appka na serveri beží a že súbory s heslami nie sú dostupné z internetu.
 
-Nikdy nenahrá ani nezmaže `includes/.env`, `vendor/`, `uploads/`, PDF v `kucharky/`, `sql/`, `install.php`, `testy/`, `ukazky/`, `README.md`, `LICENSE` a `composer.json` / `composer.lock`. Release označený ako pre-release sa nenahráva. Súbor `includes/.ftp-deploy-sync-state.json` na serveri nemaž, podľa neho sa nahrávajú len zmeny.
+Nikdy nenahrá ani nezmaže `includes/.env`, `vendor/`, `uploads/`, PDF v `kucharky/`, `sql/`, `install.php`, `testy/`, `ukazky/`, súbory pre Docker (`docker/`, `docker-compose.yml`, `.claude/`), `README.md`, `LICENSE` a `composer.json` / `composer.lock`. Release označený ako pre-release sa nenahráva. Súbor `includes/.ftp-deploy-sync-state.json` na serveri nemaž, podľa neho sa nahrávajú len zmeny.
 
 **Jednorazové nastavenie:** v repozitári otvor **Settings → Secrets and variables → Actions** a pridaj:
 
@@ -263,6 +291,7 @@ Všetky akcie (uloženie receptu, hodnotenie, nákup) idú ako POST na `index.ph
 | `sql/` | `instalacia.sql` pre novú inštaláciu a `migracia-X.Y.sql` pre aktualizácie. |
 | `uploads/recipes/`, `uploads/objfood/` | Fotky receptov a fotky objednaného jedla. |
 | `testy/`, `.github/workflows/` | Automatické testy a nahrávanie na server. `testy/falosna-ai.php` je falošná AI služba pre test hlasového asistenta, `testy/hladanie.php` test hľadania so skloňovaním a textu upozornenia na nákup, `testy/vyziva.php` test výživových hodnôt. |
+| `docker/`, `docker-compose.yml` | [Lokálne spustenie v Dockeri](#docker-lokálne): obraz PHP 8.4 s Apache (`docker/Dockerfile`), príprava pri štarte (`docker/entrypoint.sh`: knižnice, databáza, lokálny admin), nastavenie PHP a Apache. `.claude/launch.json` je náhľad pre Claude Code. Na server sa nenahrávajú. |
 | `ukazky/` | Ukážkové fotky appky: náhľad v tomto README a galéria v `ukazky/README.md`. Na server sa nenahrávajú. |
 
 ### Databáza
@@ -315,6 +344,8 @@ TEST_DB_ROOT_USER=root TEST_DB_ROOT_PASS=heslo bash testy/spusti-testy.sh
 
 Test si založí vlastné databázy `recepty_test_…` a na konci ich zmaže. Tvoj `.env` ani fotky nemení. Na Windows sa dá spustiť cez Git Bash alebo WSL.
 
+Bez vlastného PHP a MariaDB stačí [Docker](#docker-lokálne): `docker compose up -d` a potom `docker compose exec app bash testy/spusti-testy.sh`.
+
 ## Riešenie problémov
 
 Chyby sa zapisujú do `includes/debug-log.txt`. S `APP_DEBUG=1` v `.env` sa presná chyba ukáže priamo na obrazovke.
@@ -362,7 +393,7 @@ Verzie do 3.2.1 vrátane boli vydané pod licenciou MIT a pre ne MIT platí ďal
 
 ## História verzií
 
-- **3.3** Hlasový asistent ako skúsený kuchár. Na „kedy sme robili…" povie všetky varenia, kto varil, hodnotenia a suroviny (nové nástroje `historia_receptu`, `co_sme_varili`, `ohodnot_recept` — aj pre Claude cez MCP), zvládne „čo sme varili minulý týždeň" a hodnotenie hlasom. Recept sa dá nadiktovať po častiach, asistent ho ukáže na kontrolu a uloží až po súhlase; otázka môže mať do 4000 znakov a nahrávka z iPhonu do 2,5 minúty s dlhšou pauzou pri diktovaní. Odpoveď má krátku časť na čítanie nahlas a podrobnosti na obrazovke. Rady a návrhy dostanú dlhšie premýšľanie modelu. **Android:** podržanie ikony appky ponúkne skratky **Hlasový asistent** a **Nákupný zoznam**. **Upozornenia:** posielajú sa s vysokou prioritou (prídu hneď aj v úspornom režime), kto ich má vypnuté, uvidí v appke pásik s tlačidlom Zapnúť, a v Správe pri používateľoch je vidno, kto ich má zapnuté. Vypnuté upozornenia v telefóne appka obísť nemôže. **Licencia:** od tejto verzie [AGPL-3.0](#licencia) namiesto MIT, staršie verzie ostávajú pod MIT. Databáza sa nemení.
+- **3.3** Hlasový asistent ako skúsený kuchár. Na „kedy sme robili…" povie všetky varenia, kto varil, hodnotenia a suroviny (nové nástroje `historia_receptu`, `co_sme_varili`, `ohodnot_recept` — aj pre Claude cez MCP), zvládne „čo sme varili minulý týždeň" a hodnotenie hlasom. Recept sa dá nadiktovať po častiach, asistent ho ukáže na kontrolu a uloží až po súhlase; otázka môže mať do 4000 znakov a nahrávka z iPhonu do 2,5 minúty s dlhšou pauzou pri diktovaní. Odpoveď má krátku časť na čítanie nahlas a podrobnosti na obrazovke. Rady a návrhy dostanú dlhšie premýšľanie modelu. **Android:** podržanie ikony appky ponúkne skratky **Hlasový asistent** a **Nákupný zoznam**. **Upozornenia:** posielajú sa s vysokou prioritou (prídu hneď aj v úspornom režime), kto ich má vypnuté, uvidí v appke pásik s tlačidlom Zapnúť, a v Správe pri používateľoch je vidno, kto ich má zapnuté. Vypnuté upozornenia v telefóne appka obísť nemôže. **Licencia:** od tejto verzie [AGPL-3.0](#licencia) namiesto MIT, staršie verzie ostávajú pod MIT. **Docker na lokálne spustenie:** `docker compose up --build` spustí appku na http://localhost:8080 s PHP 8.4, Apache a MariaDB 10.11, databáza sa pripraví sama a prihlásiť sa dá ako admin / recepty ([návod](#docker-lokálne)), s náhľadom pre Claude Code (`.claude/launch.json`) a testom Dockeru na GitHube (`docker.yml`). Na server sa z toho nič nenahráva. Databáza sa nemení.
 - **3.2.1** Nákupný zoznam: menu **Vymazať** (Len kúpené / Celý zoznam) sa na telefóne otváralo smerom dole a schovalo sa pod spodnú lištu. Teraz sa otvára nahor a položky sú väčšie na ťuknutie. Databáza sa nemení.
 - **3.2** Ďalšie AI služby, aby appka nezávisela len od limitu Gemini. **Groq** (`GROQ_API_KEY`, bezplatný plán bez karty): prepis hlasu z iPhonu cez Whisper ako prvá voľba (vlastný denný limit, nemíňa Gemini) a asistent aj výživa ako záloha; fotky Groq nevie a preskočí sa. **Mistral** (`MISTRAL_API_KEY`, API s kreditom): asistent, prepis cez Voxtral, fotky aj výživa. Poradie a modely na prepis: `AI_PREPIS_PORADIE`, `AI_PREPIS_MODEL_GROQ` / `_GEMINI` / `_MISTRAL`. Keď majú minutý limit všetky služby, appka povie „Bezplatný limit AI je na dnes minutý…" namiesto všeobecnej chyby. Databáza sa nemení.
 - **3.1** Nákup z fotky v hlasovom asistentovi: na „z fotky mi pridaj do nákupu" sa ukážu tlačidlá Odfotiť a Z galérie, AI z fotky (recept, kuchárka, nákupný zoznam, jedlo, aj po česky) vytiahne suroviny a pridá ich do nákupu bez uloženia receptu, ostatným príde upozornenie. Počíta sa do denného limitu fotiek. Databáza sa nemení.

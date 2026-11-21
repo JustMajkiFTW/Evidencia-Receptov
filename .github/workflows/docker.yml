@@ -1,0 +1,61 @@
+# Overí lokálny Docker (docker-compose.yml): obraz sa postaví, appka naštartuje,
+# lokálny admin sa prihlási a v kontajneri prebehnú tie isté testy ako v testy.yml.
+# Spúšťa sa len pri zmene súborov pre Docker, knižníc alebo databázy, alebo ručne
+# (Actions → Docker → Run workflow). Na server nič nenahráva.
+
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - 'docker-compose.yml'
+      - '.dockerignore'
+      - 'composer.lock'
+      - 'sql/**'
+      - '.github/workflows/docker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Lokálny Docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Stiahnutie kódu
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # s tagmi — kontrola pravidiel porovnáva s predchádzajúcou verziou
+          persist-credentials: false
+
+      - name: Spustenie (docker compose up)
+        run: docker compose up --build --detach --wait --wait-timeout 400
+
+      - name: Prihlásenie lokálneho admina a ochrana súborov
+        run: |
+          set -euo pipefail
+          URL=http://127.0.0.1:8080
+          JAR=$(mktemp)
+          token=$(curl -fsS -c "$JAR" "$URL/login.php" | grep -oP 'name="csrf_token" value="\K[^"]+')
+          kod=$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -c "$JAR" \
+              --data-urlencode action=password_login --data-urlencode "csrf_token=$token" \
+              --data-urlencode username=admin --data-urlencode password=recepty "$URL/login.php")
+          [ "$kod" = "302" ] || { echo "Prihlásenie vrátilo $kod namiesto presmerovania"; exit 1; }
+          curl -fsS -b "$JAR" "$URL/index.php" | grep -q 'APP_VAPID_PUBLIC_KEY' || { echo "Hlavná stránka sa po prihlásení neukázala"; exit 1; }
+          echo "Prihlásenie admin / recepty funguje"
+          for cesta in includes/.env includes/config.php kucharky/ docker-compose.yml sql/instalacia.sql .git/config; do
+              kod=$(curl -s -o /dev/null -w '%{http_code}' "$URL/$cesta")
+              case "$kod" in 403|404) echo "  /$cesta → $kod" ;; *) echo "/$cesta je dostupné ($kod)"; exit 1 ;; esac
+          done
+
+      - name: Testy v kontajneri
+        run: docker compose exec -T app bash testy/spusti-testy.sh
+
+      - name: Výpis kontajnerov pri chybe
+        if: failure()
+        run: docker compose logs --no-color

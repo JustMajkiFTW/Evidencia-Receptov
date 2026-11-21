@@ -1,0 +1,4 @@
+# Do obrazu ide len priečinok docker/ — kód appky sa pripája pri spustení (docker-compose.yml).
+*
+!docker/
+docker/.env
