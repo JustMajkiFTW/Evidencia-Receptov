@@ -1,12 +1,12 @@
 # Automatický test appky (testy/spusti-testy.sh) nad PHP 8.4 a MariaDB.
-# Spúšťa sa pri každom nahratí do main, pri pull requeste a pred nahratím
+# Spúšťa sa pri každom nahratí do main a do test (testovacia appka na domácom serveri), pri pull requeste a pred nahratím
 # novej verzie na server (volá ho nasadenie.yml). Výsledok je v záložke Actions.
 
 name: Testy
 
 on:
   push:
-    branches: [main]
+    branches: [main, test]
   pull_request:
   workflow_dispatch:
   workflow_call:
