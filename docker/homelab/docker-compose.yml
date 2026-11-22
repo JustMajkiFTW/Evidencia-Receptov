@@ -98,5 +98,13 @@ services:
       RECEPTY_ADRESA: ${RECEPTY_ADRESA:-http://recepty.home}
     entrypoint: ["sh", "docker/homelab/aktualizator.sh"]
 
+# Vlastná sieť s pevným rozsahom: na serveri sú bežné rozsahy Dockeru (172.17–172.31)
+# obsadené inými stackmi. Keby sa rozsah s niečím bil, zmeň RECEPTY_SIET v .env.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${RECEPTY_SIET:-172.16.1.0/24}
+
 volumes:
   vendor:
