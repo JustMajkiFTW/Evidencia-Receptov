@@ -13,7 +13,7 @@
 
 set -u
 cd "$RECEPTY_CESTA" || exit 1
-command -v git >/dev/null 2>&1 || apk add --no-cache git curl >/dev/null
+command -v git >/dev/null 2>&1 || apk add --no-cache git curl tzdata >/dev/null
 git config --global --add safe.directory "$RECEPTY_CESTA"
 
 VETVA="${RECEPTY_VETVA:-test}"
@@ -38,10 +38,12 @@ upozorni() { # $1 = nadpis, $2 = text
 over_a_ohlas() {
     KRATKY="$(git rev-parse --short HEAD)"
     SPRAVA="$(git log -1 --format=%s)"
+    # Pýtame sa priamo appky (služba „app" v tej istej sieti), nie stavu z Dockeru:
+    # ten po reštarte ešte chvíľu ukazuje starý „healthy".
     OK=0
+    sleep 5
     for _ in $(seq 1 60); do
-        STAV="$(docker inspect -f '{{.State.Health.Status}}' "$($COMPOSE ps -q app)" 2>/dev/null)"
-        [ "$STAV" = "healthy" ] && { OK=1; break; }
+        curl -fsS -m 10 -o /dev/null http://app/login.php 2>/dev/null && { OK=1; break; }
         sleep 5
     done
     if [ "$OK" -eq 1 ]; then
