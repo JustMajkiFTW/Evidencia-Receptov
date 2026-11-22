@@ -77,14 +77,16 @@ while true; do
 
             if echo "$ZMENY" | grep -q '^docker/homelab/'; then
                 # Zmenilo sa nastavenie stacku alebo tento skript. Kontajner nemôže spoľahlivo
-                # obnoviť sám seba, preto to spraví pomocný kontajner mimo stacku; nový
+                # obnoviť sám seba, preto to spraví pomocný kontajner mimo stacku. Aktualizátor
+                # vytvorí vždy nanovo (--force-recreate), aj keď sa zmenil len tento skript, a nový
                 # aktualizátor potom podľa „nasadzujem" v nasadene.txt dokončí kontrolu.
                 info "Zmena v docker/homelab/ — obnovujem celý stack"
                 zapis_stav "nasadzujem"
                 docker run -d --rm --name recepty-test-obnova \
                     -v "$RECEPTY_CESTA:$RECEPTY_CESTA" -w "$RECEPTY_CESTA" \
                     -v /var/run/docker.sock:/var/run/docker.sock \
-                    docker:cli compose -f "$SUBOR" up -d --build --remove-orphans >/dev/null
+                    docker:cli sh -c "docker compose -f '$SUBOR' up -d --build --remove-orphans \
+                        && docker compose -f '$SUBOR' up -d --force-recreate --no-deps aktualizator" >/dev/null
                 sleep 600 # tento kontajner pomocník medzitým nahradí novým
                 continue
             elif echo "$ZMENY" | grep -q '^docker/'; then
