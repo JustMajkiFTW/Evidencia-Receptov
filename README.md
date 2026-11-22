@@ -124,6 +124,7 @@ sudo docker compose up -d --build
 Potom v **Nginx Proxy Manager** pridaj Proxy Host `recepty.home` → IP servera, port `8095` (s pravidlom `*.home` v AdGuard netreba nič ďalšie) a prihlás sa menom a heslom z `RECEPTY_ADMIN_MENO` / `RECEPTY_ADMIN_HESLO`. Stack uvidíš aj v Portaineri (ako vytvorený mimo neho) a výpis v Dozzle alebo cez `sudo docker compose logs -f`.
 
 - Fotky, kuchárky a databáza sú v `RECEPTY_DATA` (predvolene `/data/recepty-test`), mimo priečinka s kódom. Priečinok `/opt/recepty-test` spravuje aktualizátor — ručné zmeny v ňom pri ďalšej verzii zmiznú.
+- Keď `docker compose up` hlási `Pool overlaps with other one`, rozsah siete `RECEPTY_SIET` už používa iný stack. Obsadené rozsahy vypíše `sudo docker network inspect $(sudo docker network ls -q) --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}'`, v `.env` daj voľný a spusti `sudo docker compose up -d`.
 - Na inú vetvu sa dá prepnúť v `.env` (`RECEPTY_VETVA`) a `sudo docker compose up -d`.
 - Appka beží cez obyčajné `http://`, takže na telefóne nejde pridať na plochu, upozornenia ani biometria. Všetko ostatné (aj hlasový asistent s písaním) sa dá vyskúšať.
 - Aktualizátor má prístup k Dockeru na serveri (`docker.sock`, rovnako ako Portainer) a spúšťa kód z vetvy `test`. Do repozitára môžeš nahrávať len ty, takže beží len tvoj kód.
