@@ -13,7 +13,8 @@
 
 set -u
 cd "$RECEPTY_CESTA" || exit 1
-command -v git >/dev/null 2>&1 || apk add --no-cache git curl tzdata >/dev/null
+# git, curl (kontrola appky, ntfy) a časové pásmo — obraz docker:cli niektoré z nich nemá.
+apk add --no-cache git curl tzdata >/dev/null 2>&1 || echo "[aktualizator] Nepodarilo sa doinštalovať git/curl/tzdata"
 git config --global --add safe.directory "$RECEPTY_CESTA"
 
 VETVA="${RECEPTY_VETVA:-test}"
