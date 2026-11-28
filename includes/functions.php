@@ -1673,7 +1673,59 @@ function mark_recipe_made(PDO $pdo, int $recipeId, int $userId, ?string $madeDat
         return ['success' => false, 'error' => 'Nepodarilo sa uložiť varenie.'];
     }
 
-    return ['success' => true];
+    // 'datum' a 'predosle' (posledné varenie pred týmto zápisom) potrebuje upozornenie ostatným (3.4).
+    return ['success' => true, 'datum' => $date, 'predosle' => $recipe['last_made_date'] ?? null];
+}
+
+/* ======================================================================
+   Upozornenie „niekto uvaril recept" (3.4) — príde všetkým okrem toho,
+   kto varil, aj s tým, kedy sa recept varil predtým.
+   ====================================================================== */
+
+/** Počet dní → „pred dňom", „pred 3 dňami", „pred týždňom", „pred 2 mesiacmi", „pred rokom"… */
+function sk_pred_casom(int $dni): string
+{
+    return match (true) {
+        $dni <= 1   => 'pred dňom',
+        $dni < 7    => 'pred ' . $dni . ' dňami',
+        $dni < 14   => 'pred týždňom',
+        $dni < 30   => 'pred ' . intdiv($dni, 7) . ' týždňami',
+        $dni < 60   => 'pred mesiacom',
+        $dni < 365  => 'pred ' . intdiv($dni, 30) . ' mesiacmi',
+        $dni < 730  => 'pred rokom',
+        default     => 'pred ' . intdiv($dni, 365) . ' rokmi',
+    };
+}
+
+/**
+ * Text upozornenia na uvarený recept (zvlášť kvôli testom), alebo null, keď sa nemá posielať:
+ * varenie staršie než včera (dopisovanie histórie) alebo recept sa v ten deň či neskôr už zapísal.
+ * $predosle = kedy sa recept varil pred týmto zápisom (null = ešte nikdy).
+ */
+function made_notify_text(string $kto, string $recept, string $datum, ?string $predosle, string $cez = ''): ?string
+{
+    $dnes = new DateTime(app_today());
+    $den = DateTime::createFromFormat('!Y-m-d', $datum);
+    if (!$den || $den > $dnes || (int) $den->diff($dnes)->days > 1) {
+        return null;
+    }
+    if ($predosle !== null && $predosle >= $datum) {
+        return null; // v ten deň už niekto zapísal (alebo je zapísané neskoršie varenie)
+    }
+    $text = $kto . ' ' . ($den < $dnes ? 'včera ' : '') . 'uvaril(a) „' . $recept . '"';
+    $minule = $predosle !== null ? DateTime::createFromFormat('!Y-m-d', $predosle) : false;
+    $text .= $minule ? ' — naposledy ' . sk_pred_casom((int) $minule->diff($den)->days) : ' — prvýkrát';
+    return $text . ($cez !== '' ? ' (cez ' . $cez . ')' : '');
+}
+
+/** Pošle upozornenie na uvarený recept všetkým okrem toho, kto varil. Volá sa cez po_odpovedi(). */
+function made_notify(PDO $pdo, int $recipeId, string $recept, int $userId, string $kto, string $datum, ?string $predosle, string $cez = ''): void
+{
+    $text = made_notify_text($kto, $recept, $datum, $predosle, $cez);
+    if ($text !== null) {
+        // rovnaká značka: keď ten istý recept zapíšu dvaja, telefón ukáže len posledné upozornenie
+        send_push_notification($pdo, null, 'Uvarené 🍳', $text, './?recept=' . $recipeId, $userId, 'uvarene-' . $recipeId, 'normal');
+    }
 }
 
 /**

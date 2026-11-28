@@ -151,7 +151,17 @@ if (in_array($action, ['add_recipe', 'update_recipe', 'mark_made', 'delete_recip
         case 'mark_made':
             // made_date = deň varenia z okna „Uvarené" (prázdne alebo neplatné = dnes)
             $madeDate = parse_app_date($_POST['made_date'] ?? null);
-            $result = mark_recipe_made($pdo, (int)($_POST['recipe_id'] ?? 0), $userId, $madeDate, $newImagePath);
+            $recipeId = (int)($_POST['recipe_id'] ?? 0);
+            $result = mark_recipe_made($pdo, $recipeId, $userId, $madeDate, $newImagePath);
+            if ($result['success']) { // upozornenie ostatným (3.4), odošle sa až po odpovedi
+                $madeRecipe = get_recipe($pdo, $recipeId);
+                $kto = trim((string) ($user['full_name'] ?? '')) !== '' ? $user['full_name'] : ($user['username'] ?? 'Niekto');
+                if ($madeRecipe) {
+                    po_odpovedi(static fn() => made_notify($pdo, $recipeId, $madeRecipe['name'], $userId, $kto,
+                        $result['datum'], $result['predosle']));
+                }
+            }
+            unset($result['datum'], $result['predosle']);
             break;
 
         case 'delete_photo':

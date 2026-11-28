@@ -357,6 +357,13 @@ if ($rezim === 'asistent') {
     $o = $spytaj("ohodnoť $receptId na 5");
     over(uspech($o) && ($o->json()['zmeny'] ?? null) === true && str_contains((string) ($o->json()['odpoved'] ?? ''), '5 hviezdičiek'),
         'Asistent ohodnotí recept hlasom', $o->popis());
+    // 3.4: úprava receptu hlasom — prehľad nič nezapíše, po potvrdení sa uloží
+    $vajcia = static fn(): float => (float) (array_column(recepty_zo_stranky($p->get('index.php')->telo)[$receptId]['suroviny'] ?? [], null, 'nazov')['Vajcia']['mnozstvo'] ?? 0);
+    $o = $spytaj("uprav $receptId vajcia 5");
+    over(uspech($o) && ($o->json()['akcie'][0]['nastroj'] ?? '') === 'uprav_recept' && ($o->json()['akcie'][0]['ok'] ?? false) === true
+        && ($o->json()['zmeny'] ?? null) === false && $vajcia() === 4.0, 'Úprava receptu hlasom najprv len ukáže zmeny (nič nezapíše)', $o->popis());
+    $o = $spytaj("uprav $receptId vajcia 5 potvrď");
+    over(uspech($o) && ($o->json()['zmeny'] ?? null) === true && $vajcia() === 5.0, 'Po potvrdení asistent úpravu receptu uloží', $o->popis());
     $o = $spytaj('Povedz mi celý recept');
     over(uspech($o) && ($o->json()['odpoved'] ?? '') === 'Tu je celý recept, podrobnosti máš na obrazovke.'
         && ($o->json()['podrobnosti'] ?? '') === "Palacinky\n- 250 g Múka hladká\n- 2 Vajcia\n1. Vymiešaj cesto.\n2. Opeč na panvici.",
@@ -913,6 +920,46 @@ if ($mcpVDatabaze) {
         'S preklepom asistent ponúkne podobný recept', $o->popis());
     $o = $volaj('zobraz_recept', ['id' => $mcpId]);
     over(str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), '300 g Múka hladká'), 'Asistent zobrazí recept so surovinami', $o->popis());
+
+    // 3.4: úprava receptu — najprv len prehľad, uloží sa až s potvrdene
+    $nazovUprava = "Guláš na úpravu $znacka";
+    $o = $volaj('pridaj_recept', ['nazov' => $nazovUprava, 'porcie' => 4, 'postup' => "1. Opeč cibuľu.\n2. Duste.", 'suroviny' => [
+        ['nazov' => 'Cibuľa', 'mnozstvo' => 2, 'jednotka' => 'ks'],
+        ['nazov' => 'Paprika mletá sladká', 'mnozstvo' => 2, 'jednotka' => 'PL'],
+        ['nazov' => "Hovädzie $znacka", 'mnozstvo' => 800, 'jednotka' => 'g'],
+    ]]);
+    $upravaId = (int) ($vysledok($o)['structuredContent']['id'] ?? 0);
+    over($upravaId > 0, 'Recept na úpravu sa pridá', $o->popis());
+    $zmeny = ['id' => $upravaId, 'suroviny_zmenit' => [['nazov' => 'cibula', 'mnozstvo' => 3]],
+        'suroviny_pridat' => [['nazov' => 'Rasca', 'mnozstvo' => 1, 'jednotka' => 'ČL']], 'suroviny_odobrat' => ['paprika mleta'],
+        'postup_doplnit' => '3. Podávaj s chlebom.'];
+    $o = $volaj('uprav_recept', $zmeny);
+    $text = (string) ($vysledok($o)['content'][0]['text'] ?? '');
+    $recept = recepty_zo_stranky($p->get('index.php')->telo)[$upravaId] ?? [];
+    over(($vysledok($o)['isError'] ?? true) === false && ($vysledok($o)['structuredContent']['ulozene'] ?? null) === false
+        && str_contains($text, '2 ks Cibuľa → 3 ks Cibuľa') && str_contains($text, 'Pridať: 1 ČL Rasca') && str_contains($text, 'Odobrať: 2 PL Paprika mletá sladká')
+        && count($recept['suroviny'] ?? []) === 3,
+        'Úprava receptu bez potvrdenia ukáže zmeny (pred → po) a nič neuloží', $o->popis());
+    $o = $volaj('uprav_recept', $zmeny + ['potvrdene' => true]);
+    $recept = recepty_zo_stranky($p->get('index.php')->telo)[$upravaId] ?? [];
+    $sur = array_column($recept['suroviny'] ?? [], null, 'nazov');
+    over(($vysledok($o)['structuredContent']['ulozene'] ?? null) === true && (float) ($sur['Cibuľa']['mnozstvo'] ?? 0) === 3.0
+        && isset($sur['Rasca']) && !isset($sur['Paprika mletá sladká']) && str_contains((string) ($recept['ingredients'] ?? ''), '3. Podávaj s chlebom.'),
+        'Po potvrdení sa úprava uloží (zmena množstva, pridanie, odobratie, krok postupu)', json_encode($recept, JSON_UNESCAPED_UNICODE));
+    $o = akcia($p, $csrf, 'get_logs', ['recipe_id' => $upravaId]);
+    over(str_contains($o->telo, 'Upraven') && str_contains($o->telo, '3 ks Cibu'), 'V histórii receptu je úprava cez asistenta aj so zmenami', $o->popis());
+    $o = $volaj('uprav_recept', ['id' => $upravaId, 'porcie' => 8, 'prepocitat_mnozstva' => true, 'nazov' => "Guláš veľký $znacka", 'potvrdene' => true]);
+    $recept = recepty_zo_stranky($p->get('index.php')->telo)[$upravaId] ?? [];
+    $sur = array_column($recept['suroviny'] ?? [], null, 'nazov');
+    over((int) ($recept['servings'] ?? 0) === 8 && (float) ($sur['Cibuľa']['mnozstvo'] ?? 0) === 6.0 && ($recept['name'] ?? '') === "Guláš veľký $znacka",
+        'Zmena porcií s prepočtom množstiev a premenovanie', json_encode($recept, JSON_UNESCAPED_UNICODE));
+    $o = $volaj('uprav_recept', ['id' => $upravaId, 'suroviny_odobrat' => ['Banány'], 'potvrdene' => true]);
+    over(($vysledok($o)['isError'] ?? false) === true && str_contains((string) ($vysledok($o)['content'][0]['text'] ?? ''), 'Suroviny receptu:'),
+        'Surovina, ktorá v recepte nie je, sa neodoberie (asistent dostane zoznam surovín)', $o->popis());
+    $o = $volaj('uprav_recept', ['id' => $upravaId, 'nazov' => $nazovMcp]);
+    over(($vysledok($o)['isError'] ?? false) === true, 'Premenovanie na názov iného receptu sa odmietne', $o->popis());
+    $o = $volaj('uprav_recept', ['id' => $upravaId]);
+    over(($vysledok($o)['isError'] ?? false) === true, 'Úprava bez zmien sa odmietne', $o->popis());
     $o = $volaj('zapis_varenie', ['id' => $mcpId, 'datum' => $vcera]);
     over(($vysledok($o)['isError'] ?? true) === false
         && (recepty_zo_stranky($p->get('index.php')->telo)[$mcpId]['lastMadeDate'] ?? '') === $vcera, 'Asistent zapíše varenie', $o->popis());

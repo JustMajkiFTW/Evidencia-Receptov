@@ -203,7 +203,8 @@ function mcp_pokyny(array $pripojenie): string
         . 'množstvo ako číslo a jednotku len z povoleného zoznamu. Postup napíš v krátkych očíslovaných krokoch. '
         . 'Po uložení povedz, čo sa uložilo a ktoré suroviny boli v appke nové. '
         . 'Recept po česky alebo v inom jazyku (z kuchárky, z webu) vždy prelož do slovenčiny — názov, suroviny aj postup. '
-        . 'Keď chce len suroviny do nákupu, pridaj ich cez pridaj_do_nakupu a recept kvôli tomu neukladaj.';
+        . 'Keď chce len suroviny do nákupu, pridaj ich cez pridaj_do_nakupu a recept kvôli tomu neukladaj. '
+        . 'Recept, ktorý už v appke je, uprav cez uprav_recept (nie pridaj_recept): najprv ukáž prehľad zmien, ulož až po súhlase.';
 }
 
 /* ======================================================================
@@ -292,6 +293,68 @@ function mcp_nastroje(PDO $pdo): array
                 'additionalProperties' => false,
             ],
             'annotations' => ['title' => 'Pridaj recept', 'readOnlyHint' => false, 'destructiveHint' => false,
+                'idempotentHint' => false, 'openWorldHint' => false],
+        ],
+        [
+            'name'        => 'uprav_recept',
+            'title'       => 'Uprav recept',
+            'description' => 'Upraví recept, ktorý už v appke je (3.4): názov, porcie, čas, kategóriu, postup a suroviny (pridať, zmeniť množstvo či názov, odobrať). '
+                . 'Pošli len to, čo sa mení. Najprv zisti id cez najdi_recepty a aktuálne suroviny a postup cez zobraz_recept. '
+                . 'Bez potvrdene vráti len prehľad zmien (pred → po) a NIČ neuloží — ukáž ho používateľovi a opýtaj sa, či uložiť. '
+                . 'Po jasnom súhlase zavolaj znova s tými istými zmenami a potvrdene: true. '
+                . 'Príklady: „v guláši daj tri cibule" → suroviny_zmenit [{nazov: „Cibuľa", mnozstvo: 3}]; „pridaj do bábovky kypriaci prášok" → suroviny_pridat; '
+                . '„zmeň to na 6 porcií a prepočítaj" → porcie 6, prepocitat_mnozstva true; „pridaj na koniec krok…" → postup_doplnit.',
+            'inputSchema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => $idReceptu,
+                    'potvrdene'  => ['type' => 'boolean', 'description' => 'true = používateľ zmeny odsúhlasil, ulož ich. Inak sa len ukáže prehľad.'],
+                    'nazov'      => ['type' => 'string', 'minLength' => 1, 'maxLength' => 150, 'description' => 'Nový názov receptu.'],
+                    'porcie'     => ['type' => 'integer', 'minimum' => 1, 'maximum' => 99, 'description' => 'Nový počet porcií.'],
+                    'prepocitat_mnozstva' => ['type' => 'boolean', 'description' => 'S porcie: prepočítať množstvá všetkých surovín na nový počet porcií.'],
+                    'cas_pripravy' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 999, 'description' => 'Nový čas prípravy v minútach.'],
+                    'kategoria'  => ['type' => 'string', 'description' => 'Nová kategória: ' . $kategorieText . '.'],
+                    'odkaz'      => ['type' => 'string', 'description' => 'Nový odkaz na pôvodný recept na webe (https://…).'],
+                    'postup'     => ['type' => 'string', 'maxLength' => 5000, 'description' => 'CELÝ nový postup (nahradí doterajší). Pri malej zmene vezmi doterajší zo zobraz_recept a uprav ho.'],
+                    'postup_doplnit' => ['type' => 'string', 'maxLength' => 2000, 'description' => 'Text, ktorý sa pridá na koniec doterajšieho postupu (napr. ďalší očíslovaný krok).'],
+                    'suroviny_pridat' => [
+                        'type' => 'array', 'maxItems' => 30, 'description' => 'Nové suroviny (ako v pridaj_recept).',
+                        'items' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'nazov'    => ['type' => 'string', 'minLength' => 1, 'maxLength' => 100, 'description' => 'Názov suroviny v 1. páde, napr. „Prášok do pečiva".'],
+                                'mnozstvo' => ['type' => 'number', 'exclusiveMinimum' => 0],
+                                'jednotka' => ['type' => 'string', 'enum' => SUROVINA_JEDNOTKY],
+                                'poznamka' => ['type' => 'string', 'maxLength' => 100],
+                            ],
+                            'required' => ['nazov'],
+                            'additionalProperties' => false,
+                        ],
+                    ],
+                    'suroviny_zmenit' => [
+                        'type' => 'array', 'maxItems' => 30, 'description' => 'Zmeny surovín, ktoré v recepte už sú. Uveď len to, čo sa mení.',
+                        'items' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'nazov'      => ['type' => 'string', 'minLength' => 1, 'maxLength' => 100, 'description' => 'Surovina tak, ako je v recepte (napr. „Cibuľa").'],
+                                'novy_nazov' => ['type' => 'string', 'maxLength' => 100, 'description' => 'Iná surovina namiesto nej (napr. „Smotana na varenie" → „Mlieko").'],
+                                'mnozstvo'   => ['type' => 'number', 'exclusiveMinimum' => 0, 'description' => 'Nové množstvo.'],
+                                'jednotka'   => ['type' => 'string', 'enum' => SUROVINA_JEDNOTKY, 'description' => 'Nová jednotka.'],
+                                'poznamka'   => ['type' => 'string', 'maxLength' => 100, 'description' => 'Nová poznámka (prázdna ju zmaže).'],
+                            ],
+                            'required' => ['nazov'],
+                            'additionalProperties' => false,
+                        ],
+                    ],
+                    'suroviny_odobrat' => [
+                        'type' => 'array', 'maxItems' => 30, 'description' => 'Názvy surovín, ktoré z receptu vypadnú.',
+                        'items' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 100],
+                    ],
+                ],
+                'required'   => ['id'],
+                'additionalProperties' => false,
+            ],
+            'annotations' => ['title' => 'Uprav recept', 'readOnlyHint' => false, 'destructiveHint' => true,
                 'idempotentHint' => false, 'openWorldHint' => false],
         ],
         [
@@ -437,6 +500,7 @@ function mcp_vykonaj(PDO $pdo, array $pripojenie, string $nazov, array $argument
             'najdi_recepty'    => mcp_najdi_recepty($pdo, $argumenty),
             'zobraz_recept'    => mcp_zobraz_recept($pdo, $argumenty),
             'pridaj_recept'    => mcp_pridaj_recept($pdo, $pripojenie, $argumenty),
+            'uprav_recept'     => mcp_uprav_recept($pdo, $pripojenie, $argumenty),
             'zapis_varenie'    => mcp_zapis_varenie($pdo, $pripojenie, $argumenty),
             'historia_receptu' => mcp_historia_receptu($pdo, $argumenty),
             'co_sme_varili'    => mcp_co_sme_varili($pdo, $argumenty),
@@ -838,6 +902,295 @@ function mcp_pridaj_recept(PDO $pdo, array $pripojenie, array $a): array
     ]];
 }
 
+/**
+ * Surovina v recepte podľa toho, ako ju človek povedal (3.4): presne, iné poradie slov, preklep
+ * alebo časť názvu („cibuľa" → „Cibuľa červená", keď je v recepte len jedna taká).
+ * Návrat: index v $suroviny, null = nie je, -1 = viac možností.
+ */
+function mcp_surovina_v_recepte(array $suroviny, string $nazov): ?int
+{
+    $kluc = surovina_key($nazov);
+    if ($kluc === '') {
+        return null;
+    }
+    $katalog = [];
+    foreach ($suroviny as $i => $s) {
+        if (surovina_key($s['nazov']) === $kluc || mcp_slova_kluc($s['nazov']) === mcp_slova_kluc($nazov)) {
+            return $i;
+        }
+        $katalog[surovina_key($s['nazov'])] = ['index' => $i];
+    }
+    $navrh = ai_podobna_surovina($kluc, $katalog);
+    if ($navrh && $navrh['druh'] === 'preklep') {
+        return $navrh['index'];
+    }
+    // časť názvu: „vajce" → „Vajcia" nie, ale „cibuľa" → „Cibuľa červená" áno (celé slovo)
+    $zhody = [];
+    foreach ($suroviny as $i => $s) {
+        $k = surovina_key($s['nazov']);
+        if (str_contains(' ' . $k . ' ', ' ' . $kluc . ' ') || str_contains(' ' . $kluc . ' ', ' ' . $k . ' ')) {
+            $zhody[] = $i;
+        }
+    }
+    if (count($zhody) === 1) {
+        return $zhody[0];
+    }
+    if ($navrh) {
+        return $navrh['index'];
+    }
+    return $zhody ? -1 : null;
+}
+
+/**
+ * Úprava receptu (3.4) — hlasom alebo cez Claude. Bez potvrdene=true len vráti prehľad zmien (pred → po)
+ * a nič neuloží; asistent ho ukáže a po súhlase zavolá nástroj znova s potvrdene=true.
+ */
+function mcp_uprav_recept(PDO $pdo, array $pripojenie, array $a): array
+{
+    $text = static fn($hodnota, int $max): string => is_scalar($hodnota)
+        ? mb_substr(trim(preg_replace('/[ \t]+/u', ' ', (string) $hodnota) ?? ''), 0, $max, 'UTF-8') : '';
+    $id = mcp_cele_cislo($a['id'] ?? null) ?? 0;
+    $r = $id > 0 ? get_recipe($pdo, $id) : null;
+    if (!$r) {
+        return ['chyba' => 'Recept s číslom ' . $id . ' v appke nie je. Nájdi ho cez najdi_recepty.'];
+    }
+    $sSurovinami = suroviny_available($pdo);
+    $suroviny = $sSurovinami ? array_values(get_all_recipe_suroviny($pdo)[$id] ?? []) : [];
+    $povodne = $suroviny;
+    $zmeny = [];
+    $upozornenia = [];
+    $nove = [];
+    $opravene = [];
+
+    // Názov
+    $nazov = $r['name'];
+    $novyNazov = $text($a['nazov'] ?? '', 150);
+    if ($novyNazov !== '' && $novyNazov !== $nazov) {
+        foreach ($pdo->query('SELECT id, name FROM recipes') as $iny) {
+            if ((int) $iny['id'] !== $id && surovina_key($iny['name']) === surovina_key($novyNazov)) {
+                return ['chyba' => 'Recept „' . $iny['name'] . '" už v appke je (#' . $iny['id'] . '). Vyber iný názov.'];
+            }
+        }
+        $zmeny[] = 'Názov: „' . $nazov . '" → „' . $novyNazov . '"';
+        $nazov = $novyNazov;
+    }
+
+    // Porcie (aj s prepočtom množstiev)
+    $maPorcie = recipes_have_servings($pdo);
+    $porcie = $maPorcie && isset($r['servings']) && $r['servings'] !== null ? (int) $r['servings'] : null;
+    if (array_key_exists('porcie', $a)) {
+        $novePorcie = mcp_cele_cislo($a['porcie']);
+        if ($novePorcie === null || $novePorcie < 1 || $novePorcie > 99) {
+            return ['chyba' => 'Počet porcií musí byť celé číslo od 1 do 99.'];
+        }
+        if (!$maPorcie) {
+            $upozornenia[] = 'Táto databáza ešte nemá porcie, počet porcií som nezmenil.';
+        } elseif ($novePorcie !== $porcie) {
+            $prepocitat = !empty($a['prepocitat_mnozstva']);
+            if ($prepocitat && $porcie === null) {
+                $upozornenia[] = 'Recept nemal zadané porcie, množstvá som neprepočítal.';
+            } elseif ($prepocitat) {
+                $nasobok = $novePorcie / $porcie;
+                foreach ($suroviny as &$s) {
+                    if ($s['mnozstvo'] !== null) {
+                        $s['mnozstvo'] = round($s['mnozstvo'] * $nasobok, 2);
+                    }
+                }
+                unset($s);
+            }
+            $zmeny[] = 'Porcie: ' . ($porcie ?? 'nezadané') . ' → ' . $novePorcie . ($prepocitat && $porcie !== null ? ' (množstvá prepočítané)' : '');
+            $porcie = $novePorcie;
+        }
+    }
+
+    // Čas prípravy, kategória, odkaz
+    $cas = $r['prep_time'] !== null ? (int) $r['prep_time'] : null;
+    if (array_key_exists('cas_pripravy', $a)) {
+        $novyCas = mcp_cele_cislo($a['cas_pripravy']);
+        if ($novyCas === null || $novyCas < 1 || $novyCas > 999) {
+            return ['chyba' => 'Čas prípravy musí byť v minútach od 1 do 999.'];
+        }
+        if ($novyCas !== $cas) {
+            $zmeny[] = 'Čas prípravy: ' . ($cas !== null ? $cas . ' min' : 'nezadaný') . ' → ' . $novyCas . ' min';
+            $cas = $novyCas;
+        }
+    }
+    $kategoria = $r['category'];
+    if ($text($a['kategoria'] ?? '', 50) !== '') {
+        $novaKategoria = mcp_kategoria($pdo, $a['kategoria']);
+        if ($novaKategoria === null) {
+            return ['chyba' => 'Kategóriu „' . $text($a['kategoria'], 50) . '" appka nepozná.'];
+        }
+        if ($novaKategoria !== $kategoria) {
+            $kategorie = get_recipe_categories($pdo);
+            $zmeny[] = 'Kategória: ' . (recipe_category_label($kategorie, $kategoria) ?: 'žiadna') . ' → ' . recipe_category_label($kategorie, $novaKategoria);
+            $kategoria = $novaKategoria;
+        }
+    }
+    $odkaz = $r['url'] ?? null;
+    $novyOdkaz = $text($a['odkaz'] ?? '', 512);
+    if ($novyOdkaz !== '' && $novyOdkaz !== $odkaz) {
+        if (!filter_var($novyOdkaz, FILTER_VALIDATE_URL) || !preg_match('~^https?://~i', $novyOdkaz)) {
+            return ['chyba' => 'Odkaz „' . $novyOdkaz . '" nie je platná webová adresa.'];
+        }
+        $zmeny[] = 'Odkaz na web: ' . $novyOdkaz;
+        $odkaz = $novyOdkaz;
+    }
+
+    // Postup: celý nový text alebo doplnenie na koniec
+    $postup = trim((string) ($r['ingredients'] ?? ''));
+    $povodnyPostup = $postup;
+    if (is_string($a['postup'] ?? null) && trim($a['postup']) !== '') {
+        $postup = mb_substr(trim($a['postup']), 0, 5000, 'UTF-8');
+    }
+    if (is_string($a['postup_doplnit'] ?? null) && trim($a['postup_doplnit']) !== '') {
+        $postup = mb_substr(trim($postup . ($postup !== '' ? "\n" : '') . trim($a['postup_doplnit'])), 0, 5000, 'UTF-8');
+    }
+    if ($postup !== $povodnyPostup) {
+        $zmeny[] = "Postup (nový):\n" . $postup;
+    }
+
+    // Suroviny: odobrať, zmeniť, pridať
+    $operacie = array_filter([$a['suroviny_odobrat'] ?? null, $a['suroviny_zmenit'] ?? null, $a['suroviny_pridat'] ?? null], 'is_array');
+    if ($operacie && !$sSurovinami) {
+        return ['chyba' => 'Táto databáza ešte nemá zoznam surovín, suroviny sa dajú upraviť len v texte postupu.'];
+    }
+    $zoznam = static fn(array $s): string => $s ? implode(', ', array_column($s, 'nazov')) : 'žiadne';
+    $najdi = static function (string $nazov) use (&$suroviny, $zoznam): array {
+        $i = mcp_surovina_v_recepte($suroviny, $nazov);
+        if ($i === null) {
+            return [null, 'V recepte nie je surovina „' . $nazov . '". Suroviny receptu: ' . $zoznam($suroviny) . '.'];
+        }
+        if ($i === -1) {
+            return [null, 'Na „' . $nazov . '" sedí v recepte viac surovín: ' . $zoznam($suroviny) . '. Opýtaj sa, ktorú myslí.'];
+        }
+        return [$i, null];
+    };
+    foreach (array_slice(is_array($a['suroviny_odobrat'] ?? null) ? $a['suroviny_odobrat'] : [], 0, 60) as $meno) {
+        $meno = $text(is_array($meno) ? ($meno['nazov'] ?? '') : $meno, 100);
+        if ($meno === '') {
+            continue;
+        }
+        [$i, $chyba] = $najdi($meno);
+        if ($chyba) {
+            return ['chyba' => $chyba];
+        }
+        $zmeny[] = 'Odobrať: ' . mcp_davka($suroviny[$i]);
+        array_splice($suroviny, $i, 1);
+    }
+    foreach (array_slice(is_array($a['suroviny_zmenit'] ?? null) ? $a['suroviny_zmenit'] : [], 0, 60) as $zmena) {
+        if (!is_array($zmena) || $text($zmena['nazov'] ?? '', 100) === '') {
+            continue;
+        }
+        [$i, $chyba] = $najdi($text($zmena['nazov'], 100));
+        if ($chyba) {
+            return ['chyba' => $chyba];
+        }
+        $stara = $suroviny[$i];
+        $nova = $stara;
+        if ($text($zmena['novy_nazov'] ?? '', 100) !== '') {
+            [$riadky, $n, $o] = mcp_naparuj_suroviny($pdo, [['nazov' => $zmena['novy_nazov']]]);
+            if ($riadky) {
+                $nova['id'] = $riadky[0]['id'];
+                $nova['nazov'] = $riadky[0]['nazov'];
+                $nove = array_merge($nove, $n);
+                $opravene = array_merge($opravene, $o);
+            }
+        }
+        if (array_key_exists('mnozstvo', $zmena)) {
+            $nova['mnozstvo'] = parse_surovina_mnozstvo(is_scalar($zmena['mnozstvo']) ? (string) $zmena['mnozstvo'] : null);
+        }
+        if (array_key_exists('jednotka', $zmena)) {
+            $j = $text($zmena['jednotka'], 20);
+            $znama = null;
+            foreach (SUROVINA_JEDNOTKY as $povolena) {
+                if (mb_strtolower($povolena, 'UTF-8') === mb_strtolower($j, 'UTF-8')) {
+                    $znama = $povolena;
+                }
+            }
+            if ($j !== '' && $znama === null) {
+                return ['chyba' => 'Jednotku „' . $j . '" appka nepozná. Povolené: ' . implode(', ', SUROVINA_JEDNOTKY) . '.'];
+            }
+            $nova['jednotka'] = $znama ?? '';
+        }
+        if (array_key_exists('poznamka', $zmena)) {
+            $nova['poznamka'] = $text($zmena['poznamka'], 100);
+        }
+        if (mcp_davka($nova) !== mcp_davka($stara)) {
+            $zmeny[] = 'Zmeniť: ' . mcp_davka($stara) . ' → ' . mcp_davka($nova);
+            $suroviny[$i] = $nova;
+        }
+    }
+    if (is_array($a['suroviny_pridat'] ?? null) && $a['suroviny_pridat']) {
+        [$riadky, $n, $o] = mcp_naparuj_suroviny($pdo, $a['suroviny_pridat']);
+        $nove = array_merge($nove, $n);
+        $opravene = array_merge($opravene, $o);
+        foreach ($riadky as $riadok) {
+            $riadok['jednotka'] ??= '';
+            $riadok['poznamka'] ??= '';
+            $i = mcp_surovina_v_recepte($suroviny, $riadok['nazov']);
+            if ($i !== null && $i >= 0 && surovina_key($suroviny[$i]['nazov']) === surovina_key($riadok['nazov'])) {
+                // už v recepte je — berieme to ako zmenu množstva
+                $zmeny[] = 'Zmeniť: ' . mcp_davka($suroviny[$i]) . ' → ' . mcp_davka($riadok);
+                $suroviny[$i] = $riadok;
+                continue;
+            }
+            $zmeny[] = 'Pridať: ' . mcp_davka($riadok);
+            $suroviny[] = $riadok;
+        }
+    }
+
+    if (!$zmeny) {
+        return ['chyba' => $upozornenia
+            ? implode(' ', $upozornenia)
+            : 'Nič sa nemení — recept „' . $r['name'] . '" už tak je, alebo chýba, čo zmeniť (nazov, porcie, suroviny_pridat, suroviny_zmenit, suroviny_odobrat, postup…).'];
+    }
+
+    $prehlad = 'Úpravy receptu „' . $r['name'] . '" (#' . $id . "):\n- " . implode("\n- ", $zmeny);
+    if ($nove) {
+        $prehlad .= "\nNové suroviny v zozname appky: " . implode(', ', $nove) . '.';
+    }
+    if ($opravene) {
+        $prehlad .= "\nNapárované na suroviny z appky: " . implode(', ', $opravene) . '.';
+    }
+    if ($upozornenia) {
+        $prehlad .= "\n" . implode("\n", $upozornenia);
+    }
+
+    if (empty($a['potvrdene'])) {
+        return ['text' => $prehlad . "\n\nNIČ SOM ZATIAĽ NEULOŽIL. Ukáž používateľovi tieto zmeny (pred → po) a opýtaj sa, či ich má uložiť. "
+            . 'Po jasnom súhlase („áno", „ulož") zavolaj uprav_recept znova s rovnakými zmenami a potvrdene: true.',
+            'data' => ['id' => $id, 'nazov' => $r['name'], 'zmeny' => $zmeny, 'ulozene' => false]];
+    }
+
+    $surovinyRows = null;
+    if ($sSurovinami && $suroviny !== $povodne) {
+        $surovinyRows = array_map(static fn(array $s): array => [
+            'id'       => $s['id'] ?? null,
+            'nazov'    => $s['nazov'],
+            'mnozstvo' => $s['mnozstvo'],
+            'jednotka' => ($s['jednotka'] ?? '') !== '' ? $s['jednotka'] : null,
+            'poznamka' => ($s['poznamka'] ?? '') !== '' ? $s['poznamka'] : null,
+        ], $suroviny);
+    }
+    $vysledok = update_recipe($pdo, $id, $pripojenie['user_id'], $nazov, $postup !== '' ? $postup : null, $odkaz,
+        $cas, $kategoria, $r['last_made_date'], null, false, $surovinyRows, $porcie, null);
+    if (!$vysledok['success']) {
+        return ['chyba' => $vysledok['error'] ?? 'Recept sa nepodarilo upraviť.'];
+    }
+    vyziva_dopln_recept($pdo, $id); // výživové hodnoty nových surovín (3.0)
+
+    // V histórii receptu bude vidno, čo sa zmenilo a že to bolo cez asistenta.
+    $poznamka = 'Upravené cez ' . ($pripojenie['cez'] ?? 'AI asistenta (' . $pripojenie['nazov'] . ')') . ': '
+        . implode('; ', array_map(static fn($z) => str_starts_with($z, 'Postup (nový)') ? 'nový postup' : $z, $zmeny));
+    $pdo->prepare("UPDATE recipe_logs SET note = ? WHERE recipe_id = ? AND action = 'updated' ORDER BY id DESC LIMIT 1")
+        ->execute([mb_substr($poznamka, 0, 2000, 'UTF-8'), $id]);
+
+    return ['text' => 'Uložené. ' . $prehlad . "\nOdkaz: " . mcp_odkaz_receptu($id),
+        'data' => ['id' => $id, 'nazov' => $nazov, 'zmeny' => $zmeny, 'ulozene' => true, 'nove_suroviny' => $nove,
+            'odkaz' => mcp_odkaz_receptu($id)]];
+}
+
 function mcp_zapis_varenie(PDO $pdo, array $pripojenie, array $a): array
 {
     $id = mcp_cele_cislo($a['id'] ?? null) ?? 0;
@@ -856,6 +1209,9 @@ function mcp_zapis_varenie(PDO $pdo, array $pripojenie, array $a): array
     if (!$vysledok['success']) {
         return ['chyba' => $vysledok['error'] ?? 'Varenie sa nepodarilo zapísať.'];
     }
+    // Upozornenie ostatným (3.4), odošle sa až po odpovedi.
+    po_odpovedi(static fn() => made_notify($pdo, $id, $recept['name'], $pripojenie['user_id'], $pripojenie['meno'],
+        $vysledok['datum'], $vysledok['predosle'], $pripojenie['cez'] ?? $pripojenie['nazov']));
     $datum = $datum ?? app_today();
     return ['text' => 'Zapísané: „' . $recept['name'] . '" uvarené ' . format_sk_date($datum)
         . ($datum === app_today() ? ' (dnes)' : '') . '.', 'data' => ['id' => $id, 'datum' => $datum]];

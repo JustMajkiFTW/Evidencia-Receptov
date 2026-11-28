@@ -25,7 +25,7 @@ const ASISTENT_MAX_TEXT = 4000;           // znakov na jednu otázku (3.3: celý
 const ASISTENT_MAX_SPRAVA = 6000;         // znakov na jednu predošlú správu (odpoveď aj s podrobnosťami)
 const ASISTENT_ODDELOVAC = '===';         // riadok medzi časťou na čítanie nahlas a podrobnosťami na obrazovku
 const ASISTENT_DENNY_LIMIT_PREDVOLENY = 100;
-const ASISTENT_ZAPISUJUCE = ['pridaj_recept', 'zapis_varenie', 'pridaj_do_nakupu', 'ohodnot_recept'];
+const ASISTENT_ZAPISUJUCE = ['pridaj_recept', 'uprav_recept', 'zapis_varenie', 'pridaj_do_nakupu', 'ohodnot_recept'];
 
 /** Modely pre asistenta: AI_ASISTENT_MODEL_GEMINI=model1,model2 alebo tie isté ako pri fotke. */
 function asistent_modely(string $sluzba): array
@@ -103,6 +103,12 @@ function asistent_pokyny(PDO $pdo, array $pripojenie): string
         . 'Opravu („nie dve, ale tri vajcia") zapracuj a ukáž opravený recept znova. Keď povedal, kedy sa varil („dnes sme ho robili", „v sobotu"), '
         . 'daj dátum do naposledy_varene; keď ho ohodnotil, po uložení zavolaj ohodnot_recept. Pred uložením over cez najdi_recepty, že taký recept ešte nie je. '
         . 'Rozhovor si pamätaj: „ten recept", „to isté na štyri porcie", „áno, ulož" sa týka predošlých správ. '
+        // 3.4: úprava receptu hlasom
+        . "\n\n" . 'ÚPRAVA RECEPTU HLASOM: Keď chce zmeniť recept, ktorý v appke už je („v guláši daj tri cibule", „pridaj do bábovky kypriaci prášok", '
+        . '„zmeň to na šesť porcií", „pridaj krok do postupu", „premenuj to"), nájdi ho (najdi_recepty), pozri jeho suroviny a postup (zobraz_recept) '
+        . 'a zavolaj uprav_recept len so zmenami, bez potvrdene. Prehľad zmien (pred → po) ukáž pod ' . $o . ' a nahlas sa krátko opýtaj „Mám to uložiť?". '
+        . 'Až po jasnom súhlase („áno", „ulož") zavolaj uprav_recept znova s tými istými zmenami a potvrdene: true. Opravu zapracuj a ukáž prehľad znova. '
+        . 'Na úpravu nikdy nepoužívaj pridaj_recept. Mazať recepty ani fotky nevieš — na to nech použije appku. '
         . "\n\n"
         . (kucharky_pocet_stran($pdo) > 0
             ? 'Keď sa pýta, čo uvariť, alebo chce recept, ktorý v appke nie je, najprv pozri do rodinných kuchárok (hladaj_v_kucharkach) a odporuč recept odtiaľ aj s knihou a stranou; '
@@ -132,7 +138,7 @@ function asistent_narocna_otazka(string $text): bool
     }
     return (bool) preg_match('/\b(prečo|poraď|poradiť|odporuč|navrhni|vymysli|nahrad|náhrad|namiesto|čím|ako (sa |mám |by |urobiť|spraviť|pripraviť|upiecť|uvariť)'
         . '|čo (mám |môžem |by som |)(uvariť|upiecť|navariť|spraviť)|recept na|porovna|rozdiel|zvyšk|koľko (kalórií|bielkovín|cukru)'
-        . '|pridaj recept|ulož recept|nový recept|zapíš recept|postup)/u', $t);
+        . '|pridaj recept|ulož recept|nový recept|zapíš recept|postup|uprav|zmeň|oprav|vymeň|odober|vyhoď)/u', $t);
 }
 
 /**
@@ -261,7 +267,8 @@ function asistent_odpovedz(PDO $pdo, array $pripojenie, string $text, array $his
         $vysledok = mcp_vykonaj($pdo, $pripojenie, $nazov, $argumenty);
         $stav['nastroje_s'] += microtime(true) - $zaciatok;
         $chyba = !empty($vysledok['isError']);
-        $zapisuje = in_array($nazov, ASISTENT_ZAPISUJUCE, true);
+        // uprav_recept bez potvrdene len ukáže prehľad zmien, nič nezapíše (3.4)
+        $zapisuje = in_array($nazov, ASISTENT_ZAPISUJUCE, true) && ($nazov !== 'uprav_recept' || !empty($argumenty['potvrdene']));
         if ($zapisuje) {
             $stav['konal'] = true;
             $stav['zmeny'] = $stav['zmeny'] || !$chyba;

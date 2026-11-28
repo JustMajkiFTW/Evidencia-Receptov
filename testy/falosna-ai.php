@@ -74,6 +74,10 @@ function rozhodni(string $otazka, string $predoslaOdpoved): array
     if (preg_match('/historia (\d+)/u', $o, $m)) { // 3.3
         return ['nastroj' => 'historia_receptu', 'argumenty' => ['id' => (int) $m[1]]];
     }
+    if (preg_match('/uprav (\d+) vajcia (\d+)( potvrd)?/u', $o, $m)) { // 3.4: úprava receptu, bez „potvrď" len prehľad
+        return ['nastroj' => 'uprav_recept', 'argumenty' => ['id' => (int) $m[1], 'suroviny_zmenit' => [['nazov' => 'vajcia', 'mnozstvo' => (int) $m[2]]]]
+            + (!empty($m[3]) ? ['potvrdene' => true] : [])];
+    }
     if (preg_match('/ohodnot (\d+) na (\d)/u', $o, $m)) {
         return ['nastroj' => 'ohodnot_recept', 'argumenty' => ['id' => (int) $m[1], 'hodnotenie' => (int) $m[2]]];
     }

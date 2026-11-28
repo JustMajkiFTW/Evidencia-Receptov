@@ -49,6 +49,29 @@ foreach ($pripady as [$otazka, $nazov, $podobne, $ocakavane]) {
         '„' . $otazka . '" ' . ($ocakavane ? 'nájde' : 'nenájde') . ' „' . $nazov . '"' . ($podobne ? ' (s preklepom)' : ''));
 }
 
+echo "\nUpozornenie na uvarený recept (3.4)\n";
+$dnes = app_today();
+$vcera = (new DateTime($dnes))->modify('-1 day')->format('Y-m-d');
+$den = static fn(int $dni): string => (new DateTime($dnes))->modify("-$dni days")->format('Y-m-d');
+$pripady = [
+    [[$dnes, $den(35)], 'Mama uvaril(a) „Guláš" — naposledy pred mesiacom'],
+    [[$dnes, $den(3)], 'Mama uvaril(a) „Guláš" — naposledy pred 3 dňami'],
+    [[$dnes, $den(16)], 'Mama uvaril(a) „Guláš" — naposledy pred 2 týždňami'],
+    [[$dnes, $den(200)], 'Mama uvaril(a) „Guláš" — naposledy pred 6 mesiacmi'],
+    [[$dnes, $den(800)], 'Mama uvaril(a) „Guláš" — naposledy pred 2 rokmi'],
+    [[$dnes, null], 'Mama uvaril(a) „Guláš" — prvýkrát'],
+    [[$vcera, $den(8)], 'Mama včera uvaril(a) „Guláš" — naposledy pred týždňom'],
+    [[$dnes, $dnes], null],          // v ten deň už zapísané
+    [[$vcera, $dnes], null],         // zapísané neskoršie varenie
+    [[$den(5), $den(40)], null],     // dopisovanie staršej histórie
+];
+foreach ($pripady as [[$datum, $predosle], $ocakavane]) {
+    $text = made_notify_text('Mama', 'Guláš', $datum, $predosle);
+    over($text === $ocakavane, ($ocakavane ?? 'bez upozornenia') . ' (' . $datum . ', predtým ' . ($predosle ?? 'nikdy') . ')', (string) $text);
+}
+over(made_notify_text('Ocko', 'Guláš', $dnes, null, 'hlasového asistenta') === 'Ocko uvaril(a) „Guláš" — prvýkrát (cez hlasového asistenta)',
+    'Upozornenie povie, že varenie zapísal asistent');
+
 if (getenv('TEST_DB_NAME')) {
     echo "\nUpozornenie na nákup\n";
     $port = getenv('TEST_DB_PORT') ?: '3306';
